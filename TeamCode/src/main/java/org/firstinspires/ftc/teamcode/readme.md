@@ -1,4 +1,4 @@
-## TeamCode Module
+## Hunter Title
 
 Welcome!
 
