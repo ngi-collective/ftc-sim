@@ -60,6 +60,10 @@ description = "Serve the Driver Hub browser UI (http://localhost:5183)"
 dir = "driver-hub-dashboard"
 run = "bun install && bun run dev"
 
+[tasks.ci]
+description = "Run all tests necessary to pass CI"
+depends = ["lint", "test"]
+
 [tasks.lint]
 description = "Run Android lint on TeamCode"
 run = "./gradlew :TeamCode:lintRobotDebug"
