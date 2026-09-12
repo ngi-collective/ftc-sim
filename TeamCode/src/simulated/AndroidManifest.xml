@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The simulated build's manifest.
+
+  Two changes over the stock app: the launcher goes to a permission screen that hands off to
+  SimulatedRobotControllerActivity, and the SDK's own launcher entry is dropped so there is exactly
+  one icon. Nothing is removed outright - the stock activities stay declared, because the service
+  and its notifications still reference them.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
+
+  <application android:label="@string/app_name">
+
+    <!-- Drop the stock launcher entry; the simulated one below replaces it. -->
+    <activity
+        android:name="org.firstinspires.ftc.robotcontroller.internal.PermissionValidatorWrapper"
+        tools:node="merge">
+      <intent-filter tools:node="removeAll" />
+    </activity>
+
+    <activity
+        android:name="org.firstinspires.ftc.teamcode.simulated.SimulatedPermissionValidatorWrapper"
+        android:exported="true"
+        android:screenOrientation="fullUser"
+        android:configChanges="orientation|screenSize"
+        android:label="@string/app_name"
+        android:launchMode="singleTask">
+      <intent-filter>
+        <category android:name="android.intent.category.LAUNCHER" />
+        <action android:name="android.intent.action.MAIN" />
+      </intent-filter>
+    </activity>
+
+    <activity
+        android:name="org.firstinspires.ftc.teamcode.simulated.SimulatedRobotControllerActivity"
+        android:exported="true"
+        android:screenOrientation="fullUser"
+        android:configChanges="orientation|screenSize"
+        android:label="@string/app_name"
+        android:launchMode="singleTask" />
+
+  </application>
+
+</manifest>

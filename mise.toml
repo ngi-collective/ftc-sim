@@ -12,30 +12,57 @@ android-sdk = "22.0"
 # Tasks run inside the mise env, so JAVA_HOME and ANDROID_HOME are already set and
 # no `mise exec --` prefix is needed. Extra flags pass through: `mise run build --info`.
 #
-# TeamCode is the only application module (FtcRobotController is com.android.library),
-# so the :TeamCode: prefix builds the robot APK without assembling anything extra.
+# TeamCode is the only application module (FtcRobotController, TestFramework and Dashboard are
+# libraries). It has two product flavors: `robot`, the APK that goes to a competition, and
+# `simulated`, which swaps in fake hardware so the app runs on an emulator. Tasks below name the
+# flavor explicitly, because "debug" alone is now ambiguous.
 
 [tasks.check]
 description = "Compile TeamCode - fastest correctness check while editing OpModes"
-run = "./gradlew :TeamCode:compileDebugJavaWithJavac"
+run = "./gradlew :TeamCode:compileRobotDebugJavaWithJavac"
 
 [tasks.build]
-description = "Build the debug APK"
-run = "./gradlew :TeamCode:assembleDebug"
+description = "Build the competition debug APK"
+run = "./gradlew :TeamCode:assembleRobotDebug"
 
 [tasks.install]
 description = "Build and adb install to a connected Robot Controller device"
-run = "./gradlew :TeamCode:installDebug"
+run = "./gradlew :TeamCode:installRobotDebug"
 
 [tasks.test]
-# No test sources exist yet, so this reports NO-SOURCE and passes. It is wired up
-# so the CI gate starts enforcing the moment someone adds a test.
-description = "Run TeamCode unit tests"
-run = "./gradlew :TeamCode:testDebugUnitTest"
+description = "Run unit tests for TeamCode, the test framework, and the dashboard"
+run = "./gradlew :TeamCode:testSimulatedDebugUnitTest :TestFramework:testDebugUnitTest :Dashboard:testDebugUnitTest"
+
+# Runs the real Robot Controller app against fake hardware on whatever device adb is pointing at -
+# in practice an emulator. Create one first (once):
+#   sdkmanager "emulator" "system-images;android-30;default;arm64-v8a"
+#   avdmanager create avd -n ftc-sim -k "system-images;android-30;default;arm64-v8a"
+#   emulator -avd ftc-sim
+[tasks.simulator]
+description = "Install and launch the simulated Robot Controller on a running emulator"
+run = """
+./gradlew :TeamCode:installSimulatedDebug
+pkg=com.qualcomm.ftcrobotcontroller.simulated
+for permission in CAMERA READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION READ_PHONE_STATE; do
+  adb shell pm grant "$pkg" "android.permission.$permission" || true
+done
+adb shell am start -n "$pkg/org.firstinspires.ftc.teamcode.simulated.SimulatedPermissionValidatorWrapper"
+"""
+
+# The dashboard is two processes: a JVM serving the simulated robot over a WebSocket, and the Vite
+# dev server for the browser UI. Run them in separate terminals.
+[tasks.dashboard]
+description = "Serve the local Driver Hub against TeamCode OpModes (ws://localhost:8765)"
+run = "./gradlew :TeamCode:dashboard"
+
+[tasks.dashboard-ui]
+description = "Serve the Driver Hub browser UI (http://localhost:5183)"
+dir = "driver-hub-dashboard"
+run = "bun install && bun run dev"
 
 [tasks.lint]
 description = "Run Android lint on TeamCode"
-run = "./gradlew :TeamCode:lintDebug"
+run = "./gradlew :TeamCode:lintRobotDebug"
 
 [tasks.clean]
 description = "Delete build outputs"

@@ -22,6 +22,22 @@ android {
         jniLibs.useLegacyPackaging true
     }
 
+    // Two builds of the same OpModes. `robot` is what goes to a competition; `simulated` swaps the
+    // hardware layer for fakes so the whole app can run on an emulator with no robot attached.
+    flavorDimensions 'target'
+    productFlavors {
+        robot {
+            dimension 'target'
+            isDefault = true
+        }
+        simulated {
+            dimension 'target'
+            // A distinct package so both can sit on one device at once.
+            applicationIdSuffix '.simulated'
+            versionNameSuffix '-simulated'
+        }
+    }
+
     testOptions {
         unitTests.all {
             useJUnitPlatform()
@@ -31,4 +47,25 @@ android {
 
 dependencies {
     implementation project(':FtcRobotController')
+
+    // The simulated build needs the fake hardware inside the app itself.
+    simulatedImplementation project(':TestFramework')
+
+    // Unit tests additionally need the JVM stand-ins for android.* stubs and the dashboard server.
+    // All test scope: nothing here reaches the competition APK.
+    testImplementation project(':AndroidShims')
+    testImplementation project(':TestFramework')
+    testImplementation project(':Dashboard')
+}
+
+// Serves the local Driver Hub dashboard against this module's OpModes and its VerityRobot
+// configuration. Runs on the simulated variant's unit-test runtime classpath, which is what makes
+// the plain-JVM simulation - TeamCode classes, VerityRobot, the framework, the android.* shims and
+// the mockable android.jar - resolvable.
+tasks.register('dashboard', JavaExec) {
+    group = 'ftc'
+    description = 'Run the local Driver Hub dashboard server against TeamCode OpModes'
+    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac'
+    mainClass = 'org.ngicollective.testframework.dashboard.DashboardMain'
+    classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
 }

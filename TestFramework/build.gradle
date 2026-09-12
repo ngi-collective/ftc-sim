@@ -1,0 +1,41 @@
+//
+// build.gradle in TestFramework
+//
+// Simulation/test infrastructure: fake hardware devices and a plain-JVM OpMode
+// harness. Forced to com.android.library (rather than java-library) because the
+// FTC SDK ships as AARs with bundled native libraries, which a plain JVM module
+// cannot consume.
+//
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'org.ngicollective.testframework'
+
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        //noinspection ExpiredTargetSdkVersion
+        targetSdkVersion 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+        }
+    }
+}
+
+apply from: '../build.dependencies.gradle'
+
+dependencies {
+    // Working android.util.Log / android.opengl.Matrix / android.os.SystemClock for unit tests,
+    // replacing the android.jar stubs that throw. Test scope so they can never reach an APK.
+    testImplementation project(':AndroidShims')
+}

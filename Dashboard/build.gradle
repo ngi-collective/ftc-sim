@@ -1,0 +1,44 @@
+//
+// build.gradle in Dashboard
+//
+// The local Driver Hub replacement: wire protocol plus the WebSocket server that
+// drives a simulated robot. Uses the Java-WebSocket and gson copies that already
+// ship inside the FTC SDK AARs, so it adds no new dependencies and speaks the same
+// stack as the real robot web server.
+//
+// com.android.library for the same reason as :TestFramework - the SDK is AARs.
+//
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'org.ngicollective.testframework.dashboard'
+
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        //noinspection ExpiredTargetSdkVersion
+        targetSdkVersion 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+        }
+    }
+}
+
+apply from: '../build.dependencies.gradle'
+
+dependencies {
+    api project(':TestFramework')
+
+    // Working stand-ins for the android.* stubs that throw on a plain JVM.
+    testImplementation project(':AndroidShims')
+}

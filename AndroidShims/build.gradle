@@ -1,0 +1,17 @@
+//
+// build.gradle in AndroidShims
+//
+// Working implementations of the handful of android.* classes whose android.jar stubs throw
+// "not mocked" on a plain JVM. Consumed as testImplementation only.
+//
+// Its own module, and a plain java-library rather than an android library, precisely so these
+// classes can never reach an APK: dexing a class named android.util.Log into an app that already
+// gets one from the bootclasspath is at best dead weight and at worst a verifier error.
+//
+
+apply plugin: 'java-library'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}

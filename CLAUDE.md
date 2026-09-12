@@ -19,9 +19,12 @@ Two remotes, and the distinction matters:
 
 ```bash
 mise run check       # compile TeamCode - fastest correctness check while editing OpModes
-mise run test        # unit tests (currently NO-SOURCE, see below)
-mise run build       # debug APK
+mise run test        # unit tests: TeamCode + TestFramework + Dashboard
+mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
+mise run simulator   # install + launch the simulated app on a running emulator
+mise run dashboard   # local Driver Hub server (see below)
+mise run dashboard-ui
 mise run lint
 mise run clean
 mise run setup-sdk         # (re)install the SDK packages the build needs
@@ -32,9 +35,9 @@ mise tasks           # list the above with descriptions
 
 Gradle flags pass straight through, with or without a `--` separator: `mise run build --info`, `mise run check -- --dry-run`.
 
-Every task targets `:TeamCode:` specifically, since `TeamCode` is the only application module — `FtcRobotController` applies `com.android.library`. Raw Gradle still works if a task doesn't cover the case, but needs the environment: `mise exec -- ./gradlew <task>`.
+`TeamCode` is the only application module (`FtcRobotController`, `TestFramework` and `Dashboard` are libraries; `AndroidShims` is a plain `java-library`). It builds in two product flavors, so Gradle task names carry one: `robot` is the competition APK (`assembleRobotDebug`), `simulated` swaps in fake hardware for the emulator (`assembleSimulatedDebug`). Unit tests run on the simulated variant — `testSimulatedDebugUnitTest` — because that variant is the one with `VerityRobot` and the framework on its classpath. Raw Gradle needs the environment: `mise exec -- ./gradlew <task>`.
 
-There is no unit test suite. `mise run test` invokes `:TeamCode:testDebugUnitTest`, which reports `NO-SOURCE` and passes — it is wired into CI so the gate starts enforcing the moment a real test lands, but today it proves nothing. Real verification happens on the robot via Driver Station telemetry. Treat "does it compile" as the only meaningful automated gate, and say so explicitly when a change has only been compile-checked.
+`mise run test` is a real gate. `TeamCode/src/test/` holds the pure-logic tests, `TeamCode/src/testSimulated/` the headless runs of whole OpModes (they need the flavor's `VerityRobot`), and `TestFramework/src/test/` plus `Dashboard/src/test/` cover the simulation infrastructure. On-robot verification via Driver Station telemetry is still the final word on anything touching real hardware behaviour, but a change that breaks an OpMode's wiring or drive maths should be caught here first.
 
 ## CI
 
@@ -60,7 +63,7 @@ Android Studio may rewrite `local.properties` and re-add `sdk.dir` pointing at i
 
 ## Module layout and build wiring
 
-- `settings.gradle` includes exactly two modules: `:FtcRobotController` and `:TeamCode`.
+- `settings.gradle` includes five modules: `:FtcRobotController` (vendor), `:TeamCode` (team OpModes, the only application module), `:TestFramework` (fake hardware + OpMode harness), `:Dashboard` (local Driver Hub server), and `:AndroidShims` (working `android.*` classes for unit tests). Only `:TestFramework` ever reaches an APK, and only in the `simulated` flavor.
 - `build.common.gradle` holds all shared Android config and is explicitly upstream-owned — do not edit it. Module customization goes in `TeamCode/build.gradle`.
 - `build.dependencies.gradle` pins every `org.firstinspires.ftc:*` artifact to a single SDK version (currently `11.2.0`). Bumping the SDK means bumping all of them together.
 - `build.common.gradle` scrapes `versionCode` / `versionName` out of `FtcRobotController/src/main/AndroidManifest.xml` with a regex at configure time, so that manifest is the single source of app version truth.
@@ -75,16 +78,63 @@ Two OpMode styles appear in the samples: `LinearOpMode` (imperative `runOpMode()
 
 Hardware is resolved by string name against the configuration file stored on the Robot Controller device (`hardwareMap.get(DcMotorEx.class, "FL")`). A name mismatch is a runtime crash on init, not a compile error, so hardware names must be kept consistent across every OpMode and constants class in the module.
 
-## TeamCode is currently empty
+## Headless OpMode tests
 
-`TeamCode/src/main/java/org/firstinspires/ftc/teamcode/` contains only `readme.md` — no OpModes. `compileDebugJavaWithJavac` reports `NO-SOURCE`. The repo is effectively unmodified upstream SDK plus this file.
+`:TestFramework` runs real, unmodified OpModes on a plain JVM — no robot, no emulator, no Robolectric. See `TeamCode/src/test/java/.../IamYouHeadlessTest.java` for a worked example.
 
-`master` was reset to `upstream/master` (`4ed7c46`), which dropped the team's only commit, `2ef2666` "Added pedropathing and imu". That commit is still reachable through the reflog (`HEAD@{1}`) and holds:
+```java
+FakeHardwareMap hardware = FakeHardwareMap.builder()
+        .addImu("imu", ImuBehaviors.followingYawRate())
+        .addMotor("FL").addMotor("FR").addMotor("BL").addMotor("BR")
+        .build();
+LinearOpModeHarness harness = OpModeHarness.forLinear(new iamyou(), hardware);
 
-- `iamyou.java` — field-centric mecanum TeleOp using motors `FL`/`FR`/`BL`/`BR` (left side `REVERSE`) and an IMU named `imu` mounted logo-UP / USB-FORWARD.
-- `pedroPathing/Constants.java`, `pedroPathing/Tuning.java` — Pedro Pathing configuration and its tuner menu.
+harness.launch();                          // runOpMode() starts on its own thread
+harness.pressStart();                      // the driver station PLAY button
+harness.gamepad1().left_stick_y = -1.0f;   // driver input
+hardware.advance(1.0);                     // one simulated second of motor travel
+harness.pressStop();
+harness.awaitCompletion(2000);
+```
 
-Before restoring any of it: those Pedro Pathing sources were committed **without** the corresponding gradle wiring. They import `com.pedropathing.*` and `com.bylazar.*`, which no repository or dependency in this project provides, so bringing them back as-is reintroduces ~100 `cannot find symbol` errors. Add the Pedro Pathing and Panels maven repos plus dependencies first.
+Three things to know before writing one:
+
+- **Simulated time drives fake devices only.** `hardware.advance(seconds)` moves encoders and headings. `LinearOpMode.sleep()` is `final` and calls `Thread.sleep`, and `ElapsedTime` reads the real clock, so a sleep-heavy OpMode still takes that long in a test.
+- **A linear OpMode runs concurrently with the test.** Poll for the exact state you expect (see `awaitWheelPowers` in the example) rather than assuming the OpMode has reached a particular line.
+- **The simulated robot is `TeamCode/src/simulated/java/.../simulated/VerityRobot.java`.** Device names live there, once, shared by the headless tests, the dashboard and the simulated app.
+- **A few Android classes are supplied, not stubbed.** `:AndroidShims` holds working `android.opengl.Matrix` (every IMU reading goes through it), `android.util.Log` (so `RobotLog.*` works — set `-Dftc.log.level=VERBOSE|INFO|NONE` to retune) and `android.os.SystemClock`. It is a `testImplementation` dependency of every module that runs unit tests, and a plain `java-library` on purpose so those classes can never be dexed into an APK.
+
+## Local Driver Hub dashboard
+
+A browser stand-in for the Driver Station, driving the same simulated robot as the headless tests. Two processes:
+
+```bash
+mise run dashboard      # JVM: discovers OpModes + VerityRobot, serves ws://localhost:8765
+mise run dashboard-ui   # Vite: the browser UI on http://localhost:5183
+```
+
+Select an OpMode, `init`, `start`, then drive with the keyboard (WASD, arrows to turn, shift for slow mode). Telemetry streams into the log; the right rail shows live device state and lets you swap a device's behavior mid-run — click `stalled` on a motor to watch an OpMode keep commanding full power while that wheel stops.
+
+- `:Dashboard` holds the wire protocol (`protocol/`), the `DashboardBackend` seam, the in-process `LocalDashboardBackend`, and the WebSocket server. `driver-hub-dashboard/` is the React UI, outside Gradle.
+- Every message is `{namespace, type, payload}` over one socket, namespaces `opmode`/`telemetry`/`gamepad`/`device` — the shapes are listed on `DashboardServer` and mirrored in `driver-hub-dashboard/src/protocol.ts`. Keep the two in step.
+- Behavior overrides name a behavior from a closed catalog; the wire never carries code.
+- A tick thread advances simulated time in step with the wall clock and drives an iterative OpMode's `loop()`. Each `init` builds a fresh robot, so a fault never leaks into the next run.
+- The backend seam is what the phase-2 emulator target reuses: same protocol, same UI, a second `DashboardBackend`.
+- Java-WebSocket and gson come from inside the FTC SDK's own AARs — the dashboard adds no new Java dependencies.
+
+## Simulated Robot Controller app
+
+The `simulated` flavor is the whole Robot Controller app running against fake hardware — useful when the plain-JVM harness is not enough, because here an OpMode takes exactly the code path it takes on a Control Hub (real event loop, real OpMode manager, real telemetry, real web server).
+
+```bash
+mise run simulator   # installs and launches it on whatever adb is pointing at
+```
+
+- `SimulatedHardwareFactory` overrides the one public, non-final `HardwareFactory.createHardwareMap` and returns `VerityRobot.create()` instead of scanning USB.
+- `SimulatedRobotControllerActivity` exists only to construct that factory: the stock activity builds its own inside a **private** `requestRobotSetup()`, so the subclass repeats those few lines with a different factory. Every collaborator it touches is `protected`. **If an SDK update changes `requestRobotSetup`, re-read this method against it** — that is the price of editing no vendor code.
+- `SimulatedPermissionValidatorWrapper` reuses the SDK's permission screen and hands off to that activity; the flavor manifest drops the stock launcher entry so there is one icon.
+- Verified boot on `system-images;android-30;default;arm64-v8a`: the app reaches `Robot Status: running` and logs `building simulated robot "Verity" - no USB scan`, with every OpMode registered.
+- Driving an OpMode here still needs a Driver Station. Wiring the dashboard to this target — a second `DashboardBackend` inside the app — is the next piece of work.
 
 ## Conventions
 

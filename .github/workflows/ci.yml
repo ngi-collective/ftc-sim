@@ -47,8 +47,6 @@ jobs:
       - name: Verify toolchain
         run: mise run verify-toolchain
 
-      # Currently NO-SOURCE - there are no test sources. Wired up so the gate
-      # begins enforcing as soon as a test lands.
       - name: Test
         run: mise run test
 
@@ -60,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: lint-report
-          path: TeamCode/build/reports/lint-results-debug.html
+          path: TeamCode/build/reports/lint-results-robotDebug.html
           if-no-files-found: warn
 
       - name: Build APK

@@ -79,3 +79,6 @@ lint/generated/
 lint/outputs/
 lint/tmp/
 # lint/reports/
+# Driver Hub dashboard (browser UI)
+node_modules/
+driver-hub-dashboard/dist/
