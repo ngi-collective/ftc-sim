@@ -33,6 +33,10 @@ run = "./gradlew :TeamCode:installDebug"
 description = "Run TeamCode unit tests"
 run = "./gradlew :TeamCode:testDebugUnitTest"
 
+[tasks.ci]
+description = "Run all tests necessary to pass CI"
+depends = ["lint", "test"]
+
 [tasks.lint]
 description = "Run Android lint on TeamCode"
 run = "./gradlew :TeamCode:lintDebug"
