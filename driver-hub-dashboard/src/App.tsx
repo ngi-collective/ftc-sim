@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { BEHAVIORS, type DeviceState } from './protocol';
 import { View3D } from './scene/View3D';
+import { useSettings } from './settings';
 import { activeChip, button, chip, railHeading, selectStyle } from './ui';
 import { useDashboard } from './useDashboard';
-import { KEYBOARD_HELP, useKeyboardGamepad } from './useKeyboardGamepad';
+import { KEYBOARD_HELP, KEYBOARD_OFF, useKeyboardGamepad } from './useKeyboardGamepad';
 
 type View = 'scene' | 'console';
 
@@ -12,7 +13,8 @@ type View = 'scene' | 'console';
 // a dark monospace panel with OpMode controls in a thin top bar and devices in a side rail.
 export function App() {
   const dashboard = useDashboard();
-  const gamepad = useKeyboardGamepad(dashboard.sendGamepad);
+  const { settings, update: updateSettings } = useSettings();
+  const gamepad = useKeyboardGamepad(dashboard.sendGamepad, settings.keyboardGamepad);
   const [selected, setSelected] = useState('');
   const [view, setView] = useState<View>('scene');
 
@@ -58,7 +60,18 @@ export function App() {
         <button style={button} onClick={dashboard.stop} disabled={dashboard.status.state === 'STOPPED'}>
           stop
         </button>
-        <span style={{ marginLeft: 'auto', color: statusColour }}>
+        <label
+          style={{ marginLeft: 'auto', color: '#9fd89f', cursor: 'pointer' }}
+          title={`Lets ${KEYBOARD_HELP} stand in for gamepad1. While it is on, this page grabs those keys.`}
+        >
+          <input
+            type="checkbox"
+            checked={settings.keyboardGamepad}
+            onChange={(event) => updateSettings({ keyboardGamepad: event.target.checked })}
+          />
+          emulate joysticks with keyboard
+        </label>
+        <span style={{ marginLeft: 16, color: statusColour }}>
           {dashboard.connected ? `status: ${dashboard.status.state.toLowerCase()}` : 'disconnected'}
         </span>
       </div>
@@ -68,7 +81,11 @@ export function App() {
       )}
 
       {view === 'scene' ? (
-        <View3D dashboard={dashboard} gamepad={gamepad} />
+        <View3D
+          dashboard={dashboard}
+          gamepad={gamepad}
+          keyboardGamepad={settings.keyboardGamepad}
+        />
       ) : (
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <div style={log}>
@@ -106,7 +123,9 @@ export function App() {
               RS ({gamepad.right_stick_x.toFixed(1)}, {gamepad.right_stick_y.toFixed(1)})
             </div>
             <div>LT {gamepad.left_trigger.toFixed(1)}</div>
-            <div style={{ color: '#555', marginTop: 8, lineHeight: 1.5 }}>{KEYBOARD_HELP}</div>
+            <div style={{ color: '#555', marginTop: 8, lineHeight: 1.5 }}>
+              {settings.keyboardGamepad ? KEYBOARD_HELP : KEYBOARD_OFF}
+            </div>
           </div>
         </div>
       )}

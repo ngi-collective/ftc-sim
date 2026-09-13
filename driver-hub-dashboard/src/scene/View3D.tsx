@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GamepadState } from '../protocol';
 import type { Dashboard } from '../useDashboard';
-import { KEYBOARD_HELP } from '../useKeyboardGamepad';
+import { KEYBOARD_HELP, KEYBOARD_OFF } from '../useKeyboardGamepad';
 import { GamepadView } from './GamepadView';
 import { Inspector } from './Inspector';
 import { parseLayoutFile, useLayout } from './layout';
@@ -17,9 +17,12 @@ import { DEFAULT_VIEW_OPTIONS, RobotScene, type ViewOptions } from './RobotScene
 export function View3D({
   dashboard,
   gamepad,
+  keyboardGamepad,
 }: {
   dashboard: Dashboard;
   gamepad: GamepadState;
+  /** Whether the keyboard is standing in for gamepad1, which the caption has to be honest about. */
+  keyboardGamepad: boolean;
 }) {
   const devices = dashboard.devices;
   const api = useLayout(devices);
@@ -69,7 +72,7 @@ export function View3D({
           <div style={{ flex: 1, minHeight: 0 }}>
             <GamepadView gamepad={gamepad} />
           </div>
-          <div style={gamepadCaption}>{KEYBOARD_HELP}</div>
+          <div style={gamepadCaption}>{keyboardGamepad ? KEYBOARD_HELP : KEYBOARD_OFF}</div>
         </div>
       </div>
 
