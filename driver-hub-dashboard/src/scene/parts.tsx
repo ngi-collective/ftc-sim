@@ -37,25 +37,26 @@ export function powerColour(power: number): THREE.Color {
 function useShaftSpin(device: DeviceState, layout: DeviceLayout) {
   const group = useRef<THREE.Group>(null);
   const angle = useRef(0);
-  const sample = useRef({ velocity: 0, position: 0, ticksPerRev: 1, sign: 1 });
+  const sample = useRef({ velocity: 0, position: 0, ticksPerRev: 1, ratio: 1 });
 
   sample.current = {
     velocity: device.velocityTicksPerSecond,
     position: device.position,
     ticksPerRev: Math.max(1, layout.ticksPerRev),
-    sign: layout.invert ? -1 : 1,
+    // The drive stage is between the encoder and what the eye sees, so it scales the drawn angle.
+    ratio: layout.ratio,
   };
 
   useFrame((_, delta) => {
-    const { velocity, position, ticksPerRev, sign } = sample.current;
+    const { velocity, position, ticksPerRev, ratio } = sample.current;
     const radiansPerTick = (2 * Math.PI) / ticksPerRev;
     const step = Math.min(delta, 0.1);
 
-    angle.current += sign * velocity * radiansPerTick * step;
+    angle.current += ratio * velocity * radiansPerTick * step;
 
     // A twentieth of a revolution per second: slow enough that a stale sample is still accurate.
     if (Math.abs(velocity) < ticksPerRev / 20) {
-      const measured = sign * position * radiansPerTick;
+      const measured = ratio * position * radiansPerTick;
       let error = (measured - angle.current) % (2 * Math.PI);
       if (error > Math.PI) error -= 2 * Math.PI;
       if (error < -Math.PI) error += 2 * Math.PI;
@@ -210,6 +211,32 @@ function MountMesh({ mount, tint }: { mount: Mount; tint: THREE.Color }) {
   }
 }
 
+/**
+ * The shaft or chain run between the motor face and a driven part mounted away from it. Nothing is
+ * drawn for a wheel keyed straight onto the shaft, where there is no run to see.
+ */
+function Linkage({ to }: { to: [number, number, number] }) {
+  const from = new THREE.Vector3(0, 0, 0.014);
+  const delta = new THREE.Vector3(...to).sub(from);
+  const length = delta.length();
+  if (length < 0.045) return null;
+
+  const midpoint = from.clone().addScaledVector(delta, 0.5);
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    delta.clone().normalize(),
+  );
+  return (
+    <mesh
+      position={midpoint}
+      quaternion={[quaternion.x, quaternion.y, quaternion.z, quaternion.w]}
+    >
+      <cylinderGeometry args={[0.005, 0.005, length, 8]} />
+      <meshStandardMaterial color="#57646f" metalness={0.5} roughness={0.5} />
+    </mesh>
+  );
+}
+
 export function MotorModel({ device, layout }: { device: DeviceState; layout: DeviceLayout }) {
   const spin = useShaftSpin(device, layout);
   // Commanded power with nothing to show for it: the classic "why isn't it moving" picture.
@@ -240,8 +267,19 @@ export function MotorModel({ device, layout }: { device: DeviceState; layout: De
 
       <PowerArc power={device.commandedPower} stalled={stalled} />
 
-      <group ref={spin} position={[0, 0, 0.034]}>
-        <MountMesh mount={layout.mount} tint={tint} />
+      <Linkage to={layout.outputOffset} />
+      <group
+        position={layout.outputOffset}
+        rotation={[
+          THREE.MathUtils.degToRad(layout.outputRotation[1]),
+          THREE.MathUtils.degToRad(layout.outputRotation[0]),
+          THREE.MathUtils.degToRad(layout.outputRotation[2]),
+        ]}
+        rotation-order="YXZ"
+      >
+        <group ref={spin}>
+          <MountMesh mount={layout.mount} tint={tint} />
+        </group>
       </group>
     </group>
   );
@@ -250,8 +288,8 @@ export function MotorModel({ device, layout }: { device: DeviceState; layout: De
 export function ServoModel({ device, layout }: { device: DeviceState; layout: DeviceLayout }) {
   const horn = useRef<THREE.Group>(null);
   const target = useRef(0);
-  // A standard servo sweeps 300° over its 0..1 range; centre it so 0.5 points along +X.
-  target.current = (device.hornPosition - 0.5) * (300 * (Math.PI / 180)) * (layout.invert ? -1 : 1);
+  // A standard servo sweeps 300° over its 0..1 range; a gear train on the horn scales that sweep.
+  target.current = (device.hornPosition - 0.5) * (300 * (Math.PI / 180)) * layout.ratio;
 
   useFrame((_, delta) => {
     if (!horn.current) return;

@@ -31,15 +31,33 @@ export interface DeviceLayout {
   rotation: [number, number, number];
   scale: number;
   mount: Mount;
-  /** Flip the drawn spin without touching robot code — for a gear or belt that reverses output. */
-  invert: boolean;
+  /**
+   * Turns of the driven part per turn of the motor shaft, signed.
+   *
+   * <p>This is the whole drive stage in one number: {@code 1} is a wheel keyed straight onto the
+   * shaft, {@code -1} a single gear or chain crossover that reverses it, {@code 0.5} a 2:1
+   * reduction, {@code -0.5} both at once.</p>
+   */
+  ratio: number;
+  /** Where the driven part sits relative to the motor face, in the motor's own frame (metres). */
+  outputOffset: [number, number, number];
+  /**
+   * Degrees the driven part is turned relative to the shaft, applied YXZ.
+   *
+   * <p>Zero keeps it inline. A right-angle gearbox or a bevel pair is {@code [±90, 0, 0]} or
+   * {@code [0, ±90, 0]}: the wheel then turns about an axis the motor does not.</p>
+   */
+  outputRotation: [number, number, number];
   /** Encoder ticks per shaft revolution; converts wire ticks into an angle. */
   ticksPerRev: number;
 }
 
+/** Where a wheel sits when it is keyed straight onto the output shaft. */
+export const INLINE_OUTPUT: [number, number, number] = [0, 0, 0.034];
+
 export type LayoutOverrides = Record<string, Partial<DeviceLayout>>;
 
-const STORAGE_KEY = 'driverhub.scene.layout.v1';
+const STORAGE_KEY = 'driverhub.scene.layout.v2';
 
 /** Two-letter corner names, in the orders teams actually write them. */
 const CORNER_PAIRS: Record<string, [side: number, end: number]> = {
@@ -55,17 +73,24 @@ const CORNER_PAIRS: Record<string, [side: number, end: number]> = {
   rr: [1, 1],
 };
 
-function inferCorner(rawName: string): [side: number, end: number] | null {
+/**
+ * Reads a wheel position out of a device name.
+ *
+ * <p>{@code end} is null when the name says which side but not which end &mdash; "leftDrive" on a
+ * two-motor robot &mdash; and that motor is placed halfway along its side.</p>
+ */
+function inferWheel(rawName: string): { side: number; end: number | null } | null {
   const name = rawName.toLowerCase().replace(/[^a-z]/g, '');
   const pair = CORNER_PAIRS[name];
-  if (pair) return pair;
+  if (pair) return { side: pair[0], end: pair[1] };
 
   const left = name.includes('left');
   const right = name.includes('right');
+  if (!left && !right) return null;
+
   const front = name.includes('front');
   const back = name.includes('back') || name.includes('rear');
-  if ((!left && !right) || (!front && !back)) return null;
-  return [left ? -1 : 1, front ? -1 : 1];
+  return { side: left ? -1 : 1, end: front ? -1 : back ? 1 : null };
 }
 
 /**
@@ -80,7 +105,9 @@ export function defaultLayout(device: DeviceState, spare: number): DeviceLayout 
     rotation: [0, 0, 0],
     scale: 1,
     mount: device.kind === 'servo' ? 'arm' : 'bare',
-    invert: false,
+    ratio: 1,
+    outputOffset: [...INLINE_OUTPUT],
+    outputRotation: [0, 0, 0],
     ticksPerRev: DEFAULT_TICKS_PER_REV,
   };
 
@@ -88,14 +115,17 @@ export function defaultLayout(device: DeviceState, spare: number): DeviceLayout 
     return { ...base, position: [0, CHASSIS.deckY + 0.01, 0], mount: 'bare', scale: 1 };
   }
 
-  const corner = device.kind === 'motor' ? inferCorner(device.name) : null;
-  if (corner) {
-    const [side, end] = corner;
+  const wheel = device.kind === 'motor' ? inferWheel(device.name) : null;
+  if (wheel) {
     return {
       ...base,
       // Axle out through the side of the chassis: local +Z is the shaft, so yaw ±90° aims it at ±X.
-      position: [side * (CHASSIS.width / 2 + 0.03), 0.05, end * 0.145],
-      rotation: [side * 90, 0, 0],
+      position: [
+        wheel.side * (CHASSIS.width / 2 + 0.03),
+        0.05,
+        wheel.end === null ? 0 : wheel.end * 0.145,
+      ],
+      rotation: [wheel.side * 90, 0, 0],
       mount: 'wheel',
     };
   }
@@ -138,7 +168,7 @@ export function useLayout(devices: DeviceState[]): LayoutApi {
     const result: Record<string, DeviceLayout> = {};
     let spare = 0;
     for (const device of devices) {
-      const placedByName = device.kind === 'imu' || inferCorner(device.name) !== null;
+      const placedByName = device.kind === 'imu' || inferWheel(device.name) !== null;
       result[device.name] = {
         ...defaultLayout(device, placedByName ? 0 : spare++),
         ...overrides[device.name],

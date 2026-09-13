@@ -1,6 +1,6 @@
 import { BEHAVIORS, type DeviceState } from '../protocol';
 import { activeChip, button, chip, numberInput, railHeading, selectStyle } from '../ui';
-import { MOUNTS, type DeviceLayout, type LayoutApi, type Mount } from './layout';
+import { INLINE_OUTPUT, MOUNTS, type DeviceLayout, type LayoutApi, type Mount } from './layout';
 import type { ViewOptions } from './RobotScene';
 
 /**
@@ -30,6 +30,89 @@ const POSITION_AXES: { index: 0 | 1 | 2; label: string }[] = [
   { index: 2, label: 'z' },
 ];
 
+/**
+ * Where the driven part sits and which way it turns relative to the motor. "right angle" is the
+ * bevel-or-chain case: the wheel turns about an axis the motor shaft does not.
+ */
+const OUTPUT_PRESETS: {
+  label: string;
+  outputRotation: [number, number, number];
+  outputOffset: [number, number, number];
+}[] = [
+  { label: 'inline', outputRotation: [0, 0, 0], outputOffset: [...INLINE_OUTPUT] },
+  { label: 'right angle ←', outputRotation: [-90, 0, 0], outputOffset: [-0.07, 0, 0.01] },
+  { label: 'right angle →', outputRotation: [90, 0, 0], outputOffset: [0.07, 0, 0.01] },
+  { label: 'right angle ↑', outputRotation: [0, -90, 0], outputOffset: [0, 0.07, 0.01] },
+];
+
+const RATIO_PRESETS: { label: string; ratio: number }[] = [
+  { label: '1:1', ratio: 1 },
+  { label: 'reversed', ratio: -1 },
+  { label: '2:1 down', ratio: 0.5 },
+  { label: '1:2 up', ratio: 2 },
+];
+
+function VectorFields({
+  value,
+  onChange,
+}: {
+  value: [number, number, number];
+  onChange: (next: [number, number, number]) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+      {POSITION_AXES.map(({ index, label }) => (
+        <label key={label} style={{ color: '#6f8f6f' }}>
+          {label}
+          <input
+            type="number"
+            step={0.01}
+            value={Number(value[index].toFixed(3))}
+            style={{ ...numberInput, width: 58, marginLeft: 2 }}
+            onChange={(event) => {
+              const next: [number, number, number] = [...value];
+              next[index] = Number(event.target.value);
+              onChange(next);
+            }}
+          />
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function AxisSliders({
+  value,
+  onChange,
+}: {
+  value: [number, number, number];
+  onChange: (next: [number, number, number]) => void;
+}) {
+  return (
+    <>
+      {AXES.map(({ index, label }) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 34, color: '#6f8f6f' }}>{label}</span>
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            value={value[index]}
+            style={{ flex: 1, accentColor: '#7CFC00' }}
+            onChange={(event) => {
+              const next: [number, number, number] = [...value];
+              next[index] = Number(event.target.value);
+              onChange(next);
+            }}
+          />
+          <span style={{ width: 34, textAlign: 'right' }}>{Math.round(value[index])}°</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 function DeviceEditor({
   device,
   layout,
@@ -52,45 +135,16 @@ function DeviceEditor({
       </div>
 
       <div style={{ color: '#6f8f6f', marginBottom: 2 }}>position (m)</div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-        {POSITION_AXES.map(({ index, label }) => (
-          <label key={label} style={{ color: '#6f8f6f' }}>
-            {label}
-            <input
-              type="number"
-              step={0.01}
-              value={Number(layout.position[index].toFixed(3))}
-              style={{ ...numberInput, width: 58, marginLeft: 2 }}
-              onChange={(event) => {
-                const position: [number, number, number] = [...layout.position];
-                position[index] = Number(event.target.value);
-                api.update(device.name, { position });
-              }}
-            />
-          </label>
-        ))}
-      </div>
+      <VectorFields
+        value={layout.position}
+        onChange={(position) => api.update(device.name, { position })}
+      />
 
       <div style={{ color: '#6f8f6f', marginBottom: 2 }}>orientation (deg)</div>
-      {AXES.map(({ index, label }) => (
-        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 34, color: '#6f8f6f' }}>{label}</span>
-          <input
-            type="range"
-            min={-180}
-            max={180}
-            step={1}
-            value={layout.rotation[index]}
-            style={{ flex: 1, accentColor: '#7CFC00' }}
-            onChange={(event) => {
-              const rotation: [number, number, number] = [...layout.rotation];
-              rotation[index] = Number(event.target.value);
-              api.update(device.name, { rotation });
-            }}
-          />
-          <span style={{ width: 34, textAlign: 'right' }}>{Math.round(layout.rotation[index])}°</span>
-        </div>
-      ))}
+      <AxisSliders
+        value={layout.rotation}
+        onChange={(rotation) => api.update(device.name, { rotation })}
+      />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0' }}>
         {AIM_PRESETS.map((preset) => (
@@ -109,7 +163,7 @@ function DeviceEditor({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <span style={{ color: '#6f8f6f' }}>mount</span>
+        <span style={{ color: '#6f8f6f' }}>drives</span>
         <select
           value={layout.mount}
           style={{ ...selectStyle, padding: '1px 4px', fontSize: 11 }}
@@ -121,15 +175,63 @@ function DeviceEditor({
             </option>
           ))}
         </select>
-        <label style={{ color: '#6f8f6f' }}>
-          <input
-            type="checkbox"
-            checked={layout.invert}
-            onChange={(event) => api.update(device.name, { invert: event.target.checked })}
-          />
-          invert
-        </label>
+        <span style={{ color: '#6f8f6f' }}>ratio</span>
+        <input
+          type="number"
+          step={0.25}
+          value={layout.ratio}
+          style={{ ...numberInput, width: 54 }}
+          onChange={(event) => api.update(device.name, { ratio: Number(event.target.value) })}
+        />
       </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+        {RATIO_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            style={layout.ratio === preset.ratio ? activeChip : chip}
+            onClick={() => api.update(device.name, { ratio: preset.ratio })}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      {device.kind === 'motor' && (
+        <>
+          <div style={{ color: '#6f8f6f', marginBottom: 2 }}>driven part</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+            {OUTPUT_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                style={
+                  preset.outputRotation.every(
+                    (value, index) => value === layout.outputRotation[index],
+                  )
+                    ? activeChip
+                    : chip
+                }
+                onClick={() =>
+                  api.update(device.name, {
+                    outputRotation: [...preset.outputRotation],
+                    outputOffset: [...preset.outputOffset],
+                  })
+                }
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <VectorFields
+            value={layout.outputOffset}
+            onChange={(outputOffset) => api.update(device.name, { outputOffset })}
+          />
+          <AxisSliders
+            value={layout.outputRotation}
+            onChange={(outputRotation) => api.update(device.name, { outputRotation })}
+          />
+        </>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <span style={{ color: '#6f8f6f' }}>scale</span>
