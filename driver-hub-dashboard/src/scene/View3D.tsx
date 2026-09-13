@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import type { DeviceState, GamepadState, TelemetryFrame } from '../protocol';
+import { useEffect, useState } from 'react';
+import type { GamepadState } from '../protocol';
+import type { Dashboard } from '../useDashboard';
 import { KEYBOARD_HELP } from '../useKeyboardGamepad';
 import { GamepadView } from './GamepadView';
 import { Inspector } from './Inspector';
-import { useLayout } from './layout';
+import { parseLayoutFile, useLayout } from './layout';
 import { DEFAULT_VIEW_OPTIONS, RobotScene, type ViewOptions } from './RobotScene';
 
 /**
@@ -14,21 +15,26 @@ import { DEFAULT_VIEW_OPTIONS, RobotScene, type ViewOptions } from './RobotScene
  * same layout, and so a re-mount of the canvas cannot lose it.</p>
  */
 export function View3D({
-  devices,
+  dashboard,
   gamepad,
-  telemetry,
-  onOverride,
-  onResetBehavior,
 }: {
-  devices: DeviceState[];
+  dashboard: Dashboard;
   gamepad: GamepadState;
-  telemetry: TelemetryFrame | null;
-  onOverride: (device: string, type: string, value: number) => void;
-  onResetBehavior: (device: string) => void;
 }) {
+  const devices = dashboard.devices;
   const api = useLayout(devices);
   const [selected, setSelected] = useState<string | null>(null);
   const [options, setOptions] = useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
+  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+
+  const loaded = dashboard.loadedLayout;
+  const applyFile = api.applyFile;
+  useEffect(() => {
+    if (!loaded) return;
+    const file = parseLayoutFile(loaded.layout);
+    setLoadFailure(file ? null : `${loaded.name} has no placements this version understands`);
+    if (file) applyFile(file);
+  }, [loaded, applyFile]);
 
   return (
     <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -47,9 +53,13 @@ export function View3D({
           <div style={emptyOverlay}>init an OpMode to populate the robot</div>
         )}
 
-        {telemetry && (
+        {(loadFailure ?? dashboard.error) && (
+          <div style={emptyOverlay}>{loadFailure ?? dashboard.error}</div>
+        )}
+
+        {dashboard.telemetry && (
           <div style={telemetryOverlay}>
-            {telemetry.lines.map((line, index) => (
+            {dashboard.telemetry.lines.map((line, index) => (
               <div key={index}>{line}</div>
             ))}
           </div>
@@ -68,10 +78,16 @@ export function View3D({
         selected={selected}
         api={api}
         options={options}
+        layoutFiles={dashboard.layouts}
+        layoutDirectory={dashboard.layoutDirectory}
+        savedLayout={dashboard.savedLayout}
         onSelect={setSelected}
         onOptions={(patch) => setOptions((previous) => ({ ...previous, ...patch }))}
-        onOverride={onOverride}
-        onResetBehavior={onResetBehavior}
+        onOverride={dashboard.overrideBehavior}
+        onResetBehavior={dashboard.resetBehavior}
+        onSaveLayout={(name) => dashboard.saveLayout(name, api.toFile())}
+        onLoadLayout={dashboard.loadLayout}
+        onDeleteLayout={dashboard.deleteLayout}
       />
     </div>
   );

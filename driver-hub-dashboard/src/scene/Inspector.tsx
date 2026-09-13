@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BEHAVIORS, type DeviceState } from '../protocol';
 import { activeChip, button, chip, numberInput, railHeading, selectStyle } from '../ui';
 import { INLINE_OUTPUT, MOUNTS, type DeviceLayout, type LayoutApi, type Mount } from './layout';
@@ -289,24 +290,114 @@ function DeviceEditor({
   );
 }
 
+/**
+ * Layouts the server keeps as files. Saving writes one into the team's source tree, which is the
+ * point: a robot's layout is worth committing next to the OpModes that drive it.
+ */
+function LayoutFiles({
+  layouts,
+  directory,
+  savedLayout,
+  onSave,
+  onLoad,
+  onDelete,
+}: {
+  layouts: string[];
+  directory: string | null;
+  savedLayout: { name: string; path: string } | null;
+  onSave: (name: string) => void;
+  onLoad: (name: string) => void;
+  onDelete: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const chosen = name.trim();
+
+  return (
+    <div style={{ borderTop: '1px solid #1e2a1e', paddingTop: 8, marginTop: 8 }}>
+      <div style={railHeading}>saved layouts</div>
+
+      {layouts.length === 0 && <div style={{ color: '#5f7a5f' }}>none saved yet</div>}
+      {layouts.map((saved) => (
+        <div key={saved} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+          <span style={{ flex: 1, color: '#9fd89f' }}>{saved}</span>
+          <button style={chip} onClick={() => onLoad(saved)}>
+            load
+          </button>
+          <button style={chip} onClick={() => onSave(saved)}>
+            overwrite
+          </button>
+          <button style={chip} onClick={() => onDelete(saved)}>
+            delete
+          </button>
+        </div>
+      ))}
+
+      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+        <input
+          value={name}
+          placeholder="new layout name"
+          style={{ ...numberInput, flex: 1, width: 'auto' }}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || chosen === '') return;
+            onSave(chosen);
+            setName('');
+          }}
+        />
+        <button
+          style={chip}
+          disabled={chosen === ''}
+          onClick={() => {
+            onSave(chosen);
+            setName('');
+          }}
+        >
+          save
+        </button>
+      </div>
+
+      {savedLayout && (
+        <div style={{ color: '#5f7a5f', marginTop: 6, wordBreak: 'break-all' }}>
+          wrote {savedLayout.path} — commit it
+        </div>
+      )}
+      {!savedLayout && directory && (
+        <div style={{ color: '#5f7a5f', marginTop: 6, wordBreak: 'break-all' }}>{directory}</div>
+      )}
+    </div>
+  );
+}
+
 export function Inspector({
   devices,
   selected,
   api,
   options,
+  layoutFiles,
+  layoutDirectory,
+  savedLayout,
   onSelect,
   onOptions,
   onOverride,
   onResetBehavior,
+  onSaveLayout,
+  onLoadLayout,
+  onDeleteLayout,
 }: {
   devices: DeviceState[];
   selected: string | null;
   api: LayoutApi;
   options: ViewOptions;
+  layoutFiles: string[];
+  layoutDirectory: string | null;
+  savedLayout: { name: string; path: string } | null;
   onSelect: (name: string | null) => void;
   onOptions: (patch: Partial<ViewOptions>) => void;
   onOverride: (device: string, type: string, value: number) => void;
   onResetBehavior: (device: string) => void;
+  onSaveLayout: (name: string) => void;
+  onLoadLayout: (name: string) => void;
+  onDeleteLayout: (name: string) => void;
 }) {
   const device = devices.find((candidate) => candidate.name === selected) ?? null;
 
@@ -379,6 +470,15 @@ export function Inspector({
           </div>
         )
       )}
+
+      <LayoutFiles
+        layouts={layoutFiles}
+        directory={layoutDirectory}
+        savedLayout={savedLayout}
+        onSave={onSaveLayout}
+        onLoad={onLoadLayout}
+        onDelete={onDeleteLayout}
+      />
 
       <div style={{ marginTop: 'auto', paddingTop: 10 }}>
         <button style={button} onClick={api.resetAll}>

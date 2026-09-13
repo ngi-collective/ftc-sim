@@ -15,6 +15,7 @@ import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.nio.file.Path;
 
 /**
  * Serves the dashboard's single WebSocket.
@@ -28,6 +29,10 @@ import java.net.UnknownHostException;
  * gamepad/state  {gamepad, left_stick_x, ...}       (no reply)
  * device/override{device, behavior:{type, value}}   (next device/state reflects it)
  * device/reset   {device}
+ * layout/list    {}                                 -&gt; layout/list   {layouts:[...], directory}
+ * layout/save    {name, layout}                     -&gt; layout/list, broadcast to every client
+ * layout/load    {name}                             -&gt; layout/data   {name, layout}
+ * layout/delete  {name}                             -&gt; layout/list, broadcast to every client
  * </pre>
  * <p>Pushed without being asked: {@code opmode/status}, {@code telemetry/frame},
  * {@code device/state}. A request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
@@ -39,6 +44,7 @@ public class DashboardServer extends WebSocketServer {
     // the browser.
     private final Gson gson = new GsonBuilder().serializeNulls().create();
     private final DashboardBackend backend;
+    private final LayoutStore layouts;
 
     /**
      * @param host address to bind. It must be a concrete address, not the unspecified wildcard:
@@ -52,9 +58,10 @@ public class DashboardServer extends WebSocketServer {
      *             browser's reconnect after a reload, is refused. Binding a concrete address keeps
      *             accepted sockets in one family and never reaches that call.
      */
-    public DashboardServer(DashboardBackend backend, String host, int port) {
+    public DashboardServer(DashboardBackend backend, LayoutStore layouts, String host, int port) {
         super(new InetSocketAddress(resolve(host), port));
         this.backend = backend;
+        this.layouts = layouts;
         setReuseAddr(true);
 
         backend.subscribeStatus(status -> broadcast("opmode", "status", status));
@@ -168,9 +175,42 @@ public class DashboardServer extends WebSocketServer {
             case "device/reset":
                 backend.resetDeviceBehavior(requireString(payload, "device"));
                 break;
+            case "layout/list":
+                send(connection, layoutListEnvelope());
+                break;
+            case "layout/save": {
+                String name = requireString(payload, "name");
+                Path file = layouts.save(name, payload.get("layout"));
+                JsonObject saved = new JsonObject();
+                saved.addProperty("name", name);
+                saved.addProperty("path", file.toString());
+                send(connection, new Envelope("layout", "saved", saved));
+                // Every client sees the new file: two people editing the same robot is the point.
+                broadcast(layoutListEnvelope());
+                break;
+            }
+            case "layout/load": {
+                String name = requireString(payload, "name");
+                JsonObject loaded = new JsonObject();
+                loaded.addProperty("name", name);
+                loaded.add("layout", layouts.read(name));
+                send(connection, new Envelope("layout", "data", loaded));
+                break;
+            }
+            case "layout/delete":
+                layouts.delete(requireString(payload, "name"));
+                broadcast(layoutListEnvelope());
+                break;
             default:
                 send(connection, Envelope.error(request.namespace, "unknown message " + request));
         }
+    }
+
+    private Envelope layoutListEnvelope() {
+        JsonObject payload = new JsonObject();
+        payload.add("layouts", gson.toJsonTree(layouts.list()));
+        payload.addProperty("directory", layouts.directory().toString());
+        return new Envelope("layout", "list", payload);
     }
 
     private static String requireString(JsonObject payload, String field) {

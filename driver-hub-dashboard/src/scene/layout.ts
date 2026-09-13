@@ -148,6 +148,96 @@ function load(): LayoutOverrides {
   }
 }
 
+/**
+ * A layout as it is written to disk and committed.
+ *
+ * <p>Every device is written out in full rather than as a diff against the inferred defaults: the
+ * file is the robot's description, and it should still mean the same thing after this code changes
+ * what it guesses from a device name.</p>
+ */
+export interface LayoutFile {
+  version: 1;
+  devices: Record<string, DeviceLayout>;
+}
+
+function numberTriple(value: unknown): [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 3) return null;
+  const [x, y, z] = value;
+  if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') return null;
+  return [x, y, z];
+}
+
+/**
+ * Reads one device's placement out of a file.
+ *
+ * <p>Checked field by field rather than trusted: these files are meant to be hand-edited and
+ * reviewed, so a typo in a pull request should cost that one device its placement, not throw the
+ * scene away.</p>
+ */
+function parseDeviceLayout(value: unknown): DeviceLayout | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const entry = value as Record<string, unknown>;
+
+  const position = numberTriple(entry.position);
+  const rotation = numberTriple(entry.rotation);
+  const outputOffset = numberTriple(entry.outputOffset);
+  const outputRotation = numberTriple(entry.outputRotation);
+  if (!position || !rotation || !outputOffset || !outputRotation) return null;
+  if (typeof entry.scale !== 'number' || typeof entry.ratio !== 'number') return null;
+  if (typeof entry.ticksPerRev !== 'number' || entry.ticksPerRev <= 0) return null;
+  if (!MOUNTS.includes(entry.mount as Mount)) return null;
+
+  return {
+    position,
+    rotation,
+    scale: entry.scale,
+    mount: entry.mount as Mount,
+    ratio: entry.ratio,
+    outputOffset,
+    outputRotation,
+    ticksPerRev: entry.ticksPerRev,
+  };
+}
+
+/** A layout file as it came off the wire, with anything unreadable dropped. */
+export function parseLayoutFile(value: unknown): LayoutFile | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const file = value as Record<string, unknown>;
+  if (typeof file.devices !== 'object' || file.devices === null) return null;
+
+  const devices: Record<string, DeviceLayout> = {};
+  for (const [name, entry] of Object.entries(file.devices as Record<string, unknown>)) {
+    const parsed = parseDeviceLayout(entry);
+    if (parsed) devices[name] = parsed;
+  }
+  return Object.keys(devices).length > 0 ? { version: 1, devices } : null;
+}
+
+/** Binary fractions of a metre make noisy diffs; a tenth of a millimetre is past any real robot. */
+function rounded(values: [number, number, number], places: number): [number, number, number] {
+  const scale = 10 ** places;
+  return [
+    Math.round(values[0] * scale) / scale,
+    Math.round(values[1] * scale) / scale,
+    Math.round(values[2] * scale) / scale,
+  ];
+}
+
+function forFile(layout: Record<string, DeviceLayout>): Record<string, DeviceLayout> {
+  const devices: Record<string, DeviceLayout> = {};
+  for (const [name, placement] of Object.entries(layout)) {
+    devices[name] = {
+      ...placement,
+      position: rounded(placement.position, 4),
+      rotation: rounded(placement.rotation, 2),
+      outputOffset: rounded(placement.outputOffset, 4),
+      outputRotation: rounded(placement.outputRotation, 2),
+      scale: Math.round(placement.scale * 1000) / 1000,
+    };
+  }
+  return devices;
+}
+
 export interface LayoutApi {
   /** Effective layout per device name: defaults with any override applied. */
   layout: Record<string, DeviceLayout>;
@@ -155,6 +245,10 @@ export interface LayoutApi {
   update: (name: string, patch: Partial<DeviceLayout>) => void;
   reset: (name: string) => void;
   resetAll: () => void;
+  /** The current placement of every device, ready to save. */
+  toFile: () => LayoutFile;
+  /** Adopts a loaded file, replacing every placement with the one it describes. */
+  applyFile: (file: LayoutFile) => void;
 }
 
 export function useLayout(devices: DeviceState[]): LayoutApi {
@@ -195,5 +289,9 @@ export function useLayout(devices: DeviceState[]): LayoutApi {
     update,
     reset,
     resetAll: useCallback(() => setOverrides({}), []),
+    toFile: useCallback(() => ({ version: 1 as const, devices: forFile(layout) }), [layout]),
+    // Straight into the overrides: a loaded file describes every device, so nothing should still
+    // be answering to a default that this robot's team did not choose.
+    applyFile: useCallback((file: LayoutFile) => setOverrides({ ...file.devices }), []),
   };
 }

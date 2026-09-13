@@ -2,9 +2,53 @@
 // these are the only shapes that cross the socket.
 
 export interface Envelope {
-  namespace: 'opmode' | 'telemetry' | 'gamepad' | 'device';
+  namespace: 'opmode' | 'telemetry' | 'gamepad' | 'device' | 'layout';
   type: string;
   payload: unknown;
+}
+
+/** A layout file the server holds, named as it is on disk. Its contents belong to the 3D scene. */
+export interface LayoutRecord {
+  name: string;
+  layout: unknown;
+}
+
+/**
+ * Layout messages are checked rather than asserted: their contents come off disk, where a hand
+ * edit or a file from an older schema is an ordinary thing to meet, and a bad one must not take
+ * the dashboard down with it.
+ */
+function fields(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+export function parseLayoutList(
+  payload: unknown,
+): { layouts: string[]; directory: string } | null {
+  const message = fields(payload);
+  if (!message || !Array.isArray(message.layouts) || typeof message.directory !== 'string') {
+    return null;
+  }
+  return {
+    layouts: message.layouts.filter((name): name is string => typeof name === 'string'),
+    directory: message.directory,
+  };
+}
+
+export function parseLayoutRecord(payload: unknown): LayoutRecord | null {
+  const message = fields(payload);
+  if (!message || typeof message.name !== 'string' || fields(message.layout) === null) {
+    return null;
+  }
+  return { name: message.name, layout: message.layout };
+}
+
+export function parseSavedLayout(payload: unknown): { name: string; path: string } | null {
+  const message = fields(payload);
+  if (!message || typeof message.name !== 'string' || typeof message.path !== 'string') {
+    return null;
+  }
+  return { name: message.name, path: message.path };
 }
 
 export interface OpModeInfo {

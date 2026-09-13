@@ -68,13 +68,7 @@ export function App() {
       )}
 
       {view === 'scene' ? (
-        <View3D
-          devices={dashboard.devices}
-          gamepad={gamepad}
-          telemetry={dashboard.telemetry}
-          onOverride={dashboard.overrideBehavior}
-          onResetBehavior={dashboard.resetBehavior}
-        />
+        <View3D dashboard={dashboard} gamepad={gamepad} />
       ) : (
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <div style={log}>

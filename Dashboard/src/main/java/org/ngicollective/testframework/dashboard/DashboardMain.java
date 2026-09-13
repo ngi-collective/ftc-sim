@@ -2,6 +2,7 @@ package org.ngicollective.testframework.dashboard;
 
 import org.ngicollective.testframework.hardware.SimulatedRobot;
 
+import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -9,15 +10,22 @@ import java.util.List;
  * on the classpath, then serve them.
  *
  * <pre>
- * mise run dashboard                          # default host, package and port
+ * mise run dashboard                          # default host, package, port and layout directory
  * mise run dashboard --args "--port 9000"
  * mise run dashboard --args "--host 192.168.1.50"   # reachable from another machine
+ * mise run dashboard --args "--layouts ../shared-layouts"
  * </pre>
  */
 public final class DashboardMain {
 
     private static final String DEFAULT_PACKAGE = "org.firstinspires.ftc.teamcode";
     private static final int DEFAULT_PORT = 8765;
+
+    /**
+     * Relative to the module the task runs in, which is TeamCode: saved layouts land beside the
+     * OpModes and the robot configuration they describe, and get committed with them.
+     */
+    private static final String DEFAULT_LAYOUT_DIRECTORY = "robot-layouts";
 
     // Loopback, and a concrete address rather than the wildcard: see DashboardServer's constructor
     // for what a dual-stack bind does to this WebSocket library on macOS.
@@ -30,6 +38,8 @@ public final class DashboardMain {
         String packagePrefix = argument(args, "--package", DEFAULT_PACKAGE);
         String host = argument(args, "--host", DEFAULT_HOST);
         int port = Integer.parseInt(argument(args, "--port", String.valueOf(DEFAULT_PORT)));
+        LayoutStore layouts =
+                new LayoutStore(Paths.get(argument(args, "--layouts", DEFAULT_LAYOUT_DIRECTORY)));
         String robotName = argument(args, "--robot", null);
 
         OpModeDiscovery discovery = new OpModeDiscovery(packagePrefix);
@@ -46,13 +56,14 @@ public final class DashboardMain {
 
         System.out.println("[dashboard] robot: " + robot.name()
                 + " (" + robots.size() + " configuration(s) found)");
+        System.out.println("[dashboard] layouts: " + layouts.directory());
         System.out.println("[dashboard] OpModes: " + opModes.size());
         for (OpModeEntry entry : opModes) {
             System.out.println("[dashboard]   " + entry.info.name + "  (" + entry.info.flavor + ")");
         }
 
         LocalDashboardBackend backend = new LocalDashboardBackend(robot, opModes);
-        DashboardServer server = new DashboardServer(backend, host, port);
+        DashboardServer server = new DashboardServer(backend, layouts, host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             backend.close();
             try {
