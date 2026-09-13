@@ -28,6 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -45,6 +46,20 @@ public class LocalDashboardBackend implements DashboardBackend {
 
     /** Device snapshots are for human eyes; every tick would be needless traffic. */
     private static final int TICKS_PER_DEVICE_BROADCAST = 5;
+
+    /**
+     * How often a session's OpMode may transmit telemetry.
+     *
+     * <p>A {@code LinearOpMode} calls {@code telemetry.update()} once per loop, and its loop is
+     * bounded only by how fast the thread spins &mdash; against zero-latency simulated hardware
+     * that is tens of thousands of times a second. Left unthrottled (the harness default, which
+     * unit tests want so they see every frame) the session composes and broadcasts frames at that
+     * rate, which no browser can drain: the socket backs up and every other message, device state
+     * included, arrives minutes late. The Driver Station samples at 250 ms for the same reason;
+     * this is the same idea at the device-snapshot rate.</p>
+     */
+    private static final int TELEMETRY_INTERVAL_MILLIS =
+            (int) (TICK_MILLIS * TICKS_PER_DEVICE_BROADCAST);
 
     private final Map<String, OpModeEntry> opModes = new LinkedHashMap<>();
     private final SimulatedRobot robot;
@@ -65,6 +80,13 @@ public class LocalDashboardBackend implements DashboardBackend {
     private OpModeEntry running;
     private OpModeStatus status = OpModeStatus.stopped();
     private int tickCount;
+
+    /**
+     * The newest telemetry frame not yet broadcast. Only the latest matters &mdash; the UI shows one
+     * composition &mdash; and draining it on the tick keeps outbound traffic bounded by the tick
+     * rate no matter what the OpMode does with its transmission interval.
+     */
+    private final AtomicReference<TelemetryFrame> pendingTelemetry = new AtomicReference<>();
 
     public LocalDashboardBackend(SimulatedRobot robot, List<OpModeEntry> opModes) {
         this.robot = robot;
@@ -105,12 +127,12 @@ public class LocalDashboardBackend implements DashboardBackend {
                 LinearOpModeHarness linear =
                         OpModeHarness.forLinear((LinearOpMode) opMode, hardware);
                 harness = linear;
-                attachListeners(linear);
+                wireTelemetry(linear);
                 linear.launch();
             } else {
                 IterativeOpModeHarness iterative = OpModeHarness.forIterative(opMode, hardware);
                 harness = iterative;
-                attachListeners(iterative);
+                wireTelemetry(iterative);
                 iterative.init();
             }
             running = entry;
@@ -200,13 +222,12 @@ public class LocalDashboardBackend implements DashboardBackend {
         ticker.shutdownNow();
     }
 
-    private void attachListeners(OpModeHarness target) {
-        target.addTelemetryListener(lines -> {
-            TelemetryFrame frame = new TelemetryFrame(System.currentTimeMillis(), lines);
-            for (Consumer<TelemetryFrame> listener : telemetryListeners) {
-                listener.accept(frame);
-            }
-        });
+    private void wireTelemetry(OpModeHarness target) {
+        target.setTelemetryTransmissionInterval(TELEMETRY_INTERVAL_MILLIS);
+        // Runs on the OpMode's own thread: keep the newest frame and let the ticker publish it.
+        pendingTelemetry.set(null);
+        target.addTelemetryListener(
+                lines -> pendingTelemetry.set(new TelemetryFrame(System.currentTimeMillis(), lines)));
     }
 
     private FakeDevice<?> requireDeviceLocked(String device) {
@@ -247,17 +268,38 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     /**
-     * One control cycle: advance simulated time, run an iterative OpMode's loop, notice a linear
-     * OpMode that has ended on its own, and periodically publish device state.
+     * One control cycle: advance simulated time, do the Robot Controller event loop's per-iteration
+     * housekeeping, run an iterative OpMode's loop, notice a linear OpMode that has ended on its
+     * own, and publish whatever the browser needs to see.
      */
     private void tick() {
-        List<DeviceState> snapshot = null;
+        List<DeviceState> snapshot = tickSession();
+
+        // Outside the lock, and once per tick at most: this is the only place telemetry reaches the
+        // browser, which is what keeps a fast OpMode loop from flooding the socket.
+        TelemetryFrame frame = pendingTelemetry.getAndSet(null);
+        if (frame != null) {
+            for (Consumer<TelemetryFrame> listener : telemetryListeners) {
+                listener.accept(frame);
+            }
+        }
+
+        if (snapshot != null) {
+            for (Consumer<List<DeviceState>> listener : deviceListeners) {
+                listener.accept(snapshot);
+            }
+        }
+    }
+
+    /** The locked half of a control cycle. Returns a device snapshot on the ticks that publish one. */
+    private List<DeviceState> tickSession() {
         synchronized (lock) {
             if (harness == null) {
-                return;
+                return null;
             }
             try {
                 harness.advance(TICK_MILLIS / 1000.0);
+                harness.eventLoopIteration();
                 if (harness instanceof IterativeOpModeHarness) {
                     IterativeOpModeHarness iterative = (IterativeOpModeHarness) harness;
                     if (status.state == OpModeStatus.State.RUNNING) {
@@ -275,7 +317,7 @@ public class LocalDashboardBackend implements DashboardBackend {
                         setStatusLocked(new OpModeStatus(
                                 null, OpModeStatus.State.STOPPED,
                                 failure == null ? null : describe(failure)));
-                        return;
+                        return null;
                     }
                 }
             } catch (RuntimeException | Error e) {
@@ -284,18 +326,10 @@ public class LocalDashboardBackend implements DashboardBackend {
                 running = null;
                 hardware = null;
                 setStatusLocked(new OpModeStatus(null, OpModeStatus.State.STOPPED, describe(e)));
-                return;
+                return null;
             }
 
-            if (++tickCount % TICKS_PER_DEVICE_BROADCAST == 0) {
-                snapshot = snapshotLocked();
-            }
-        }
-
-        if (snapshot != null) {
-            for (Consumer<List<DeviceState>> listener : deviceListeners) {
-                listener.accept(snapshot);
-            }
+            return ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null;
         }
     }
 

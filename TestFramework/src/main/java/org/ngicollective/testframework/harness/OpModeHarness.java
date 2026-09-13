@@ -9,6 +9,8 @@ import org.firstinspires.ftc.robotcore.internal.opmode.OpModeServices;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -58,7 +60,9 @@ public abstract class OpModeHarness {
         opMode.gamepad2 = new Gamepad();
         setInternalField(OpModeFields.opModeInternalClass(), "internalOpModeServices", services());
         // Transmit every update(), so a test sees each frame instead of the SDK's 250 ms sampling.
-        opMode.telemetry.setMsTransmissionInterval(0);
+        // A long-running consumer such as the dashboard wants the real sampling back; see
+        // setTelemetryTransmissionInterval.
+        setTelemetryTransmissionInterval(0);
     }
 
     /** Harness for a {@link LinearOpMode}: {@code runOpMode()} runs on its own thread. */
@@ -92,6 +96,48 @@ public abstract class OpModeHarness {
     /** Advances simulated time for every fake device. */
     public void advance(double seconds) {
         hardware.advance(seconds);
+    }
+
+    /**
+     * How often the OpMode's telemetry may transmit, in milliseconds; 0 transmits every
+     * {@code update()}.
+     *
+     * <p>The SDK samples at 250 ms because the Driver Station is a human-readable display, and a
+     * {@code LinearOpMode} loop calls {@code update()} as fast as its thread can spin &mdash; with
+     * zero-latency simulated hardware, tens of thousands of times a second. Anything forwarding
+     * frames over a socket must leave this above zero or it will publish at that rate.</p>
+     */
+    public void setTelemetryTransmissionInterval(int millis) {
+        if (millis < 0) {
+            throw new IllegalArgumentException("transmission interval cannot be negative");
+        }
+        opMode.telemetry.setMsTransmissionInterval(millis);
+    }
+
+    /**
+     * One Robot Controller event-loop iteration's worth of housekeeping, which the real
+     * {@code OpModeManagerImpl} does once per control cycle: refresh the OpMode's runtime and
+     * transmit telemetry that {@code update()} composed but the transmission interval held back.
+     *
+     * <p>Without this, a throttled OpMode's telemetry only reaches a listener when the OpMode
+     * happens to call {@code update()} again after the interval elapses &mdash; so an OpMode
+     * blocked in {@code waitForStart()} or {@code sleep()} would appear to have gone silent.</p>
+     */
+    public void eventLoopIteration() {
+        try {
+            OpModeFields.eventLoopIterationMethod().invoke(opMode);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("cannot drive the SDK's event-loop hook", e);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            throw new IllegalStateException("the SDK's event-loop hook threw", cause);
+        }
     }
 
     public boolean isStarted() {
@@ -220,11 +266,18 @@ public abstract class OpModeHarness {
         }
     }
 
-    /** Locates the SDK's package-private lifecycle fields, which live on {@code OpModeInternal}. */
+    /**
+     * Locates the SDK's package-private lifecycle members, which live on {@code OpModeInternal}.
+     */
     static final class OpModeFields {
 
         private static final String OP_MODE_INTERNAL =
                 "com.qualcomm.robotcore.eventloop.opmode.OpModeInternal";
+
+        private static final String EVENT_LOOP_ITERATION = "internalOnEventLoopIteration";
+
+        // Resolved once: the harness calls this every control cycle.
+        private static final Method EVENT_LOOP_ITERATION_METHOD = resolveEventLoopIteration();
 
         private OpModeFields() {
         }
@@ -234,6 +287,23 @@ public abstract class OpModeHarness {
                 return Class.forName(OP_MODE_INTERNAL);
             } catch (ClassNotFoundException e) {
                 throw new IllegalStateException(OP_MODE_INTERNAL + " is missing from the classpath", e);
+            }
+        }
+
+        static Method eventLoopIterationMethod() {
+            return EVENT_LOOP_ITERATION_METHOD;
+        }
+
+        private static Method resolveEventLoopIteration() {
+            try {
+                Method method = opModeInternalClass().getDeclaredMethod(EVENT_LOOP_ITERATION);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException e) {
+                throw new IllegalStateException(
+                        "The SDK's " + OP_MODE_INTERNAL + "." + EVENT_LOOP_ITERATION + "() is not "
+                                + "where this harness expects it; the FTC SDK version has probably "
+                                + "changed.", e);
             }
         }
     }

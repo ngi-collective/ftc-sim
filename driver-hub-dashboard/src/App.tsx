@@ -1,26 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BEHAVIORS, type DeviceState } from './protocol';
 import { useDashboard } from './useDashboard';
 import { KEYBOARD_HELP, useKeyboardGamepad } from './useKeyboardGamepad';
 
-// Variant A, "Console": telemetry-first. A dark scrolling monospace log dominates; OpMode controls
-// are a thin top bar; devices and the gamepad live in a narrow side rail.
+// Variant A, "Console": telemetry-first. A dark monospace panel holds the OpMode's current
+// telemetry snapshot; OpMode controls are a thin top bar; devices and the gamepad live in a narrow
+// side rail.
 export function App() {
   const dashboard = useDashboard();
   const gamepad = useKeyboardGamepad(dashboard.sendGamepad);
   const [selected, setSelected] = useState('');
-  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!selected && dashboard.opModes.length > 0) {
       setSelected(dashboard.opModes[0].className);
     }
   }, [dashboard.opModes, selected]);
-
-  useEffect(() => {
-    // Follow the tail, the way a driver watches the newest telemetry line.
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [dashboard.telemetry]);
 
   const running = dashboard.status.state === 'RUNNING';
   const statusColour = running ? '#7CFC00' : dashboard.status.state === 'INIT' ? '#d8d84a' : '#888';
@@ -59,20 +54,19 @@ export function App() {
       )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div ref={logRef} style={log}>
-          {dashboard.telemetry.map((frame, index) => (
-            <div key={index} style={{ marginBottom: 4 }}>
-              <span style={{ color: '#555' }}>
-                {new Date(frame.timestamp).toLocaleTimeString()}
-              </span>
-              {frame.lines.map((line, lineIndex) => (
-                <div key={lineIndex} style={{ paddingLeft: 12 }}>
-                  {line}
-                </div>
+        <div style={log}>
+          {dashboard.telemetry ? (
+            <>
+              <div style={{ color: '#555' }}>
+                {new Date(dashboard.telemetry.timestamp).toLocaleTimeString()}
+              </div>
+              {dashboard.telemetry.lines.map((line, lineIndex) => (
+                <div key={lineIndex}>{line}</div>
               ))}
-            </div>
-          ))}
-          <div style={{ color: '#555' }}>▌ waiting for next telemetry.update()...</div>
+            </>
+          ) : (
+            <div style={{ color: '#555' }}>▌ waiting for telemetry.update()...</div>
+          )}
         </div>
 
         <div style={rail}>

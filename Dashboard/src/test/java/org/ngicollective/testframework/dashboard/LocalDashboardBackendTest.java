@@ -128,6 +128,30 @@ class LocalDashboardBackendTest {
         assertEquals("imu", find(snapshot, "imu").kind);
     }
 
+    /**
+     * A {@code LinearOpMode} loop calls {@code telemetry.update()} as fast as its thread spins;
+     * against simulated hardware that is tens of thousands of times a second. What reaches a
+     * subscriber &mdash; and from there a socket and a browser &mdash; has to be a display rate
+     * instead, or the browser drowns and every other message queues up behind the backlog.
+     */
+    @Test
+    void publishesTelemetryAtADisplayRateRatherThanTheOpModeLoopRate() {
+        backend.initOpMode(CLASS_NAME);
+        backend.start();
+        await(() -> !telemetry.isEmpty(), "no telemetry arrived");
+
+        int before = telemetry.size();
+        long startedAt = System.nanoTime();
+        settle();
+        settle();
+        double seconds = (System.nanoTime() - startedAt) / 1e9;
+
+        double perSecond = (telemetry.size() - before) / seconds;
+        assertTrue(perSecond <= 60, "telemetry arrived at " + Math.round(perSecond)
+                + " frames per second; the backend publishes at most one per control cycle");
+        assertTrue(perSecond >= 2, "telemetry stopped flowing entirely: " + perSecond + "/s");
+    }
+
     @Test
     void gamepadInputReachesTheRunningOpMode() {
         backend.initOpMode(CLASS_NAME);

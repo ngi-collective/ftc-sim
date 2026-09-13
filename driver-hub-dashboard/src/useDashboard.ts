@@ -10,14 +10,15 @@ import type {
 
 const DEFAULT_URL = `ws://${location.hostname}:8765`;
 
-/** Telemetry frames kept in the log. A busy OpMode transmits every loop iteration. */
-const TELEMETRY_HISTORY = 400;
-
 export interface Dashboard {
   connected: boolean;
   opModes: OpModeInfo[];
   status: OpModeStatus;
-  telemetry: TelemetryFrame[];
+  /**
+   * The newest `telemetry.update()` snapshot, or null before the first one. The Driver Station
+   * shows only the latest composition, so each frame replaces its predecessor.
+   */
+  telemetry: TelemetryFrame | null;
   devices: DeviceState[];
   error: string | null;
   init: (className: string) => void;
@@ -37,7 +38,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     state: 'STOPPED',
     failure: null,
   });
-  const [telemetry, setTelemetry] = useState<TelemetryFrame[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetryFrame | null>(null);
   const [devices, setDevices] = useState<DeviceState[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,9 +73,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
             setStatus(payload as OpModeStatus);
             break;
           case 'telemetry/frame':
-            setTelemetry((previous) =>
-              [...previous, payload as TelemetryFrame].slice(-TELEMETRY_HISTORY),
-            );
+            setTelemetry(payload as TelemetryFrame);
             break;
           case 'device/state':
             setDevices((payload as { devices: DeviceState[] }).devices);
@@ -100,7 +99,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
 
   const init = useCallback(
     (className: string) => {
-      setTelemetry([]);
+      setTelemetry(null);
       setError(null);
       send('opmode', 'init', { className });
     },

@@ -12,7 +12,9 @@ import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 
 /**
  * Serves the dashboard's single WebSocket.
@@ -38,8 +40,20 @@ public class DashboardServer extends WebSocketServer {
     private final Gson gson = new GsonBuilder().serializeNulls().create();
     private final DashboardBackend backend;
 
-    public DashboardServer(DashboardBackend backend, int port) {
-        super(new InetSocketAddress(port));
+    /**
+     * @param host address to bind. It must be a concrete address, not the unspecified wildcard:
+     *             the JDK gives a wildcard bind a dual-stack IPv6 socket, and an IPv4 client
+     *             arriving on it (which is what {@code ws://localhost:...} resolves to) produces an
+     *             accepted socket whose {@code setTcpNoDelay} fails with {@code SocketException:
+     *             Invalid argument} on macOS. Java-WebSocket does that call unguarded while
+     *             handling the accept, and its error path cancels the key and closes the channel it
+     *             came from &mdash; the listening socket. The server then stays alive, serving the
+     *             one connection it already had, while every later connection, including the
+     *             browser's reconnect after a reload, is refused. Binding a concrete address keeps
+     *             accepted sockets in one family and never reaches that call.
+     */
+    public DashboardServer(DashboardBackend backend, String host, int port) {
+        super(new InetSocketAddress(resolve(host), port));
         this.backend = backend;
         setReuseAddr(true);
 
@@ -50,6 +64,21 @@ public class DashboardServer extends WebSocketServer {
             payload.add("devices", gson.toJsonTree(devices));
             broadcast(new Envelope("device", "state", payload));
         });
+    }
+
+    private static InetAddress resolve(String host) {
+        InetAddress address;
+        try {
+            address = InetAddress.getByName(host);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("cannot resolve dashboard host \"" + host + "\"", e);
+        }
+        if (address.isAnyLocalAddress()) {
+            throw new IllegalArgumentException(
+                    "the dashboard cannot bind the wildcard address \"" + host + "\"; name the "
+                            + "interface to serve, such as 127.0.0.1 for this machine only");
+        }
+        return address;
     }
 
     @Override
@@ -88,12 +117,21 @@ public class DashboardServer extends WebSocketServer {
 
     @Override
     public void onError(WebSocket connection, Exception e) {
-        System.err.println("[dashboard] websocket error: " + e);
+        if (connection != null) {
+            System.err.println("[dashboard] websocket error: " + e);
+            return;
+        }
+        // A server-level error (a port already in use, most often) has already shut the listener
+        // down inside the library. Exiting says so, instead of leaving a process that looks alive
+        // and answers nothing.
+        System.err.println("[dashboard] fatal: " + e);
+        System.exit(1);
     }
 
     @Override
     public void onStart() {
-        System.out.println("[dashboard] listening on ws://localhost:" + getPort());
+        System.out.println("[dashboard] listening on ws://" + getAddress().getHostString()
+                + ":" + getPort());
     }
 
     private void dispatch(WebSocket connection, Envelope request) {

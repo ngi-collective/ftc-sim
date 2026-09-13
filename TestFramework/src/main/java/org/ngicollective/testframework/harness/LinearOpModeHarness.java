@@ -39,6 +39,11 @@ public class LinearOpModeHarness extends OpModeHarness {
                 linearOpMode.runOpMode();
             } catch (Throwable t) {
                 failure = t;
+            } finally {
+                // What the SDK does when the OpMode thread unwinds: a telemetry.update() the
+                // transmission interval was still holding back goes out now rather than never.
+                setTelemetryTransmissionInterval(0);
+                eventLoopIteration();
             }
         }, "opmode-" + linearOpMode.getClass().getSimpleName());
         thread.setDaemon(true);

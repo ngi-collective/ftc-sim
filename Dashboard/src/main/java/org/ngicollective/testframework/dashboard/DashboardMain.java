@@ -9,8 +9,9 @@ import java.util.List;
  * on the classpath, then serve them.
  *
  * <pre>
- * mise run dashboard                 # default package and port
- * mise run dashboard -- --port 9000
+ * mise run dashboard                          # default host, package and port
+ * mise run dashboard --args "--port 9000"
+ * mise run dashboard --args "--host 192.168.1.50"   # reachable from another machine
  * </pre>
  */
 public final class DashboardMain {
@@ -18,11 +19,16 @@ public final class DashboardMain {
     private static final String DEFAULT_PACKAGE = "org.firstinspires.ftc.teamcode";
     private static final int DEFAULT_PORT = 8765;
 
+    // Loopback, and a concrete address rather than the wildcard: see DashboardServer's constructor
+    // for what a dual-stack bind does to this WebSocket library on macOS.
+    private static final String DEFAULT_HOST = "127.0.0.1";
+
     private DashboardMain() {
     }
 
     public static void main(String[] args) throws Exception {
         String packagePrefix = argument(args, "--package", DEFAULT_PACKAGE);
+        String host = argument(args, "--host", DEFAULT_HOST);
         int port = Integer.parseInt(argument(args, "--port", String.valueOf(DEFAULT_PORT)));
         String robotName = argument(args, "--robot", null);
 
@@ -46,7 +52,7 @@ public final class DashboardMain {
         }
 
         LocalDashboardBackend backend = new LocalDashboardBackend(robot, opModes);
-        DashboardServer server = new DashboardServer(backend, port);
+        DashboardServer server = new DashboardServer(backend, host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             backend.close();
             try {
