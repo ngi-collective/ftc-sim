@@ -101,6 +101,27 @@ class DashboardServerTest {
         reader.closeBlocking();
     }
 
+    /**
+     * The first thing every browser asks for, on a checkout where nobody has saved a layout yet.
+     * The reply used to be an InaccessibleObjectException in the dashboard's error bar, because an
+     * empty list from {@code Collections} is a class Gson cannot reflect on under the module system.
+     */
+    @Test
+    void listsLayoutsBeforeAnyHaveBeenSaved() throws Exception {
+        int port = freePort();
+        backend = new LocalDashboardBackend(ROBOT, Collections.<OpModeEntry>emptyList());
+        LayoutStore store = new LayoutStore(layoutDirectory.resolve("never-created"));
+        server = new DashboardServer(backend, store, "127.0.0.1", port);
+        server.start();
+
+        RecordingClient client = connect("ws://127.0.0.1:" + port);
+        client.send("{\"namespace\":\"layout\",\"type\":\"list\",\"payload\":{}}");
+
+        assertTrue(client.awaitMessage("\"layouts\"").contains("\"layouts\":[]"),
+                "an empty layout directory did not list cleanly");
+        client.closeBlocking();
+    }
+
     @Test
     void reportsALayoutNameItRefusesInsteadOfDroppingTheRequest() throws Exception {
         int port = freePort();

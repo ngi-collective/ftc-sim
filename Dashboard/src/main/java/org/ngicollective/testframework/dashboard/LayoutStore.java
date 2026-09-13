@@ -46,10 +46,18 @@ public final class LayoutStore {
         return directory;
     }
 
-    /** Saved layout names, alphabetically. */
+    /**
+     * Saved layout names, alphabetically.
+     *
+     * <p>Always an {@link ArrayList}, never {@code Collections.emptyList()}: this goes straight to
+     * Gson, which resolves an adapter from the runtime class and calls {@code setAccessible} on its
+     * constructor. Under the JDK's module system {@code java.util} is not open to the unnamed
+     * module, so reflecting on {@code Collections$EmptyList} throws
+     * {@code InaccessibleObjectException} &mdash; an empty directory would break the listing.</p>
+     */
     public List<String> list() {
         if (!Files.isDirectory(directory)) {
-            return Collections.emptyList();
+            return new ArrayList<>();
         }
         List<String> names = new ArrayList<>();
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory, "*" + EXTENSION)) {
