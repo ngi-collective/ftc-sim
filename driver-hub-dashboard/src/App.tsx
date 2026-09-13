@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react';
 import { BEHAVIORS, type DeviceState } from './protocol';
+import { View3D } from './scene/View3D';
+import { activeChip, button, chip, railHeading, selectStyle } from './ui';
 import { useDashboard } from './useDashboard';
 import { KEYBOARD_HELP, useKeyboardGamepad } from './useKeyboardGamepad';
 
-// Variant A, "Console": telemetry-first. A dark monospace panel holds the OpMode's current
-// telemetry snapshot; OpMode controls are a thin top bar; devices and the gamepad live in a narrow
-// side rail.
+type View = 'scene' | 'console';
+
+// Two ways to watch the same session. "scene" draws the robot in 3D — devices where the team says
+// they sit on the chassis, spinning at the rate the encoders report. "console" is telemetry-first:
+// a dark monospace panel with OpMode controls in a thin top bar and devices in a side rail.
 export function App() {
   const dashboard = useDashboard();
   const gamepad = useKeyboardGamepad(dashboard.sendGamepad);
   const [selected, setSelected] = useState('');
+  const [view, setView] = useState<View>('scene');
 
   useEffect(() => {
     if (!selected && dashboard.opModes.length > 0) {
@@ -23,7 +28,16 @@ export function App() {
   return (
     <div style={shell}>
       <div style={topBar}>
-        <strong style={{ color: '#7CFC00' }}>Driver Hub — Console</strong>
+        <strong style={{ color: '#7CFC00' }}>Driver Hub</strong>
+        {(['scene', 'console'] as const).map((candidate) => (
+          <button
+            key={candidate}
+            style={view === candidate ? activeChip : chip}
+            onClick={() => setView(candidate)}
+          >
+            {candidate}
+          </button>
+        ))}
         <select
           value={selected}
           onChange={(event) => setSelected(event.target.value)}
@@ -53,45 +67,55 @@ export function App() {
         <div style={errorBar}>{dashboard.error ?? dashboard.status.failure}</div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={log}>
-          {dashboard.telemetry ? (
-            <>
-              <div style={{ color: '#555' }}>
-                {new Date(dashboard.telemetry.timestamp).toLocaleTimeString()}
-              </div>
-              {dashboard.telemetry.lines.map((line, lineIndex) => (
-                <div key={lineIndex}>{line}</div>
-              ))}
-            </>
-          ) : (
-            <div style={{ color: '#555' }}>▌ waiting for telemetry.update()...</div>
-          )}
-        </div>
-
-        <div style={rail}>
-          <div style={railHeading}>devices</div>
-          {dashboard.devices.map((device) => (
-            <DeviceRow
-              key={device.name}
-              device={device}
-              onOverride={dashboard.overrideBehavior}
-              onReset={dashboard.resetBehavior}
-            />
-          ))}
-          {dashboard.devices.length === 0 && <div style={{ color: '#555' }}>init an OpMode</div>}
-
-          <div style={railHeading}>gamepad1</div>
-          <div>
-            LS ({gamepad.left_stick_x.toFixed(1)}, {gamepad.left_stick_y.toFixed(1)})
+      {view === 'scene' ? (
+        <View3D
+          devices={dashboard.devices}
+          gamepad={gamepad}
+          telemetry={dashboard.telemetry}
+          onOverride={dashboard.overrideBehavior}
+          onResetBehavior={dashboard.resetBehavior}
+        />
+      ) : (
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={log}>
+            {dashboard.telemetry ? (
+              <>
+                <div style={{ color: '#555' }}>
+                  {new Date(dashboard.telemetry.timestamp).toLocaleTimeString()}
+                </div>
+                {dashboard.telemetry.lines.map((line, lineIndex) => (
+                  <div key={lineIndex}>{line}</div>
+                ))}
+              </>
+            ) : (
+              <div style={{ color: '#555' }}>▌ waiting for telemetry.update()...</div>
+            )}
           </div>
-          <div>
-            RS ({gamepad.right_stick_x.toFixed(1)}, {gamepad.right_stick_y.toFixed(1)})
+
+          <div style={rail}>
+            <div style={railHeading}>devices</div>
+            {dashboard.devices.map((device) => (
+              <DeviceRow
+                key={device.name}
+                device={device}
+                onOverride={dashboard.overrideBehavior}
+                onReset={dashboard.resetBehavior}
+              />
+            ))}
+            {dashboard.devices.length === 0 && <div style={{ color: '#555' }}>init an OpMode</div>}
+
+            <div style={railHeading}>gamepad1</div>
+            <div>
+              LS ({gamepad.left_stick_x.toFixed(1)}, {gamepad.left_stick_y.toFixed(1)})
+            </div>
+            <div>
+              RS ({gamepad.right_stick_x.toFixed(1)}, {gamepad.right_stick_y.toFixed(1)})
+            </div>
+            <div>LT {gamepad.left_trigger.toFixed(1)}</div>
+            <div style={{ color: '#555', marginTop: 8, lineHeight: 1.5 }}>{KEYBOARD_HELP}</div>
           </div>
-          <div>LT {gamepad.left_trigger.toFixed(1)}</div>
-          <div style={{ color: '#555', marginTop: 8, lineHeight: 1.5 }}>{KEYBOARD_HELP}</div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -178,35 +202,4 @@ const rail: React.CSSProperties = {
   padding: 12,
   fontSize: 12,
   overflowY: 'auto',
-};
-
-const railHeading: React.CSSProperties = { color: '#7CFC00', margin: '0 0 8px' };
-
-const button: React.CSSProperties = {
-  background: '#132313',
-  color: '#7CFC00',
-  border: '1px solid #2a4a2a',
-  padding: '4px 10px',
-  cursor: 'pointer',
-  fontFamily: 'monospace',
-};
-
-const chip: React.CSSProperties = {
-  background: '#111a11',
-  color: '#7fbf7f',
-  border: '1px solid #24391f',
-  padding: '1px 6px',
-  fontSize: 11,
-  cursor: 'pointer',
-  fontFamily: 'monospace',
-};
-
-const activeChip: React.CSSProperties = { ...chip, background: '#24391f', color: '#c8ffc8' };
-
-const selectStyle: React.CSSProperties = {
-  background: '#132313',
-  color: '#d6f5d6',
-  border: '1px solid #2a4a2a',
-  padding: '4px 8px',
-  fontFamily: 'monospace',
 };
