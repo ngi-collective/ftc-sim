@@ -10,6 +10,7 @@ import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
+import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
@@ -42,8 +43,9 @@ import java.nio.file.Path;
  * sim/alliance   {alliance}                         -&gt; sim/status, broadcast on change
  * </pre>
  * <p>Pushed without being asked: {@code opmode/status}, {@code telemetry/frame},
- * {@code device/state}, {@code sim/pose} every control cycle, and {@code sim/config} on connect
- * and on every OpMode init. A request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
+ * {@code device/state}, {@code sim/pose} every control cycle, {@code sim/config} on connect and on
+ * every OpMode init, and {@code camera/stream} on connect. A request that fails comes back as
+ * {@code &lt;namespace&gt;/error}.</p>
  */
 public class DashboardServer extends WebSocketServer {
 
@@ -53,6 +55,15 @@ public class DashboardServer extends WebSocketServer {
     private final Gson gson = new GsonBuilder().serializeNulls().create();
     private final DashboardBackend backend;
     private final LayoutStore layouts;
+
+    /**
+     * Where the camera view is served, or null when this session serves no stream.
+     *
+     * <p>Held rather than derived because the stream is a separate server on a separate port: the
+     * WebSocket has no way to know where it ended up, and a browser that guessed would break the
+     * moment either port moved.</p>
+     */
+    private final CameraStreamInfo cameraStream;
 
     /**
      * @param host address to bind. It must be a concrete address, not the unspecified wildcard:
@@ -67,9 +78,21 @@ public class DashboardServer extends WebSocketServer {
      *             accepted sockets in one family and never reaches that call.
      */
     public DashboardServer(DashboardBackend backend, LayoutStore layouts, String host, int port) {
+        this(backend, layouts, host, port, null);
+    }
+
+    /**
+     * The same, serving a browser that can also watch the camera.
+     *
+     * @param cameraStream where the Dashboard Camera View's MJPEG stream is listening, or null for
+     *                     a session that serves no stream
+     */
+    public DashboardServer(DashboardBackend backend, LayoutStore layouts, String host, int port,
+            CameraStreamInfo cameraStream) {
         super(new InetSocketAddress(resolve(host), port));
         this.backend = backend;
         this.layouts = layouts;
+        this.cameraStream = cameraStream;
         setReuseAddr(true);
 
         backend.subscribeStatus(status -> broadcast("opmode", "status", status));
@@ -105,11 +128,14 @@ public class DashboardServer extends WebSocketServer {
         send(connection, opModeListEnvelope());
         send(connection, envelope("opmode", "status", backend.status()));
         send(connection, envelope("sim", "status", backend.simStatus()));
-        // Geometry only exists once an OpMode has been initialized on a robot that can drive; until
-        // then the browser has nothing to draw a field for and will be told on the next init.
+        // Geometry exists as soon as the session has a robot that can drive, which is before any
+        // OpMode runs; only a robot with no drivetrain has none.
         SimConfigPayload simConfig = backend.simConfig();
         if (simConfig != null) {
             send(connection, envelope("sim", "config", simConfig));
+        }
+        if (cameraStream != null) {
+            send(connection, envelope("camera", "stream", cameraStream));
         }
     }
 

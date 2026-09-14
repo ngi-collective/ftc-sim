@@ -1,5 +1,6 @@
 package org.ngicollective.testframework.dashboard;
 
+import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
@@ -58,19 +59,33 @@ public interface DashboardBackend {
      * <p>Every tick, not on the device-snapshot cadence: this drives an animation, and a robot
      * redrawn ten times a second reads as stuttering rather than as fast.</p>
      *
-     * <p>Silent while no OpMode is initialized, and silent for a robot whose configuration declares
-     * no drivetrain &mdash; there is no pose to report for hardware that cannot drive.</p>
+     * <p>Flows whether or not an OpMode is running, because the robot exists either way. Silent
+     * only for a robot whose configuration declares no drivetrain &mdash; there is no pose to
+     * report for hardware that cannot drive.</p>
      */
     void subscribeSimPose(Consumer<SimPose> listener);
 
     /**
-     * The robot and field geometry the current session was built with, or null when nothing is
-     * initialized or the robot has no drivetrain.
+     * The robot and field geometry this session's robot was built with, or null for a robot that
+     * declares no drivetrain.
      */
     SimConfigPayload simConfig();
 
     /** Fires on every OpMode init, because a re-init re-reads the configuration files. */
     void subscribeSimConfig(Consumer<SimConfigPayload> listener);
+
+    /**
+     * What the simulated robot's camera can see, for the Dashboard Camera View to render.
+     *
+     * <p>Available whenever the session has a robot with a camera, OpMode or no OpMode: the view
+     * exists to answer "is the tag in shot from here", and needing to start an OpMode first would
+     * make it useless for exactly that. This is a deliberate divergence from real hardware, where
+     * nothing produces frames until a {@code VisionPortal} opens the camera.</p>
+     *
+     * <p>Null when the robot declares no camera. Callers render from it directly and must not
+     * assume any streaming state.</p>
+     */
+    FrameSource cameraFrames();
 
     /** How the simulation is being run; also pushed to {@link #subscribeSimStatus} on change. */
     SimStatus simStatus();

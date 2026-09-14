@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.dashboard;
 
+import org.ngicollective.camerastream.MjpegServer;
+import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
 
 import java.nio.file.Paths;
@@ -10,8 +12,9 @@ import java.util.List;
  * on the classpath, then serve them.
  *
  * <pre>
- * mise run dashboard                          # default host, package, port and layout directory
+ * mise run dashboard                          # default host, package, ports and layout directory
  * mise run dashboard --args "--port 9000"
+ * mise run dashboard --args "--camera-port 9100"
  * mise run dashboard --args "--host 192.168.1.50"   # reachable from another machine
  * mise run dashboard --args "--layouts ../shared-layouts"
  * </pre>
@@ -20,6 +23,26 @@ public final class DashboardMain {
 
     private static final String DEFAULT_PACKAGE = "org.firstinspires.ftc.teamcode";
     private static final int DEFAULT_PORT = 8765;
+
+    /**
+     * The camera stream's port, next to the socket's.
+     *
+     * <p>Its own port because it is its own protocol: plain HTTP that a browser's {@code <img>}
+     * consumes directly, rather than frames smuggled through the JSON socket.</p>
+     */
+    private static final int DEFAULT_CAMERA_PORT = 8766;
+
+    /** The path the stream answers on, which reads like what it is in a browser's address bar. */
+    private static final String CAMERA_PATH = "/camera";
+
+    /**
+     * Camera frame rate.
+     *
+     * <p>Half the simulated camera's 30 fps: at 15 the view reads as live, and a frame costs a full
+     * render plus a JPEG encode. This makes the panel a sampled view of what the camera sees, not a
+     * record of every frame a detector was handed.</p>
+     */
+    private static final double CAMERA_FRAMES_PER_SECOND = 15;
 
     /**
      * Relative to the module the task runs in, which is TeamCode: saved layouts land beside the
@@ -63,9 +86,34 @@ public final class DashboardMain {
         }
 
         LocalDashboardBackend backend = new LocalDashboardBackend(robot, opModes);
-        DashboardServer server = new DashboardServer(backend, layouts, host, port);
+
+        // Started before the socket, because the socket advertises where it landed. A robot with no
+        // camera gets no stream and no advertisement, and the panel says so.
+        MjpegServer camera = null;
+        CameraStreamInfo cameraStream = null;
+        if (backend.cameraFrames() != null) {
+            int cameraPort = Integer.parseInt(
+                    argument(args, "--camera-port", String.valueOf(DEFAULT_CAMERA_PORT)));
+            camera = new MjpegServer(host, cameraPort, CAMERA_PATH, CAMERA_FRAMES_PER_SECOND,
+                    new CameraViewFrames(backend));
+            camera.start();
+            cameraStream = new CameraStreamInfo(camera.url(), CameraViewFrames.width(),
+                    CameraViewFrames.height(), CAMERA_FRAMES_PER_SECOND);
+            System.out.println("[dashboard] camera: " + camera.url() + "  ("
+                    + CameraViewFrames.width() + "x" + CameraViewFrames.height() + " at "
+                    + (int) CAMERA_FRAMES_PER_SECOND + " fps)");
+        } else {
+            System.out.println("[dashboard] camera: none (" + robot.name()
+                    + " declares no webcam)");
+        }
+
+        DashboardServer server = new DashboardServer(backend, layouts, host, port, cameraStream);
+        final MjpegServer cameraToClose = camera;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             backend.close();
+            if (cameraToClose != null) {
+                cameraToClose.close();
+            }
             try {
                 server.stop(1000);
             } catch (InterruptedException e) {

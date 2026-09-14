@@ -5,6 +5,7 @@ import {
   parseLayoutRecord,
   parseSavedLayout,
   type Alliance,
+  type CameraStream,
   type DeviceState,
   type Envelope,
   type GamepadState,
@@ -60,6 +61,12 @@ export interface Dashboard {
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   /** The robot and field the server is simulating, or null before the first `sim/config`. */
   simConfig: SimConfig | null;
+  /**
+   * Where the camera view is served, or null when this session has no camera.
+   *
+   * Sent once on connect. The panel points an `<img>` at it; no frame ever crosses this socket.
+   */
+  cameraStream: CameraStream | null;
   /** Clock and alliance, as the server last reported them. */
   simStatus: SimStatus;
   init: (className: string) => void;
@@ -98,14 +105,16 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [loadedLayout, setLoadedLayout] = useState<LayoutRecord | null>(null);
   const [savedLayout, setSavedLayout] = useState<{ name: string; path: string } | null>(null);
   const [simConfig, setSimConfig] = useState<SimConfig | null>(null);
+  const [cameraStream, setCameraStream] = useState<CameraStream | null>(null);
   const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
   const [pose, setPose] = useState<SimPose | null>(null);
   const poseRef = useRef<SimPose | null>(null);
   const poseListeners = useRef(new Set<(pose: SimPose) => void>());
   const lastPoseCommit = useRef(0);
 
-  // A robot that is not being simulated has no pose at all, and drawing the last one it had would
-  // claim it is still sitting there. Say nothing instead.
+  // Only when the server goes away: the robot itself outlives every OpMode, so a pose keeps
+  // arriving between runs. With nobody on the other end there is no robot to draw at all, and the
+  // last pose would claim one is still sitting there.
   const clearPose = useCallback(() => {
     poseRef.current = null;
     setPose(null);
@@ -146,7 +155,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
           case 'opmode/status': {
             const next = payload as OpModeStatus;
             setStatus(next);
-            if (next.state === 'STOPPED') clearPose();
+            // No clearing on STOPPED: the robot is still there, and the next pose says where.
             break;
           }
           case 'telemetry/frame':
@@ -186,6 +195,9 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
           }
           case 'sim/config':
             setSimConfig(payload as SimConfig);
+            break;
+          case 'camera/stream':
+            setCameraStream(payload as CameraStream);
             break;
           case 'sim/status':
             setSimStatus(payload as SimStatus);
@@ -227,12 +239,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     error,
     init,
     start: useCallback(() => send('opmode', 'start', {}), [send]),
-    // Stopping tears the simulated robot down with the OpMode, so drop the pose now rather than
-    // leaving a ghost on the field until the server gets round to saying so.
-    stop: useCallback(() => {
-      clearPose();
-      send('opmode', 'stop', {});
-    }, [send, clearPose]),
+    stop: useCallback(() => send('opmode', 'stop', {}), [send]),
     sendGamepad: useCallback(
       (state: GamepadState, which: 1 | 2 = 1) => send('gamepad', 'state', { gamepad: which, ...state }),
       [send],
@@ -262,6 +269,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       };
     }, []),
     simConfig,
+    cameraStream,
     simStatus,
     setSimTime: useCallback(
       (multiplier: number, paused: boolean) => send('sim', 'time', { multiplier, paused }),

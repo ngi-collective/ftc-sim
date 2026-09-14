@@ -4,6 +4,7 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.Gamepad;
 
+import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
@@ -19,6 +20,7 @@ import org.ngicollective.testframework.hardware.FakeDevice;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.FakeImu;
 import org.ngicollective.testframework.hardware.FakeServo;
+import org.ngicollective.testframework.hardware.FakeWebcam;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
 import org.ngicollective.testframework.harness.IterativeOpModeHarness;
 import org.ngicollective.testframework.harness.LinearOpModeHarness;
@@ -104,6 +106,15 @@ public class LocalDashboardBackend implements DashboardBackend {
     private final List<Consumer<SimStatus>> simStatusListeners = new CopyOnWriteArrayList<>();
 
     private final Object lock = new Object();
+
+    /**
+     * The robot itself, which outlives any OpMode run on it.
+     *
+     * <p>Never null while the session is open. A real Robot Controller has hardware from the
+     * moment it boots &mdash; an OpMode is a thing that runs <em>on</em> a robot, not the thing
+     * that brings one into existence &mdash; and the Dashboard Camera View depends on that being
+     * true here too: it renders what the camera sees whether or not anything is running.</p>
+     */
     private FakeHardwareMap hardware;
     private OpModeHarness harness;
     private OpModeEntry running;
@@ -136,7 +147,22 @@ public class LocalDashboardBackend implements DashboardBackend {
         for (OpModeEntry entry : opModes) {
             this.opModes.put(entry.info.className, entry);
         }
+        synchronized (lock) {
+            restLocked();
+        }
         ticker.scheduleAtFixedRate(this::tick, TICK_MILLIS, TICK_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Builds the robot an idle session sits on: hardware, no OpMode.
+     *
+     * <p>Also what a run ends into, so a stalled motor or a spun IMU from the last session cannot
+     * carry into the next one, and so the camera view and the field view keep working after STOP
+     * instead of going blank.</p>
+     */
+    private void restLocked() {
+        hardware = robot.create();
+        applyAllianceLocked();
     }
 
     /** The simulated robot configuration this session is driving. */
@@ -165,12 +191,10 @@ public class LocalDashboardBackend implements DashboardBackend {
             // one.
             pendingSteps = 0;
 
-            // A fresh robot every run: a stalled motor or a spun IMU from the last session must not
-            // silently carry over into this one.
-            hardware = robot.create();
-            // Before init runs, because an init that calls resetYaw() has to be looking at the same
-            // reference heading the driver behind that alliance wall is.
-            applyAllianceLocked();
+            // A fresh robot every run, and its alliance applied before init runs: an init that
+            // calls resetYaw() has to be looking at the same reference heading the driver behind
+            // that alliance wall is.
+            restLocked();
             OpMode opMode = entry.factory.get();
             if (opMode instanceof LinearOpMode) {
                 LinearOpModeHarness linear =
@@ -247,6 +271,25 @@ public class LocalDashboardBackend implements DashboardBackend {
     @Override
     public void subscribeSimConfig(Consumer<SimConfigPayload> listener) {
         simConfigListeners.add(listener);
+    }
+
+    /**
+     * The resting or running robot's camera, whichever the session currently has.
+     *
+     * <p>Resolved on every call rather than cached, because {@code initOpMode} builds a whole new
+     * robot: a cached frame source would keep rendering from the pose of the robot the last run
+     * was driving, which is the most misleading thing a view like this could do.</p>
+     */
+    @Override
+    public FrameSource cameraFrames() {
+        synchronized (lock) {
+            for (FakeDevice<?> device : hardware.devices().values()) {
+                if (device instanceof FakeWebcam) {
+                    return ((FakeWebcam) device).frameSource();
+                }
+            }
+            return null;
+        }
     }
 
     @Override
@@ -373,7 +416,7 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     private FakeDevice<?> requireDeviceLocked(String device) {
-        FakeDevice<?> target = hardware == null ? null : hardware.devices().get(device);
+        FakeDevice<?> target = hardware.devices().get(device);
         if (target == null) {
             throw new IllegalArgumentException("no simulated device named \"" + device + "\"");
         }
@@ -398,7 +441,7 @@ public class LocalDashboardBackend implements DashboardBackend {
         }
         harness = null;
         running = null;
-        hardware = null;
+        restLocked();
         setStatusLocked(new OpModeStatus(null, OpModeStatus.State.STOPPED, failure));
     }
 
@@ -439,20 +482,18 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     /**
-     * The running session's drive model, or null &mdash; either nothing is initialized, or this
-     * robot's configuration declares no drivetrain, in which case there is nothing to have a pose.
+     * The session's drive model, or null for a robot whose configuration declares no drivetrain
+     * &mdash; there is nothing to have a pose.
      */
     private DriveModel driveLocked() {
-        return hardware == null ? null : hardware.drive();
+        return hardware.drive();
     }
 
     private DriveModel requireDriveLocked(String action) {
         DriveModel drive = driveLocked();
         if (drive == null) {
-            throw new IllegalStateException("cannot " + action + ": "
-                    + (hardware == null
-                            ? "no OpMode is initialized"
-                            : robot.name() + " declares no drivetrain"));
+            throw new IllegalStateException(
+                    "cannot " + action + ": " + robot.name() + " declares no drivetrain");
         }
         return drive;
     }
@@ -514,10 +555,6 @@ public class LocalDashboardBackend implements DashboardBackend {
     /** The locked half of a control cycle, and everything it leaves for the browser. */
     private Publication tickSession() {
         synchronized (lock) {
-            if (harness == null) {
-                return Publication.NOTHING;
-            }
-
             // A pause withholds simulated time instead of stopping the ticker, so the session stays
             // answerable: pose and device state keep flowing, an override still lands, and a queued
             // step lets exactly one cycle through.
@@ -526,10 +563,21 @@ public class LocalDashboardBackend implements DashboardBackend {
                 pendingSteps--;
                 advancing = true;
             }
+            double elapsed = TICK_MILLIS / 1000.0 * multiplier;
+
+            if (harness == null) {
+                // An idle robot is still a robot: time passes, so a teleport settles and a motor
+                // driven by an override actually moves the chassis. Nothing calls into an OpMode,
+                // because there is none; the event loop's housekeeping has nothing to house.
+                if (advancing) {
+                    hardware.advance(elapsed);
+                }
+                return publicationLocked();
+            }
 
             try {
                 if (advancing) {
-                    harness.advance(TICK_MILLIS / 1000.0 * multiplier);
+                    harness.advance(elapsed);
                     harness.eventLoopIteration();
                 }
                 if (harness instanceof IterativeOpModeHarness) {
@@ -548,34 +596,40 @@ public class LocalDashboardBackend implements DashboardBackend {
                     LinearOpModeHarness linear = (LinearOpModeHarness) harness;
                     if (linear.isFinished()) {
                         Throwable failure = linear.failure();
-                        harness = null;
-                        running = null;
-                        hardware = null;
-                        setStatusLocked(new OpModeStatus(
-                                null, OpModeStatus.State.STOPPED,
-                                failure == null ? null : describe(failure)));
-                        return Publication.NOTHING;
+                        endRunLocked(failure == null ? null : describe(failure));
+                        return publicationLocked();
                     }
                 }
             } catch (RuntimeException | Error e) {
                 // An OpMode that throws mid-loop ends the session rather than the ticker thread.
-                harness = null;
-                running = null;
-                hardware = null;
-                setStatusLocked(new OpModeStatus(null, OpModeStatus.State.STOPPED, describe(e)));
-                return Publication.NOTHING;
+                endRunLocked(describe(e));
+                return publicationLocked();
             }
 
-            return new Publication(
-                    poseLocked(),
-                    ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null);
+            return publicationLocked();
         }
+    }
+
+    /**
+     * Puts the session back on a resting robot after a run ended by itself &mdash; finished, or
+     * thrown out of.
+     */
+    private void endRunLocked(String failure) {
+        harness = null;
+        running = null;
+        restLocked();
+        setStatusLocked(new OpModeStatus(null, OpModeStatus.State.STOPPED, failure));
+    }
+
+    /** Everything this tick leaves for the browser. */
+    private Publication publicationLocked() {
+        return new Publication(
+                poseLocked(),
+                ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null);
     }
 
     /** What one tick has to say: a pose on every tick, a device snapshot on every fifth. */
     private static final class Publication {
-
-        static final Publication NOTHING = new Publication(null, null);
 
         final SimPose pose;
         final List<DeviceState> devices;
@@ -607,9 +661,6 @@ public class LocalDashboardBackend implements DashboardBackend {
 
     private List<DeviceState> snapshotLocked() {
         List<DeviceState> states = new ArrayList<>();
-        if (hardware == null) {
-            return states;
-        }
         for (FakeDevice<?> device : hardware.devices().values()) {
             states.add(snapshot(device));
         }

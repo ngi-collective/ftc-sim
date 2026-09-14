@@ -31,8 +31,8 @@ description = "Build and adb install to a connected Robot Controller device"
 run = "./gradlew :TeamCode:installRobotDebug"
 
 [tasks.test]
-description = "Run unit tests for TeamCode, the test framework, and the dashboard"
-run = "./gradlew :TeamCode:testSimulatedDebugUnitTest :TestFramework:testDebugUnitTest :Dashboard:testDebugUnitTest"
+description = "Run unit tests for TeamCode, the test framework, the dashboard and the camera stream"
+run = "./gradlew :TeamCode:testSimulatedDebugUnitTest :TestFramework:testDebugUnitTest :Dashboard:testDebugUnitTest :CameraStream:test"
 
 # Runs the real Robot Controller app against fake hardware on whatever device adb is pointing at -
 # in practice an emulator. Create one first (once):

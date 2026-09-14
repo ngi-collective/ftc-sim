@@ -1,0 +1,38 @@
+//
+// build.gradle in CameraStream
+//
+// Serves the Dashboard Camera View: JPEG encoding and an MJPEG endpoint a browser can point an
+// <img> at.
+//
+// A plain java-library, and deliberately not an android library, because JPEG encoding here means
+// javax.imageio - which android.jar does not have. The Dashboard module cannot host this code for
+// exactly that reason: it compiles against android.jar for the SDK's AARs even though it only ever
+// runs on a desktop JVM. Keeping the encoder in its own module is what lets it compile against the
+// JDK it actually runs on.
+//
+// Nothing here knows what a robot, a field or a tag is: it takes JPEG bytes from a supplier and
+// puts them on a socket. That is the whole reason it can live outside the Android world.
+//
+
+apply plugin: 'java-library'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Declared here rather than through build.dependencies.gradle: that file brings the FTC AARs, which
+// a java-library cannot consume.
+dependencies {
+    testImplementation "org.junit.jupiter:junit-jupiter-api:5.10.0"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:5.10.0"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.10.0"
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

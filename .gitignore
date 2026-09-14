@@ -82,6 +82,8 @@ lint/tmp/
 # Driver Hub dashboard (browser UI)
 node_modules/
 driver-hub-dashboard/dist/
+# tsc -b's incremental cache: an artifact that changes on every typecheck.
+driver-hub-dashboard/*.tsbuildinfo
 
 # Season field CAD: 34 MB, never diffed, and re-fetchable from a stable FIRST URL.
 # The numbers we need are extracted into version-controlled config instead.

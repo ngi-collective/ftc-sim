@@ -6,6 +6,7 @@ import {
   type GamepadState,
   type TelemetryFrame,
 } from './protocol';
+import { CameraView } from './camera/CameraView';
 import { View3D } from './scene/View3D';
 import { SIM_MULTIPLIERS, useSettings } from './settings';
 import {
@@ -23,11 +24,13 @@ import { useDashboard } from './useDashboard';
 import { KEYBOARD_HELP, KEYBOARD_OFF, useKeyboardGamepad } from './useKeyboardGamepad';
 import { describePads, useHardwareGamepads } from './useHardwareGamepads';
 
-type View = 'scene' | 'console';
+type View = 'scene' | 'console' | 'camera';
 
-// Two ways to watch the same session. "scene" draws the robot in 3D — devices where the team says
+// Three ways to watch the same session. "scene" draws the robot in 3D — devices where the team says
 // they sit on the chassis, spinning at the rate the encoders report. "console" is telemetry-first:
 // a dark monospace panel with OpMode controls in a thin top bar and devices in a side rail.
+// "camera" is what the robot's own camera sees, which is the only one of the three that shows the
+// world as the vision code receives it.
 export function App() {
   const dashboard = useDashboard();
   const { settings, update: updateSettings } = useSettings();
@@ -82,8 +85,9 @@ export function App() {
   return (
     <div style={shell}>
       <div style={topBar}>
-        <strong style={{ color: '#7CFC00' }}>Driver Hub</strong>
-        {(['scene', 'console'] as const).map((candidate) => (
+        {/* Not "Driver Hub": that is REV's hardware, and this is the dashboard. */}
+        <strong style={{ color: '#7CFC00' }}>Hub Dashboard</strong>
+        {(['scene', 'console', 'camera'] as const).map((candidate) => (
           <button
             key={candidate}
             style={view === candidate ? activeChip : chip}
@@ -196,7 +200,7 @@ export function App() {
         <div style={errorBar}>{dashboard.error ?? dashboard.status.failure}</div>
       )}
 
-      {view === 'scene' ? (
+      {view === 'scene' && (
         <View3D
           dashboard={dashboard}
           gamepad={gamepad}
@@ -206,7 +210,8 @@ export function App() {
           simStatus={simStatus}
           placeRobot={dashboard.placeRobot}
         />
-      ) : (
+      )}
+      {view === 'console' && (
         <ConsoleView
           telemetry={dashboard.telemetry}
           devices={dashboard.devices}
@@ -216,6 +221,7 @@ export function App() {
           onReset={dashboard.resetBehavior}
         />
       )}
+      {view === 'camera' && <CameraView stream={dashboard.cameraStream} />}
     </div>
   );
 }

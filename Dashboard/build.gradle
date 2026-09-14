@@ -39,6 +39,10 @@ apply from: '../build.dependencies.gradle'
 dependencies {
     api project(':TestFramework')
 
+    // JPEG and the MJPEG endpoint for the Dashboard Camera View. Its own plain-JVM module because
+    // encoding needs javax.imageio, which the android.jar this module compiles against lacks.
+    api project(':CameraStream')
+
     // Working stand-ins for the android.* stubs that throw on a plain JVM.
     testImplementation project(':AndroidShims')
 }

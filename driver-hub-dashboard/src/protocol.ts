@@ -209,5 +209,20 @@ export interface SimStatus {
   alliance: Alliance;
 }
 
+/**
+ * Where the Dashboard Camera View's pictures come from, as the server advertises it on connect.
+ *
+ * The stream is MJPEG on its own HTTP port, not frames on this socket: an `<img>` pointed at `url`
+ * decodes every frame itself, so nothing here ever touches pixel data. Absent for a robot that
+ * declares no camera.
+ */
+export interface CameraStream {
+  url: string;
+  width: number;
+  height: number;
+  /** Below the simulated camera's own rate: this is a sampled view, not every frame. */
+  framesPerSecond: number;
+}
+
 /** What the clock is doing before the server has said otherwise: real time, running, red alliance. */
 export const DEFAULT_SIM_STATUS: SimStatus = { multiplier: 1, paused: false, alliance: 'red' };
