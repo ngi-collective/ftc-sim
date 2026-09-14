@@ -30,7 +30,7 @@ public final class SimulatedScene {
 
     private final List<TagCluster> clusters;
     private final List<GameElement> elements;
-    private final List<FieldSurfaces.Surface> surfaces;
+    private final List<Surface> surfaces;
     private final int background;
 
     public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements) {
@@ -50,11 +50,25 @@ public final class SimulatedScene {
 
     public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
                           FieldConfig field, int backgroundGrey) {
-        this(clusters, elements, FieldSurfaces.of(field), backgroundGrey);
+        this(clusters, elements, everythingAround(field), backgroundGrey);
+    }
+
+    /**
+     * The field and the room it stands in.
+     *
+     * <p>The room comes with the field rather than being opt-in because its job is to make the
+     * view readable: this camera looks up at the overhead tags, so most of a frame is past the
+     * perimeter, and a background that cannot change is a view a driver reads as frozen. See
+     * {@link GymSurroundings}.</p>
+     */
+    private static List<Surface> everythingAround(FieldConfig field) {
+        List<Surface> surfaces = new ArrayList<>(GymSurroundings.of(field));
+        surfaces.addAll(FieldSurfaces.of(field));
+        return Collections.unmodifiableList(surfaces);
     }
 
     private SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
-                           List<FieldSurfaces.Surface> surfaces, int backgroundGrey) {
+                           List<Surface> surfaces, int backgroundGrey) {
         this.clusters = Collections.unmodifiableList(new ArrayList<>(clusters));
         this.elements = Collections.unmodifiableList(new ArrayList<>(elements));
         this.surfaces = surfaces;
@@ -70,7 +84,7 @@ public final class SimulatedScene {
      */
     public static SimulatedScene of(TagCluster... clusters) {
         return new SimulatedScene(Arrays.asList(clusters), Collections.<GameElement>emptyList(),
-                Collections.<FieldSurfaces.Surface>emptyList(), DEFAULT_BACKGROUND);
+                Collections.<Surface>emptyList(), DEFAULT_BACKGROUND);
     }
 
     public List<TagCluster> clusters() {
@@ -92,7 +106,7 @@ public final class SimulatedScene {
      * configured.</p>
      */
     public SimulatedScene on(FieldConfig field) {
-        return new SimulatedScene(clusters, elements, FieldSurfaces.of(field), background);
+        return new SimulatedScene(clusters, elements, everythingAround(field), background);
     }
 
     /**
@@ -132,7 +146,7 @@ public final class SimulatedScene {
 
         List<Drawable> drawables = new ArrayList<>(
                 elements.size() + clusters.size() * 4 + surfaces.size());
-        for (FieldSurfaces.Surface surface : surfaces) {
+        for (Surface surface : surfaces) {
             drawables.add(new SurfaceDrawable(surface, surface.depthFrom(view)));
         }
         for (TagCluster cluster : clusters) {
@@ -204,9 +218,9 @@ public final class SimulatedScene {
 
     private static final class SurfaceDrawable extends Drawable {
 
-        private final FieldSurfaces.Surface surface;
+        private final Surface surface;
 
-        SurfaceDrawable(FieldSurfaces.Surface surface, double depth) {
+        SurfaceDrawable(Surface surface, double depth) {
             super(depth);
             this.surface = surface;
         }

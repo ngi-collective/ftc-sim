@@ -32,8 +32,8 @@ class SurfaceRasteriserTest {
     private static final int BLUE = 90;
 
     /** A 6 m square of floor, centred on the origin: it runs back well behind the camera. */
-    private static FieldSurfaces.Surface floor() {
-        return new FieldSurfaces.Surface(new Vec3[] {
+    private static Surface floor() {
+        return new Surface(new Vec3[] {
                 new Vec3(-3.0, -3.0, 0.0), new Vec3(3.0, -3.0, 0.0),
                 new Vec3(3.0, 3.0, 0.0), new Vec3(-3.0, 3.0, 0.0),
         }, RED, GREEN, BLUE);
@@ -41,7 +41,7 @@ class SurfaceRasteriserTest {
 
     @Test
     void aSurfaceEntirelyBehindTheCameraDrawsNothing() {
-        FieldSurfaces.Surface behind = new FieldSurfaces.Surface(new Vec3[] {
+        Surface behind = new Surface(new Vec3[] {
                 new Vec3(-3.0, -1.0, 0.0), new Vec3(-1.0, -1.0, 0.0),
                 new Vec3(-1.0, 1.0, 0.0), new Vec3(-3.0, 1.0, 0.0),
         }, RED, GREEN, BLUE);

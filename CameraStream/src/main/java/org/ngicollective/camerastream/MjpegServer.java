@@ -41,6 +41,9 @@ public final class MjpegServer implements Closeable {
      */
     private static final long IDLE_POLL_MILLIS = 200;
 
+    /** How early a client may ask for the next frame and still get a fresh one. */
+    private static final long CACHE_SLACK_MILLIS = 4;
+
     private final HttpServer http;
     private final JpegFrameSource frames;
     private final String path;
@@ -144,12 +147,27 @@ public final class MjpegServer implements Closeable {
 
         OutputStream out = exchange.getResponseBody();
         byte[] frame = first;
+        // Paced against a deadline rather than by sleeping the interval, so the rate the browser
+        // is told it is getting is the rate it gets: rendering and encoding a frame is not free,
+        // and sleeping a full interval on top of that work put the stream a fifth under the
+        // advertised figure.
+        long due = System.currentTimeMillis();
         try {
             while (true) {
                 if (frame != null) {
                     writePart(out, frame);
+                    due += frameIntervalMillis;
+                } else {
+                    due = System.currentTimeMillis() + IDLE_POLL_MILLIS;
                 }
-                Thread.sleep(frame == null ? IDLE_POLL_MILLIS : frameIntervalMillis);
+                long wait = due - System.currentTimeMillis();
+                if (wait > 0) {
+                    Thread.sleep(wait);
+                } else {
+                    // Behind: the renderer cannot keep up. Give up the lost time rather than
+                    // accumulating a debt that would then be worked off as a burst.
+                    due = System.currentTimeMillis();
+                }
                 frame = currentFrame();
             }
         } catch (IOException e) {
@@ -175,11 +193,15 @@ public final class MjpegServer implements Closeable {
      *
      * <p>Clients are not synchronised with each other, so a second tab joining mid-interval shares
      * the frame already encoded instead of forcing a render of its own.</p>
+     *
+     * <p>The slack matters: a client that wakes a millisecond early would otherwise be handed the
+     * frame it has already sent and have to wait a whole further interval, halving the rate for
+     * the sake of sub-millisecond timer jitter.</p>
      */
     private byte[] currentFrame() {
         synchronized (frameLock) {
             long now = System.currentTimeMillis();
-            if (latest == null || now - latestAtMillis >= frameIntervalMillis) {
+            if (latest == null || now - latestAtMillis >= frameIntervalMillis - CACHE_SLACK_MILLIS) {
                 byte[] next = frames.nextFrame();
                 if (next != null) {
                     latest = next;

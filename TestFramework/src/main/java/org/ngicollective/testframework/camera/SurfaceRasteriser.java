@@ -51,7 +51,7 @@ public final class SurfaceRasteriser {
      * @return whether any pixel was touched
      */
     public static boolean draw(SyntheticFrame frame, CameraView view,
-                               FieldSurfaces.Surface surface) {
+                               Surface surface) {
         Vec3[] corners = surface.corners();
         Vec3[] inCamera = new Vec3[corners.length];
         for (int i = 0; i < corners.length; i++) {

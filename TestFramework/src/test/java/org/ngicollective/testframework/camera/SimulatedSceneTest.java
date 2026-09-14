@@ -145,13 +145,15 @@ class SimulatedSceneTest {
         fieldWith().renderInto(frame, view);
 
         // Where a horizontal ray vanishes. Every part of the field is below this row, because the
-        // perimeter wall is lower than the camera, so anything drawn above it is a floor plane
-        // that was projected without being clipped first.
+        // perimeter wall is lower than the camera, so the only thing above it is the room: neutral
+        // grey panels. A floor plane projected without being clipped first wraps round to the top
+        // of the image, where it would show up as the floor's slate tint.
         int horizon = (int) Math.round(view.project(new Vec3(1e6, 0.0, 0.5)).y());
         for (int y = 0; y < horizon - 2; y++) {
             for (int x = 0; x < frame.width(); x += 7) {
-                assertEquals(SKY, frame.luminanceAt(x, y),
-                        "pixel (" + x + ", " + y + ") is above the horizon");
+                assertTrue(frame.blueAt(x, y) <= frame.redAt(x, y) + 8,
+                        "pixel (" + x + ", " + y + ") is above the horizon and tinted like the "
+                                + "floor, which means a floor plane reached it unclipped");
             }
         }
 
