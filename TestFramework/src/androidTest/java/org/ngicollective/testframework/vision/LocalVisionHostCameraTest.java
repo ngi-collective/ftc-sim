@@ -18,8 +18,10 @@ import androidx.test.rule.GrantPermissionRule;
 
 import org.firstinspires.ftc.robotcore.internal.camera.calibration.CameraCalibration;
 import org.firstinspires.ftc.vision.VisionProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
 import org.firstinspires.ftc.vision.opencv.ColorBlobLocatorProcessor;
 import org.firstinspires.ftc.vision.opencv.ColorRange;
 import org.firstinspires.ftc.vision.opencv.ImageRegion;
@@ -188,15 +190,23 @@ public class LocalVisionHostCameraTest {
         }
     }
 
+    /** Detections are polymorphic since SDK 12: a cluster reports a name, a lone tag an ID. */
     private static String describe(List<AprilTagDetection> detections) {
         StringBuilder text = new StringBuilder("[");
         for (AprilTagDetection detection : detections) {
             if (text.length() > 1) {
                 text.append(", ");
             }
-            text.append("id=").append(detection.id)
-                    .append(" centre=").append((int) detection.center.x)
-                    .append(',').append((int) detection.center.y);
+            if (detection instanceof AprilTagClusterDetection) {
+                AprilTagClusterDetection cluster = (AprilTagClusterDetection) detection;
+                text.append("cluster=").append(cluster.metadata.shortName)
+                        .append(" found=").append(cluster.percentClusterFound).append('%');
+            } else {
+                AprilTagSingleDetection single = (AprilTagSingleDetection) detection;
+                text.append("id=").append(single.id)
+                        .append(" centre=").append((int) single.center.x)
+                        .append(',').append((int) single.center.y);
+            }
         }
         return text.append(']').toString();
     }
