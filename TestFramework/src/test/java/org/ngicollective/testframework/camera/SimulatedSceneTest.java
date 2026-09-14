@@ -175,11 +175,11 @@ class SimulatedSceneTest {
 
     @Test
     void eachAllianceEndCarriesItsOwnColour() {
-        // Which end is which comes from Field.tsx, the field view's own authority: its red wall
-        // and its RED STATION label sit at scene +Z, and sceneZ = -ftcY, so red is the end at -Y.
-        // A camera that disagreed would tell an OpMode it was facing the wrong alliance.
-        assertEndColour(-90.0, -HALF_FIELD, "red");
-        assertEndColour(90.0, HALF_FIELD, "blue");
+        // The stations are on the X axis, red at -X: the field CAD, via BioBuzzField, which is the
+        // same authority the season's tags are placed from. A camera that disagreed would tell an
+        // OpMode it was facing the wrong alliance.
+        assertEndColour(180.0, -HALF_FIELD, "red");
+        assertEndColour(0.0, HALF_FIELD, "blue");
     }
 
     @Test
@@ -188,10 +188,10 @@ class SimulatedSceneTest {
         // backwards and the perimeter paints over the tags hanging in front of it, which reads as
         // a detector that has stopped working.
         FieldTag tag = new FieldTag(30, 0.2,
-                Pose3d.ofDegrees(new Vec3(0.0, -HALF_FIELD + 0.3, 0.15), 90.0, 0.0, 0.0));
+                Pose3d.ofDegrees(new Vec3(-HALF_FIELD + 0.3, 0.0, 0.15), 0.0, 0.0, 0.0));
         TagCluster cluster = new TagCluster("TEST", tag.pose(),
                 Collections.singletonList(new TagCluster.Member(30, 0.0, 0.0, 0.0, 0.2)));
-        CameraView view = CAMERA.viewFrom(new Pose2d(0.0, 0.0, Math.toRadians(-90.0)));
+        CameraView view = CAMERA.viewFrom(new Pose2d(0.0, 0.0, Math.toRadians(180.0)));
 
         SyntheticFrame withTag = new SyntheticFrame(LENS.width(), LENS.height());
         assertEquals(1, fieldWith(cluster).renderInto(withTag, view));
@@ -207,12 +207,12 @@ class SimulatedSceneTest {
     }
 
     /** That a camera turned to the given heading sees an alliance colour on the wall behind it. */
-    private static void assertEndColour(double headingDegrees, double wallY, String alliance) {
+    private static void assertEndColour(double headingDegrees, double wallX, String alliance) {
         CameraView view = CAMERA.viewFrom(new Pose2d(0.0, 0.0, Math.toRadians(headingDegrees)));
         SyntheticFrame frame = new SyntheticFrame(LENS.width(), LENS.height());
         fieldWith().renderInto(frame, view);
 
-        int[] pixel = pixelOf(view, new Vec3(0.0, wallY, 0.15));
+        int[] pixel = pixelOf(view, new Vec3(wallX, 0.0, 0.15));
         int red = frame.redAt(pixel[0], pixel[1]);
         int green = frame.greenAt(pixel[0], pixel[1]);
         int blue = frame.blueAt(pixel[0], pixel[1]);

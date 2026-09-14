@@ -25,14 +25,12 @@ import java.util.List;
  *
  * <h2>Which end is red</h2>
  *
- * <p>{@code Field.tsx} is the authority followed here: its red wall and its {@code RED STATION}
- * label both sit at scene {@code +Z}, and its frame flip is {@code sceneZ = -ftcY}, so red is the
- * end at <b>-Y</b> and blue the end at <b>+Y</b>. Be warned that this contradicts
- * {@link org.ngicollective.testframework.season.BioBuzzField}, whose javadoc converts the field
- * CAD with red at <b>-X</b> and the audience at -Y &mdash; the season geometry puts the alliances
- * on the X axis. That contradiction is real and unresolved; it is recorded here rather than
- * quietly picked a side of, because flipping it would change what heading zero means for every
- * OpMode. Matching the field view is what matters for this renderer.</p>
+ * <p>Red is the end at <b>-X</b> and blue the end at <b>+X</b>, with the audience at -Y. The
+ * authority is the field CAD, via
+ * {@link org.ngicollective.testframework.season.BioBuzzField}'s conversion of it: the alliances
+ * are on the X axis and the audience watches from -Y. The tags placed from that CAD and the walls
+ * drawn here therefore describe one field rather than two rotated a quarter turn from each
+ * other.</p>
  */
 public final class FieldSurfaces {
 
@@ -77,17 +75,13 @@ public final class FieldSurfaces {
         List<Surface> surfaces = new ArrayList<>();
         addTiles(surfaces, field.sizeMetres(), pitch, half);
 
-        // Red at -Y and blue at +Y: see this class's javadoc, Field.tsx is the authority. Only the
-        // inner face of each wall is modelled, because a camera inside the perimeter never sees
-        // the other side of one.
-        surfaces.add(endWall(-half, half, height, RED_WALL));
-        surfaces.add(endWall(half, half, height, BLUE_WALL));
-        surfaces.add(quad(
-                new Vec3(half, -half, 0.0), new Vec3(half, half, 0.0),
-                new Vec3(half, half, height), new Vec3(half, -half, height), NEUTRAL_WALL));
-        surfaces.add(quad(
-                new Vec3(-half, -half, 0.0), new Vec3(-half, half, 0.0),
-                new Vec3(-half, half, height), new Vec3(-half, -half, height), NEUTRAL_WALL));
+        // Red at -X and blue at +X, per the CAD: see this class's javadoc. Only the inner face of
+        // each wall is modelled, because a camera inside the perimeter never sees the other side
+        // of one.
+        surfaces.add(allianceWall(-half, half, height, RED_WALL));
+        surfaces.add(allianceWall(half, half, height, BLUE_WALL));
+        surfaces.add(audienceWall(-half, half, height));
+        surfaces.add(audienceWall(half, half, height));
         return Collections.unmodifiableList(surfaces);
     }
 
@@ -124,11 +118,21 @@ public final class FieldSurfaces {
         }
     }
 
-    /** One alliance end, standing on the floor's edge at {@code y} and spanning the field in x. */
-    private static Surface endWall(double y, double half, double height, int colour) {
+    /**
+     * One alliance's end wall, standing on the floor's edge at {@code x} and spanning the field
+     * in y. The drive teams stand behind these.
+     */
+    private static Surface allianceWall(double x, double half, double height, int colour) {
+        return quad(
+                new Vec3(x, -half, 0.0), new Vec3(x, half, 0.0),
+                new Vec3(x, half, height), new Vec3(x, -half, height), colour);
+    }
+
+    /** A side wall, at {@code y} and spanning the field in x: the audience side and its mirror. */
+    private static Surface audienceWall(double y, double half, double height) {
         return quad(
                 new Vec3(-half, y, 0.0), new Vec3(half, y, 0.0),
-                new Vec3(half, y, height), new Vec3(-half, y, height), colour);
+                new Vec3(half, y, height), new Vec3(-half, y, height), NEUTRAL_WALL);
     }
 
     private static Surface quad(Vec3 first, Vec3 second, Vec3 third, Vec3 fourth, int colour) {

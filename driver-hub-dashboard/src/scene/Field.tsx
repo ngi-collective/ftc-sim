@@ -103,30 +103,32 @@ export function Field({
 
   const grid = useMemo(() => tiles(sizeMetres, tileMetres), [sizeMetres, tileMetres]);
 
-  // Red's drive team looks along +Y_ftc, so it stands at -Y_ftc, which the frame flip puts at +Z.
+  // The stations are on the X axis, red at -X_ftc, audience at -Y_ftc: the field CAD, through
+  // BioBuzzField's conversion of it, which is the same authority the tags are placed from.
   const walls: Wall[] = [
     {
       key: 'red',
-      position: [0, wallHeightMetres / 2, half + WALL_THICKNESS / 2],
-      size: [sizeMetres + 2 * WALL_THICKNESS, wallHeightMetres, WALL_THICKNESS],
+      position: [-half - WALL_THICKNESS / 2, wallHeightMetres / 2, 0],
+      size: [WALL_THICKNESS, wallHeightMetres, sizeMetres + 2 * WALL_THICKNESS],
       colour: ALLIANCE_WALL.red,
     },
     {
       key: 'blue',
-      position: [0, wallHeightMetres / 2, -half - WALL_THICKNESS / 2],
-      size: [sizeMetres + 2 * WALL_THICKNESS, wallHeightMetres, WALL_THICKNESS],
+      position: [half + WALL_THICKNESS / 2, wallHeightMetres / 2, 0],
+      size: [WALL_THICKNESS, wallHeightMetres, sizeMetres + 2 * WALL_THICKNESS],
       colour: ALLIANCE_WALL.blue,
     },
     {
-      key: 'x+',
-      position: [half + WALL_THICKNESS / 2, wallHeightMetres / 2, 0],
-      size: [WALL_THICKNESS, wallHeightMetres, sizeMetres],
+      // sceneZ = -ftcY, so the audience side (-Y_ftc) is scene +Z.
+      key: 'audience',
+      position: [0, wallHeightMetres / 2, half + WALL_THICKNESS / 2],
+      size: [sizeMetres, wallHeightMetres, WALL_THICKNESS],
       colour: NEUTRAL_WALL,
     },
     {
-      key: 'x-',
-      position: [-half - WALL_THICKNESS / 2, wallHeightMetres / 2, 0],
-      size: [WALL_THICKNESS, wallHeightMetres, sizeMetres],
+      key: 'audience-far',
+      position: [0, wallHeightMetres / 2, -half - WALL_THICKNESS / 2],
+      size: [sizeMetres, wallHeightMetres, WALL_THICKNESS],
       colour: NEUTRAL_WALL,
     },
   ];
@@ -176,7 +178,7 @@ export function Field({
       {(['red', 'blue'] as Alliance[]).map((station) => (
         <Html
           key={station}
-          position={[0, wallHeightMetres + 0.07, (station === 'red' ? 1 : -1) * (half + 0.06)]}
+          position={[(station === 'red' ? -1 : 1) * (half + 0.06), wallHeightMetres + 0.07, 0]}
           center
           distanceFactor={3}
           pointerEvents="none"

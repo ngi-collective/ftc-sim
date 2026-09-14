@@ -301,10 +301,11 @@ function StickVector({ gamepad, deckY }: { gamepad: GamepadState; deckY: number 
 /**
  * Parks the camera where that alliance's drive team physically stands, looking across the field.
  *
- * <p>Red's station is at {@code -Y_ftc} looking along {@code +Y}, which the scene's frame flip puts
- * at {@code +Z}; blue is the mirror. The move is eased rather than snapped so the eye can follow
- * which way the field turned, and the goal is dropped the moment it is reached — after that
- * OrbitControls owns the camera again and the user can look wherever they like.</p>
+ * <p>Red's station is at {@code -X_ftc} looking along {@code +X}, and the scene shares the field's
+ * X axis, so the eye goes to scene {@code -X}; blue is the mirror. The move is eased rather than
+ * snapped so the eye can follow which way the field turned, and the goal is dropped the moment it
+ * is reached — after that OrbitControls owns the camera again and the user can look wherever they
+ * like.</p>
  */
 function AlliancePerspective({
   alliance,
@@ -325,8 +326,8 @@ function AlliancePerspective({
       goal.current = null;
       return;
     }
-    const side = alliance === 'red' ? 1 : -1;
-    goal.current = new THREE.Vector3(0, fieldSize * 0.55, side * fieldSize * 1.05);
+    const side = alliance === 'red' ? -1 : 1;
+    goal.current = new THREE.Vector3(side * fieldSize * 1.05, fieldSize * 0.55, 0);
   }, [alliance, enabled, fieldSize]);
 
   useFrame((_, delta) => {

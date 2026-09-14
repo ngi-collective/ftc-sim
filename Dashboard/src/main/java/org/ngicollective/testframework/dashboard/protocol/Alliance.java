@@ -9,16 +9,25 @@ import com.google.gson.annotations.SerializedName;
  * and that is what an OpMode's heading zero means after {@code resetYaw()}. A camera preset that
  * only moved the eye would leave the robot's reported heading disagreeing with the driver's view,
  * which is the single most confusing thing a field-centric drive can do.</p>
+ *
+ * <p>The stations are on the <b>X</b> axis, red at &minus;X, with the audience at &minus;Y. That
+ * comes from the field CAD, through {@code BioBuzzField}'s conversion of it, and it is the same
+ * authority the season's tag placement uses &mdash; which is the point: an alliance model on a
+ * different axis from the tags would make every field-centric OpMode start a quarter turn out
+ * while still looking plausible on screen.</p>
  */
 public enum Alliance {
 
-    /** Red station looks along +Y, so facing away from it is FTC heading +90&deg;. */
+    /**
+     * Red's station is at &minus;X, so facing away from it is FTC heading 0 and the IMU needs no
+     * offset at all.
+     */
     @SerializedName("red")
-    RED(90.0),
+    RED(0.0),
 
-    /** Blue station looks along &minus;Y, so facing away from it is FTC heading &minus;90&deg;. */
+    /** Blue's station is at +X, so facing away from it is FTC heading 180&deg;. */
     @SerializedName("blue")
-    BLUE(-90.0);
+    BLUE(180.0);
 
     /**
      * The IMU yaw offset that makes reported heading zero when the robot faces away from this
