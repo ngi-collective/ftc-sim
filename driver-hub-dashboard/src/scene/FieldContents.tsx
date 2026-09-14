@@ -1,12 +1,13 @@
 import { Html } from '@react-three/drei';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import type { SceneContents, SceneElement, SceneTag } from '../protocol';
+import type { SceneElement, ScenePayload, SceneTag } from '../protocol';
+import { scenePoint } from './frame';
 
 /**
  * Everything on the field that is not the robot: the AprilTags the camera can detect and the game
- * elements lying about, in the scene frame — {@code sceneX = ftcX}, {@code sceneZ = -ftcY}, and
- * three.js Y is the field frame's Z.
+ * elements lying about, converted out of the field frame by {@code frame.ts} — which is the only
+ * place that conversion is written.
  *
  * <p>Nothing here is inferred. Corners, cell patterns and colours all come off {@code sim/scene}
  * exactly as the server's renderer used them, because the whole point of drawing them here is that
@@ -100,7 +101,7 @@ function useTagTextures(tags: SceneTag[]): Map<number, THREE.CanvasTexture> {
 function TagQuad({ tag, texture }: { tag: SceneTag; texture: THREE.CanvasTexture }) {
   const geometry = useMemo(() => {
     const positions: number[] = [];
-    for (const corner of tag.corners) positions.push(corner.x, corner.z, -corner.y);
+    for (const corner of tag.corners) positions.push(...scenePoint(corner));
     const built = new THREE.BufferGeometry();
     built.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     built.setAttribute('uv', new THREE.Float32BufferAttribute(QUAD_UVS, 2));
@@ -123,7 +124,7 @@ function TagQuad({ tag, texture }: { tag: SceneTag; texture: THREE.CanvasTexture
 }
 
 /** A cluster's name, floating over the tags that belong to it. */
-interface ClusterLabel {
+export interface ClusterLabel {
   cluster: string;
   position: [number, number, number];
 }
@@ -132,7 +133,7 @@ interface ClusterLabel {
  * Centroid of every corner in the cluster, lifted by its largest tag so the text clears the tags
  * themselves rather than sitting in the middle of the pattern it is naming.
  */
-function clusterLabels(tags: SceneTag[]): ClusterLabel[] {
+export function clusterLabels(tags: SceneTag[]): ClusterLabel[] {
   const sums = new Map<string, { x: number; y: number; z: number; corners: number; lift: number }>();
   for (const tag of tags) {
     const sum = sums.get(tag.cluster) ?? { x: 0, y: 0, z: 0, corners: 0, lift: 0 };
@@ -149,10 +150,12 @@ function clusterLabels(tags: SceneTag[]): ClusterLabel[] {
   const labels: ClusterLabel[] = [];
   sums.forEach((sum, cluster) => {
     if (sum.corners === 0) return;
-    labels.push({
-      cluster,
-      position: [sum.x / sum.corners, sum.z / sum.corners + sum.lift, -(sum.y / sum.corners)],
+    const [x, y, z] = scenePoint({
+      x: sum.x / sum.corners,
+      y: sum.y / sum.corners,
+      z: sum.z / sum.corners,
     });
+    labels.push({ cluster, position: [x, y + sum.lift, z] });
   });
   return labels;
 }
@@ -191,7 +194,7 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
       }
       built.push({
         key: `${element.name}:${index}`,
-        position: [element.x, element.z, -element.y],
+        position: scenePoint(element),
         radius: element.radiusMetres,
         material,
       });
@@ -221,7 +224,7 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
   );
 }
 
-export function FieldContents({ contents }: { contents: SceneContents | null }) {
+export function FieldContents({ contents }: { contents: ScenePayload | null }) {
   const tags = contents ? contents.tags : NO_TAGS;
   const elements = contents ? contents.elements : NO_ELEMENTS;
   const textures = useTagTextures(tags);

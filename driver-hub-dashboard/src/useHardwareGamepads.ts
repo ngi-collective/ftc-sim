@@ -21,10 +21,7 @@ import { NEUTRAL_GAMEPAD, type GamepadState } from './protocol';
 
 const SAMPLE_INTERVAL_MS = 50;
 
-/**
- * Sticks rest a little off-center, and the robot should not creep while nobody is touching it.
- * Radial rather than per-axis, so a diagonal nudge is not treated as two separate small pushes.
- */
+/** Sticks rest a little off-center, and the robot should not creep while nobody is touching it. */
 const STICK_DEADZONE = 0.08;
 
 export interface PadInfo {
@@ -72,7 +69,15 @@ function pull(pad: Gamepad, index: number): number {
   return pad.buttons[index]?.value ?? 0;
 }
 
-function stick(x: number, y: number): [number, number] {
+/**
+ * A stick with its rest position ignored: zero inside the deadzone, the raw axes outside it.
+ *
+ * <p>Radial, so a diagonal nudge is one small push rather than two. Deliberately <b>not</b>
+ * re-normalised past the edge: rescaling the remainder to [0, 1] would make the first commanded
+ * value after the deadzone a jump from nothing to 8% of full power, and a driver feathering a
+ * mechanism into position would feel that as a lurch.</p>
+ */
+export function stick(x: number, y: number): [number, number] {
   return Math.hypot(x, y) < STICK_DEADZONE ? [0, 0] : [x, y];
 }
 
@@ -80,8 +85,12 @@ function stick(x: number, y: number): [number, number] {
  * One pad in the standard mapping, read as the SDK's {@code Gamepad}.
  *
  * <p>Stick Y needs no sign flip: the browser reports forward as negative and so does the SDK.</p>
+ *
+ * <p>The button indices are the W3C standard mapping's, and they are a contract rather than a
+ * detail: a wrong one is invisible until a driver presses a button mid-match and the robot does
+ * something else.</p>
  */
-function read(pad: Gamepad): GamepadState {
+export function read(pad: Gamepad): GamepadState {
   const [leftX, leftY] = stick(pad.axes[0] ?? 0, pad.axes[1] ?? 0);
   const [rightX, rightY] = stick(pad.axes[2] ?? 0, pad.axes[3] ?? 0);
   return {

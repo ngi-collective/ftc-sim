@@ -79,7 +79,7 @@ const CORNER_PAIRS: Record<string, [side: number, end: number]> = {
  * <p>{@code end} is null when the name says which side but not which end &mdash; "leftDrive" on a
  * two-motor robot &mdash; and that motor is placed halfway along its side.</p>
  */
-function inferWheel(rawName: string): { side: number; end: number | null } | null {
+export function inferWheel(rawName: string): { side: number; end: number | null } | null {
   const name = rawName.toLowerCase().replace(/[^a-z]/g, '');
   const pair = CORNER_PAIRS[name];
   if (pair) return { side: pair[0], end: pair[1] };
@@ -174,7 +174,7 @@ function numberTriple(value: unknown): [number, number, number] | null {
  * reviewed, so a typo in a pull request should cost that one device its placement, not throw the
  * scene away.</p>
  */
-function parseDeviceLayout(value: unknown): DeviceLayout | null {
+export function parseDeviceLayout(value: unknown): DeviceLayout | null {
   if (typeof value !== 'object' || value === null) return null;
   const entry = value as Record<string, unknown>;
 
@@ -223,7 +223,7 @@ function rounded(values: [number, number, number], places: number): [number, num
   ];
 }
 
-function forFile(layout: Record<string, DeviceLayout>): Record<string, DeviceLayout> {
+export function forFile(layout: Record<string, DeviceLayout>): Record<string, DeviceLayout> {
   const devices: Record<string, DeviceLayout> = {};
   for (const [name, placement] of Object.entries(layout)) {
     devices[name] = {

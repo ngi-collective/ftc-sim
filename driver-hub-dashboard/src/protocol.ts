@@ -1,10 +1,58 @@
 // Mirrors org.ngicollective.testframework.dashboard.protocol. Keep in step with the Java side:
 // these are the only shapes that cross the socket.
 
+/**
+ * The namespaces the server speaks. {@code gamepad} is browser-to-server only; the rest carry
+ * frames the other way.
+ *
+ * <p>{@code camera} is one of them: {@code DashboardServer.onOpen} sends {@code camera/stream} to
+ * every browser that connects to a session with a camera. It was missing from this union for as
+ * long as the dispatch below keyed on a template literal, which widens to {@code string} and so
+ * cannot notice a namespace nobody declared.</p>
+ */
+export type Namespace =
+  | 'opmode'
+  | 'telemetry'
+  | 'gamepad'
+  | 'device'
+  | 'layout'
+  | 'sim'
+  | 'camera';
+
 export interface Envelope {
-  namespace: 'opmode' | 'telemetry' | 'gamepad' | 'device' | 'layout' | 'sim';
+  /**
+   * Typed as the namespaces we know about, but the wire can carry any string: a server a version
+   * ahead names namespaces this build has never heard of, and {@link parseEnvelope} keeps them
+   * rather than rejecting the frame, so the dispatch can ignore them one by one.
+   */
+  namespace: Namespace;
   type: string;
   payload: unknown;
+}
+
+/**
+ * One socket frame, or null when the text was not a frame at all.
+ *
+ * <p>Guarded because {@code JSON.parse} on a truncated or non-JSON message throws, and a throw out
+ * of the socket's {@code onmessage} is an unhandled rejection in the middle of a match rather than
+ * a dropped frame. Nothing on the wire is worth taking the dashboard down for.</p>
+ */
+export function parseEnvelope(text: string): Envelope | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const message = fields(parsed);
+  if (!message || typeof message.namespace !== 'string' || typeof message.type !== 'string') {
+    return null;
+  }
+  return {
+    namespace: message.namespace as Namespace,
+    type: message.type,
+    payload: message.payload,
+  };
 }
 
 /** A layout file the server holds, named as it is on disk. Its contents belong to the 3D scene. */
@@ -58,6 +106,20 @@ export interface OpModeInfo {
   className: string;
 }
 
+/**
+ * The OpMode list out of an {@code opmode/list} payload, or null when the frame has no list in it.
+ *
+ * <p>Only the wrapper is checked, not each entry: the list is server-composed in the same tick that
+ * builds the Java record, so a malformed entry is a bug to fix on both sides. A missing
+ * {@code opModes} key is different in kind — it used to reach {@code setOpModes(undefined)} and
+ * take out the next render of the OpMode picker, which is a blank dashboard rather than a stale
+ * one.</p>
+ */
+export function parseOpModeList(payload: unknown): OpModeInfo[] | null {
+  const message = fields(payload);
+  return message && Array.isArray(message.opModes) ? (message.opModes as OpModeInfo[]) : null;
+}
+
 export type OpModeState = 'STOPPED' | 'INIT' | 'RUNNING';
 
 export interface OpModeStatus {
@@ -87,6 +149,12 @@ export interface DeviceState {
   /** How many times this motor was commanded past ±1 since the last reset, and the worst of them. */
   clippedCommandCount: number;
   lastClippedCommand: number;
+}
+
+/** The device list out of a {@code device/state} payload, wrapper-checked as {@link parseOpModeList}. */
+export function parseDeviceStates(payload: unknown): DeviceState[] | null {
+  const message = fields(payload);
+  return message && Array.isArray(message.devices) ? (message.devices as DeviceState[]) : null;
 }
 
 export interface GamepadState {
@@ -133,8 +201,23 @@ export const NEUTRAL_GAMEPAD: GamepadState = {
   options: false,
 };
 
-/** The behaviors the backend will accept, per device kind. */
-export const BEHAVIORS: Record<string, { type: string; value?: number; label: string }[]> = {
+/**
+ * A behavior named on the wire, from a closed catalog. Mirrors Java {@code BehaviorSpec}: a name
+ * and its single tuning number, never code, so selecting one can never become a way to run
+ * something on the robot's machine.
+ */
+export interface BehaviorSpec {
+  type: string;
+  /**
+   * The behavior's one tuning number (ramp seconds, degrees/second, ...), where it has one.
+   * Omitted for the behaviors that take none; Gson reads an absent number as 0.0, which is exactly
+   * what those behaviors ignore.
+   */
+  value?: number;
+}
+
+/** The behaviors the backend will accept, per device kind, each with the label the rail shows. */
+export const BEHAVIORS: Record<string, (BehaviorSpec & { label: string })[]> = {
   motor: [
     { type: 'ideal', label: 'ideal' },
     { type: 'ramping', value: 0.5, label: 'ramping 0.5s' },
@@ -211,12 +294,13 @@ export interface SimStatus {
 
 /**
  * Where the Dashboard Camera View's pictures come from, as the server advertises it on connect.
+ * Java {@code CameraStreamInfo}.
  *
  * The stream is MJPEG on its own HTTP port, not frames on this socket: an `<img>` pointed at `url`
  * decodes every frame itself, so nothing here ever touches pixel data. Absent for a robot that
  * declares no camera.
  */
-export interface CameraStream {
+export interface CameraStreamInfo {
   url: string;
   width: number;
   height: number;
@@ -234,13 +318,18 @@ export interface CameraStream {
  * 36h11 pattern is mostly an invalid codeword: a tag the scene built itself from a pose would look
  * plausible here while being undetectable there, which is the disagreement this message exists to
  * remove.</p>
+ *
+ * <p>Java {@code ScenePayload}, whose nested {@code Tag}, {@code Corner} and {@code Element} are
+ * flattened here with the {@code Scene} prefix their outer class gives them: TypeScript has no
+ * nested interface scope, and a bare {@code Element} would shadow the DOM global of that name.</p>
  */
-export interface FieldPoint {
+export interface SceneCorner {
   x: number;
   y: number;
   z: number;
 }
 
+/** One AprilTag, placed and spelled out cell by cell. Java {@code ScenePayload.Tag}. */
 export interface SceneTag {
   id: number;
   /** The owning cluster, named as the server's {@code TagCluster} names it. */
@@ -251,7 +340,7 @@ export interface SceneTag {
    * looking at the tag's visible face. The order is the contract: nothing downstream can tell a
    * rotated or mirrored quad from a correct one except by the tag coming out wrong.
    */
-  corners: FieldPoint[];
+  corners: SceneCorner[];
   /**
    * The pattern itself: one string per row, {@code 'B'} black and {@code 'W'} white, row 0 the top
    * row and column 0 the left as that same viewer sees them. The server stays the only place the
@@ -260,6 +349,7 @@ export interface SceneTag {
   cells: string[];
 }
 
+/** A game element: a coloured sphere at a field-frame centre. Java {@code ScenePayload.Element}. */
 export interface SceneElement {
   name: string;
   x: number;
@@ -271,7 +361,7 @@ export interface SceneElement {
   blue: number;
 }
 
-export interface SceneContents {
+export interface ScenePayload {
   tags: SceneTag[];
   elements: SceneElement[];
 }

@@ -6,14 +6,16 @@ import type {
   Alliance,
   DeviceState,
   GamepadState,
-  SceneContents,
+  ScenePayload,
   SimConfig,
   SimPose,
 } from '../protocol';
 import { Field, STANDARD_FIELD } from './Field';
 import { FieldContents } from './FieldContents';
+import { fieldGround, sceneGround, sceneYaw } from './frame';
 import { CHASSIS, type DeviceLayout } from './layout';
 import { DeviceLabel, ImuModel, MotorModel, SelectionRing, ServoModel } from './parts';
+import { placementFromDrag, type DragState } from './placement';
 
 export interface ViewOptions {
   /** Turn the chassis with the IMU heading, so a yaw command reads as the robot turning. */
@@ -39,8 +41,6 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
 };
 
 const SNAP_METRES = 0.01;
-/** A robot placed to the nearest degree; finer than a driver can see on a field. */
-const SNAP_DEGREES = 1;
 const GROUND = new THREE.Vector3(0, 1, 0);
 /** The floor, for dragging the robot across it. Owned here, never mutated. */
 const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -370,7 +370,7 @@ function Scene({
   options: ViewOptions;
   pose: SimPose | null;
   simConfig: SimConfig | null;
-  simScene: SceneContents | null;
+  simScene: ScenePayload | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
@@ -420,8 +420,8 @@ function Scene({
     if (!group) return;
     const current = live.current;
     if (current) {
-      group.position.set(current.x, 0, -current.y);
-      group.rotation.y = THREE.MathUtils.degToRad(current.headingDegrees) - Math.PI / 2;
+      group.position.set(...sceneGround(current.x, current.y));
+      group.rotation.y = sceneYaw(current.headingDegrees);
     } else {
       // Headless: no sim behind the dashboard, so the robot stays at the origin as it always did.
       group.position.set(0, 0, 0);
@@ -441,14 +441,7 @@ function Scene({
    * <p>The result goes out as a pose and comes back from the sim like any other tick, so what the
    * screen shows is always what the sim believes — nothing is nudged locally.</p>
    */
-  const chassisDrag = useRef<{
-    turning: boolean;
-    offsetX: number;
-    offsetY: number;
-    /** Where the turn was grabbed, once the pointer is far enough out to mean a direction. */
-    grabBearing: number | null;
-    startHeading: number;
-  } | null>(null);
+  const chassisDrag = useRef<DragState | null>(null);
   const [placing, setPlacing] = useState(false);
 
   const endPlacing = useCallback(() => {
@@ -477,12 +470,11 @@ function Scene({
     if (!event.ray.intersectPlane(FLOOR, hit)) return;
     event.stopPropagation();
 
-    const grabX = hit.x;
-    const grabY = -hit.z;
+    const grab = fieldGround(hit.x, hit.z);
     chassisDrag.current = {
       turning: event.shiftKey,
-      offsetX: current.x - grabX,
-      offsetY: current.y - grabY,
+      offsetX: current.x - grab.x,
+      offsetY: current.y - grab.y,
       grabBearing: null,
       startHeading: current.headingDegrees,
     };
@@ -499,35 +491,18 @@ function Scene({
 
     const hit = new THREE.Vector3();
     if (!event.ray.intersectPlane(FLOOR, hit)) return;
-    const x = hit.x;
-    const y = -hit.z;
 
-    if (state.turning) {
-      // Near the centre of rotation the pointer has no lever arm, and its bearing is all noise:
-      // wait until the drag is clear of the robot before reading a heading out of it.
-      if (Math.hypot(x - current.x, y - current.y) < Math.max(shape.width, shape.depth) / 2) return;
-      const bearing = Math.atan2(y - current.y, x - current.x);
-      if (state.grabBearing === null) {
-        state.grabBearing = bearing;
-        state.startHeading = current.headingDegrees;
-        return;
-      }
-      const turned = state.startHeading + THREE.MathUtils.radToDeg(bearing - state.grabBearing);
-      const heading = options.snap ? Math.round(turned / SNAP_DEGREES) * SNAP_DEGREES : turned;
-      // A drag across the ±180 seam is the same heading, not another lap around the circle.
-      onPlaceRobot(current.x, current.y, ((((heading + 180) % 360) + 360) % 360) - 180);
-      return;
-    }
-
-    // Whatever the heading, the robot's diagonal is the most of it that can reach a wall.
-    const reach = fieldSize / 2 - Math.hypot(shape.width, shape.depth) / 2;
-    const place = (value: number) => {
-      const snapped = options.snap
-        ? Math.round(value / SNAP_METRES) * SNAP_METRES
-        : Number(value.toFixed(4));
-      return THREE.MathUtils.clamp(snapped, -reach, reach);
-    };
-    onPlaceRobot(place(x + state.offsetX), place(y + state.offsetY), current.headingDegrees);
+    const { placement, grab } = placementFromDrag({
+      drag: state,
+      pointer: fieldGround(hit.x, hit.z),
+      pose: current,
+      chassis: shape,
+      fieldSize,
+      snap: options.snap,
+    });
+    state.grabBearing = grab.grabBearing;
+    state.startHeading = grab.startHeading;
+    if (placement) onPlaceRobot(placement.x, placement.y, placement.headingDegrees);
   };
 
   return (
@@ -611,7 +586,7 @@ export function RobotScene(props: {
   options: ViewOptions;
   pose: SimPose | null;
   simConfig: SimConfig | null;
-  simScene: SceneContents | null;
+  simScene: ScenePayload | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;

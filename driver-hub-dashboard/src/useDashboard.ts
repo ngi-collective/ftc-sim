@@ -1,32 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  applyMessage,
+  createThrottledPoseSink,
+  type MessageSinks,
+} from './messages';
+import {
   DEFAULT_SIM_STATUS,
-  parseLayoutList,
-  parseLayoutRecord,
-  parseSavedLayout,
+  parseEnvelope,
   type Alliance,
-  type CameraStream,
+  type BehaviorSpec,
+  type CameraStreamInfo,
   type DeviceState,
-  type Envelope,
   type GamepadState,
   type LayoutRecord,
   type OpModeInfo,
   type OpModeStatus,
-  type SceneContents,
+  type ScenePayload,
   type SimConfig,
   type SimPose,
   type SimStatus,
   type TelemetryFrame,
 } from './protocol';
-
-/**
- * Pose arrives at 50 Hz, which is what the scene wants and far more than React does: every commit
- * re-renders the console log and the device rail along with the canvas. The fast path is therefore
- * a subscription fed straight off the socket, and {@link Dashboard.pose} is committed no more often
- * than this — the cadence a plugged-in controller already re-renders the page at, so a running
- * simulation costs the tree nothing it was not already paying.
- */
-const POSE_COMMIT_INTERVAL_MS = 50;
 
 const DEFAULT_URL = `ws://${location.hostname}:8765`;
 
@@ -51,8 +45,9 @@ export interface Dashboard {
   /**
    * The newest pose the server sent, in the FTC field frame, or null when nothing is driving.
    *
-   * <p>Committed at {@link POSE_COMMIT_INTERVAL_MS}, so it is right for readouts and one tick
-   * behind for animation; anything that draws the robot should take {@link subscribePose}.</p>
+   * <p>Committed at the throttle `messages.ts` sets with {@code POSE_COMMIT_INTERVAL_MS}, so it is
+   * right for readouts and one tick behind for animation; anything that draws the robot should take
+   * {@link subscribePose}.</p>
    */
   pose: SimPose | null;
   /**
@@ -66,13 +61,13 @@ export interface Dashboard {
    * The tags and game elements the server has placed on that field, or null before the first
    * `sim/scene`. Sent again whenever the scene changes.
    */
-  simScene: SceneContents | null;
+  simScene: ScenePayload | null;
   /**
    * Where the camera view is served, or null when this session has no camera.
    *
    * Sent once on connect. The panel points an `<img>` at it; no frame ever crosses this socket.
    */
-  cameraStream: CameraStream | null;
+  cameraStream: CameraStreamInfo | null;
   /** Clock and alliance, as the server last reported them. */
   simStatus: SimStatus;
   init: (className: string) => void;
@@ -111,13 +106,12 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [loadedLayout, setLoadedLayout] = useState<LayoutRecord | null>(null);
   const [savedLayout, setSavedLayout] = useState<{ name: string; path: string } | null>(null);
   const [simConfig, setSimConfig] = useState<SimConfig | null>(null);
-  const [simScene, setSimScene] = useState<SceneContents | null>(null);
-  const [cameraStream, setCameraStream] = useState<CameraStream | null>(null);
+  const [simScene, setSimScene] = useState<ScenePayload | null>(null);
+  const [cameraStream, setCameraStream] = useState<CameraStreamInfo | null>(null);
   const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
   const [pose, setPose] = useState<SimPose | null>(null);
   const poseRef = useRef<SimPose | null>(null);
   const poseListeners = useRef(new Set<(pose: SimPose) => void>());
-  const lastPoseCommit = useRef(0);
 
   // Only when the server goes away: the robot itself outlives every OpMode, so a pose keeps
   // arriving between runs. With nobody on the other end there is no robot to draw at all, and the
@@ -131,6 +125,35 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     let closed = false;
     let socket: WebSocket;
     let retry: ReturnType<typeof setTimeout>;
+
+    // Where every frame lands. The setters are stable for the hook's life, so the only state here
+    // is the pose throttle's, and that belongs to the connection it is rationing: a reconnect
+    // starts the interval over, which is what the freshly-cleared pose wants anyway.
+    const sinks: MessageSinks = {
+      setError,
+      setOpModes,
+      setStatus,
+      setTelemetry,
+      setDevices,
+      setLayouts,
+      setLayoutDirectory,
+      setLoadedLayout,
+      setSavedLayout,
+      setSimConfig,
+      setSimScene,
+      setCameraStream,
+      setSimStatus,
+      pose: createThrottledPoseSink({
+        // Un-throttled on purpose: this is the 50 Hz path the 3D view reads, and it never touches
+        // React.
+        publish: (next) => {
+          poseRef.current = next;
+          for (const listener of poseListeners.current) listener(next);
+        },
+        commit: setPose,
+        now: () => performance.now(),
+      }),
+    };
 
     const connect = () => {
       socket = new WebSocket(url);
@@ -148,71 +171,11 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
         if (!closed) retry = setTimeout(connect, 1000);
       };
       socket.onmessage = (event) => {
-        const envelope = JSON.parse(event.data as string) as Envelope;
-        const payload = envelope.payload as never;
-
-        if (envelope.type === 'error') {
-          setError((payload as { message: string }).message);
-          return;
-        }
-        switch (`${envelope.namespace}/${envelope.type}`) {
-          case 'opmode/list':
-            setOpModes((payload as { opModes: OpModeInfo[] }).opModes);
-            break;
-          case 'opmode/status': {
-            const next = payload as OpModeStatus;
-            setStatus(next);
-            // No clearing on STOPPED: the robot is still there, and the next pose says where.
-            break;
-          }
-          case 'telemetry/frame':
-            setTelemetry(payload as TelemetryFrame);
-            break;
-          case 'device/state':
-            setDevices((payload as { devices: DeviceState[] }).devices);
-            break;
-          case 'layout/list': {
-            const list = parseLayoutList(envelope.payload);
-            if (list) {
-              setLayouts(list.layouts);
-              setLayoutDirectory(list.directory);
-            }
-            break;
-          }
-          case 'layout/data': {
-            const record = parseLayoutRecord(envelope.payload);
-            if (record) setLoadedLayout(record);
-            break;
-          }
-          case 'layout/saved': {
-            const saved = parseSavedLayout(envelope.payload);
-            if (saved) setSavedLayout(saved);
-            break;
-          }
-          case 'sim/pose': {
-            const next = payload as SimPose;
-            poseRef.current = next;
-            for (const listener of poseListeners.current) listener(next);
-            const now = performance.now();
-            if (now - lastPoseCommit.current >= POSE_COMMIT_INTERVAL_MS) {
-              lastPoseCommit.current = now;
-              setPose(next);
-            }
-            break;
-          }
-          case 'sim/config':
-            setSimConfig(payload as SimConfig);
-            break;
-          case 'sim/scene':
-            setSimScene(payload as SceneContents);
-            break;
-          case 'camera/stream':
-            setCameraStream(payload as CameraStream);
-            break;
-          case 'sim/status':
-            setSimStatus(payload as SimStatus);
-            break;
-        }
+        // A frame that is not JSON, or not an envelope at all, is dropped rather than thrown: an
+        // exception out of onmessage is an unhandled rejection mid-match, and the one message is
+        // never worth the session.
+        const envelope = parseEnvelope(event.data as string);
+        if (envelope) applyMessage(envelope, sinks);
       };
     };
 
@@ -255,8 +218,13 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       [send],
     ),
     overrideBehavior: useCallback(
-      (device: string, type: string, value: number) =>
-        send('device', 'override', { device, behavior: { type, value } }),
+      (device: string, type: string, value: number) => {
+        // Named rather than inlined so the shape the server parses has a name on this side too:
+        // Java reads this object as a BehaviorSpec, and it used to exist here as two anonymous
+        // keys that nothing connected to it.
+        const behavior: BehaviorSpec = { type, value };
+        send('device', 'override', { device, behavior });
+      },
       [send],
     ),
     resetBehavior: useCallback((device: string) => send('device', 'reset', { device }), [send]),

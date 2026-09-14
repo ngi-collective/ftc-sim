@@ -37,7 +37,15 @@ export const SIM_MULTIPLIERS = [0.25, 0.5, 1, 2, 4] as const;
 
 const STORAGE_KEY = 'driverhub.settings.v1';
 
-function load(): Settings {
+/**
+ * The stored settings, with anything unreadable or no longer offered replaced by its default.
+ *
+ * <p>Exported because every one of those fallbacks is a decision, not a formality: a stored
+ * multiplier the strip no longer offers would leave the speed control showing nothing selected
+ * while simulated time ran at that rate, and a stored alliance of {@code "RED"} would put the
+ * robot's heading zero a quarter turn from where the driver is standing.</p>
+ */
+export function loadSettings(): Settings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return { ...DEFAULTS };
@@ -64,7 +72,7 @@ function load(): Settings {
 }
 
 export function useSettings(): { settings: Settings; update: (patch: Partial<Settings>) => void } {
-  const [settings, setSettings] = useState<Settings>(load);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));

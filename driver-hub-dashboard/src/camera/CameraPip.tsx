@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { CameraStream, SimPose } from '../protocol';
+import type { CameraStreamInfo, SimPose } from '../protocol';
 import { describe, describePose, useCameraFeed } from './CameraView';
 
 /**
@@ -20,7 +20,7 @@ export function CameraPip({
   expanded,
   onExpandedChange,
 }: {
-  stream: CameraStream | null;
+  stream: CameraStreamInfo | null;
   pose: SimPose | null;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;

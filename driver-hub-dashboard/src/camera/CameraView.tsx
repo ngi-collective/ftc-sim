@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CameraStream, SimPose } from '../protocol';
+import type { CameraStreamInfo, SimPose } from '../protocol';
 
 /**
  * The Dashboard Camera View: what the simulated robot's camera sees, live.
@@ -12,7 +12,13 @@ import type { CameraStream, SimPose } from '../protocol';
  * a `VisionPortal` opens the camera; this diverges deliberately, because "can the camera see the
  * tag from here" is a question you ask before writing the OpMode that depends on the answer.
  */
-export function CameraView({ stream, pose }: { stream: CameraStream | null; pose: SimPose | null }) {
+export function CameraView({
+  stream,
+  pose,
+}: {
+  stream: CameraStreamInfo | null;
+  pose: SimPose | null;
+}) {
   const feed = useCameraFeed(stream);
 
   if (!stream) {
@@ -67,7 +73,7 @@ type FeedState = 'connecting' | 'streaming' | 'failed';
  * Shared by the tab and the picture-in-picture so that both are literally the same feed logic; the
  * two never render at once, so there is only ever one connection to the server.
  */
-export function useCameraFeed(stream: CameraStream | null) {
+export function useCameraFeed(stream: CameraStreamInfo | null) {
   // Bumped to force a fresh connection: a dead MJPEG stream never recovers on its own, and the
   // server outliving a page (or the other way round) is normal here.
   const [attempt, setAttempt] = useState(0);

@@ -27,7 +27,7 @@ const ALLIANCE_WALL: Record<Alliance, string> = { red: '#c0303f', blue: '#2b62c4
 const NEUTRAL_WALL = '#48586a';
 const WALL_THICKNESS = 0.024;
 
-interface Tile {
+export interface Tile {
   key: string;
   position: [number, number, number];
   scale: [number, number, number];
@@ -47,7 +47,7 @@ interface Wall {
  * <p>Clipping rather than scaling keeps the pitch honest: a partial tile at the wall reads as a
  * partial tile, and the seam a driver counts from stays where the real seam is.</p>
  */
-function tiles(size: number, pitch: number): Tile[] {
+export function tiles(size: number, pitch: number): Tile[] {
   const half = size / 2;
   const count = Math.ceil(size / pitch);
   const start = -(count * pitch) / 2;
