@@ -10,6 +10,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpModeManagerNotifier;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.RobotLog;
 
+import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
 
 /**
@@ -25,10 +26,16 @@ public class SimulatedHardwareFactory extends HardwareFactory {
     public static final String TAG = "SimulatedHardwareFactory";
 
     private final SimulatedRobot robot;
+    private final SimulatedClock clock = new SimulatedClock();
 
     public SimulatedHardwareFactory(Context context, SimulatedRobot robot) {
         super(context);
         this.robot = robot;
+    }
+
+    /** The clock driving the most recently built robot, for anything that needs to pause it. */
+    public SimulatedClock clock() {
+        return clock;
     }
 
     /**
@@ -42,6 +49,10 @@ public class SimulatedHardwareFactory extends HardwareFactory {
     public @NonNull HardwareMap createHardwareMap(SyncdDevice.Manager manager,
                                                   OpModeManagerNotifier opModeNotifier) {
         RobotLog.ii(TAG, "building simulated robot \"%s\" - no USB scan", robot.name());
-        return robot.create();
+        FakeHardwareMap hardware = robot.create();
+        // Nothing else in the app advances simulated time, so the robot would otherwise sit at
+        // the origin with its wheels turning and its encoders frozen.
+        clock.follow(hardware);
+        return hardware;
     }
 }

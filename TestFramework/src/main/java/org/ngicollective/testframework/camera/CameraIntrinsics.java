@@ -54,6 +54,17 @@ public final class CameraIntrinsics {
                 width / 2.0, height / 2.0);
     }
 
+    /**
+     * Every parameter given explicitly, which is how a measured calibration arrives.
+     *
+     * <p>Real calibrations do not have their principal point exactly at the frame centre, and
+     * rounding it there would shift every projected tag by a pixel or two.</p>
+     */
+    public static CameraIntrinsics of(int width, int height, double focalX, double focalY,
+                                      double centreX, double centreY) {
+        return new CameraIntrinsics(width, height, focalX, focalY, centreX, centreY);
+    }
+
     /** Square pixels, principal point at the frame centre, focal length from the horizontal FOV. */
     public static CameraIntrinsics fromHorizontalFieldOfView(int width, int height,
                                                              double fovDegrees) {
@@ -68,6 +79,29 @@ public final class CameraIntrinsics {
     /** An ordinary webcam of the given frame size: 60&deg; horizontal, no distortion. */
     public static CameraIntrinsics approximate(int width, int height) {
         return of(width, height, DEFAULT_FOCAL_LENGTH_RATIO * width);
+    }
+
+    /** The horizontal field of view these intrinsics describe, in degrees. */
+    public double horizontalFieldOfViewDegrees() {
+        return Math.toDegrees(2.0 * Math.atan((width / 2.0) / focalX));
+    }
+
+    /**
+     * The same lens at a different frame size.
+     *
+     * <p>An OpMode chooses its own resolution, and a real webcam obliges: the lens does not
+     * change, so the field of view is preserved and the focal length in <em>pixels</em> scales
+     * with the frame. Getting this wrong is the kind of mistake that never throws &mdash; every
+     * tag would simply be reported at the wrong range, in proportion.</p>
+     *
+     * <p>Square pixels are assumed, which is true of every webcam a team is likely to own and is
+     * what the SDK's own approximate calibration assumes too.</p>
+     */
+    public CameraIntrinsics resizedTo(int newWidth, int newHeight) {
+        if (newWidth == width && newHeight == height) {
+            return this;
+        }
+        return fromHorizontalFieldOfView(newWidth, newHeight, horizontalFieldOfViewDegrees());
     }
 
     public int width() {

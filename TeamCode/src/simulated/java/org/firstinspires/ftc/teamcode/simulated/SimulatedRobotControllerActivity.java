@@ -16,6 +16,7 @@ import org.firstinspires.ftc.ftccommon.internal.AnnotatedHooksClassFilter;
 import org.firstinspires.ftc.robotcontroller.internal.FtcRobotControllerActivity;
 import org.firstinspires.ftc.robotcore.internal.opmode.OnBotJavaHelper;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.openftc.easyopencv.SyntheticCameras;
 
 /**
  * The Robot Controller app, wired to a simulated robot.
@@ -43,6 +44,11 @@ public class SimulatedRobotControllerActivity extends FtcRobotControllerActivity
     @Override
     public void onServiceBind(final FtcRobotControllerService service) {
         RobotLog.ii(TAG, "binding robot controller service with simulated hardware");
+
+        // Before any OpMode can build a VisionPortal. From here on, every portal an unmodified
+        // OpMode creates gets a camera that renders the simulated field instead of opening USB.
+        SyntheticCameras.install();
+
         controllerService = service;
         updateUI.setControllerService(controllerService);
 

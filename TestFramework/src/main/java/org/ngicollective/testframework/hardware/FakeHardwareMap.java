@@ -9,6 +9,7 @@ import org.ngicollective.testframework.behavior.MotorBehaviors;
 import org.ngicollective.testframework.behavior.MotorState;
 import org.ngicollective.testframework.behavior.ServoBehaviors;
 import org.ngicollective.testframework.behavior.ServoState;
+import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.RobotConfig;
@@ -71,6 +72,11 @@ public class FakeHardwareMap extends HardwareMap {
     /** The simulated IMU configured under {@code name}. */
     public FakeImu imu(String name) {
         return require(name, FakeImu.class);
+    }
+
+    /** The simulated webcam configured under {@code name}. */
+    public FakeWebcam webcam(String name) {
+        return require(name, FakeWebcam.class);
     }
 
     /** Every simulated device, keyed by configured name, in the order they were declared. */
@@ -188,6 +194,24 @@ public class FakeHardwareMap extends HardwareMap {
             FakeImu imu = new FakeImu(name, behavior);
             map.register(imu);
             map.put(name, imu);
+            return this;
+        }
+
+        /**
+         * Adds a simulated webcam under the name an OpMode looks it up by.
+         *
+         * <p>The frame source is what the camera sees. Thirty frames a second of simulated time
+         * is what an ordinary webcam delivers, and pacing off the simulated clock is what makes
+         * the run repeatable.</p>
+         */
+        public Builder addWebcam(String name, FrameSource frameSource) {
+            return addWebcam(name, frameSource, 30.0);
+        }
+
+        public Builder addWebcam(String name, FrameSource frameSource, double framesPerSecond) {
+            FakeWebcam webcam = new FakeWebcam(name, frameSource, framesPerSecond);
+            map.register(webcam);
+            map.put(name, webcam);
             return this;
         }
 

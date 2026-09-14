@@ -26,14 +26,16 @@ public final class RobotConfig {
     private final ChassisConfig chassis;
     private final DrivetrainConfig drivetrain;
     private final String imuName;
+    private final CameraConfig camera;
     private final Map<String, MotorConfig> motors;
 
     private RobotConfig(String name, ChassisConfig chassis, DrivetrainConfig drivetrain,
-                        String imuName, Map<String, MotorConfig> motors) {
+                        String imuName, CameraConfig camera, Map<String, MotorConfig> motors) {
         this.name = name;
         this.chassis = chassis;
         this.drivetrain = drivetrain;
         this.imuName = imuName;
+        this.camera = camera;
         this.motors = Collections.unmodifiableMap(motors);
     }
 
@@ -61,11 +63,13 @@ public final class RobotConfig {
         if (motors.isEmpty()) {
             throw new IllegalArgumentException(json.source() + ": \"motors\" declares no motors");
         }
+        ChassisConfig chassis = ChassisConfig.from(json.child("chassis"));
         return new RobotConfig(
                 json.string("name"),
-                ChassisConfig.from(json.child("chassis")),
+                chassis,
                 DrivetrainConfig.from(json.child("drivetrain")),
                 json.child("imu").string("name"),
+                CameraConfig.from(json.child("camera"), chassis),
                 motors);
     }
 
@@ -85,6 +89,11 @@ public final class RobotConfig {
     /** The name the IMU is configured under, which is also where the chassis heading is published. */
     public String imuName() {
         return imuName;
+    }
+
+    /** Where the camera is mounted, and what it is configured under. */
+    public CameraConfig camera() {
+        return camera;
     }
 
     /** Every motor, keyed by the name the OpMode looks it up under, in file order. */
