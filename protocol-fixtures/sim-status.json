@@ -1,0 +1,9 @@
+{
+  "namespace": "sim",
+  "type": "status",
+  "payload": {
+    "multiplier": 1,
+    "paused": false,
+    "alliance": "red"
+  }
+}

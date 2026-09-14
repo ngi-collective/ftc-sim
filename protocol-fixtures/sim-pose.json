@@ -1,0 +1,15 @@
+{
+  "namespace": "sim",
+  "type": "pose",
+  "payload": {
+    "timestampMillis": 1789410542350,
+    "elapsedSeconds": 2.540000000000002,
+    "x": -0.32633466714859016,
+    "y": -0.37442199661181996,
+    "headingDegrees": 30.167441323937418,
+    "forwardVelocity": -0.19667981378816835,
+    "lateralVelocity": -0.18223449155848612,
+    "yawRateDegreesPerSecond": 19.61816221235879,
+    "wallContact": false
+  }
+}

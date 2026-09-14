@@ -1,0 +1,10 @@
+{
+  "namespace": "camera",
+  "type": "stream",
+  "payload": {
+    "url": "http://127.0.0.1:8776/camera",
+    "width": 640,
+    "height": 480,
+    "framesPerSecond": 15
+  }
+}

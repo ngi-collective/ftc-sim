@@ -1,0 +1,7 @@
+{
+  "namespace": "device",
+  "type": "error",
+  "payload": {
+    "message": "IllegalArgumentException: no simulated device named \"front_left\""
+  }
+}

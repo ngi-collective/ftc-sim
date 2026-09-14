@@ -1,0 +1,10 @@
+{
+  "namespace": "layout",
+  "type": "list",
+  "payload": {
+    "layouts": [
+      "vertical-shafts"
+    ],
+    "directory": "<layout-directory>"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "namespace": "opmode",
+  "type": "status",
+  "payload": {
+    "opMode": null,
+    "state": "STOPPED",
+    "failure": null
+  }
+}

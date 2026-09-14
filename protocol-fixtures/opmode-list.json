@@ -1,0 +1,50 @@
+{
+  "namespace": "opmode",
+  "type": "list",
+  "payload": {
+    "opModes": [
+      {
+        "name": "Basic Mecanum",
+        "group": "Linear OpMode",
+        "flavor": "TeleOp",
+        "className": "org.firstinspires.ftc.teamcode.BasicMecanumTeleOp"
+      },
+      {
+        "name": "Concept: AprilTag Easy",
+        "group": "Concept",
+        "flavor": "TeleOp",
+        "className": "org.firstinspires.ftc.teamcode.ConceptAprilTagEasy"
+      },
+      {
+        "name": "Example Auto",
+        "group": "Examples",
+        "flavor": "Autonomous",
+        "className": "org.firstinspires.ftc.teamcode.pedroPathing.ExampleAuto"
+      },
+      {
+        "name": "Example Auto",
+        "group": "Examples",
+        "flavor": "Autonomous",
+        "className": "org.firstinspires.ftc.teamcode.pedroPathing.TestAuto"
+      },
+      {
+        "name": "Field Relative Mecanum (Sample)",
+        "group": "Linear OpMode",
+        "flavor": "TeleOp",
+        "className": "org.firstinspires.ftc.teamcode.FieldRelativeMecanumTeleOp"
+      },
+      {
+        "name": "I AM VERITY V2",
+        "group": "",
+        "flavor": "TeleOp",
+        "className": "org.firstinspires.ftc.teamcode.iamyou"
+      },
+      {
+        "name": "Tuning",
+        "group": "Pedro Pathing",
+        "flavor": "TeleOp",
+        "className": "org.firstinspires.ftc.teamcode.pedroPathing.Tuning"
+      }
+    ]
+  }
+}

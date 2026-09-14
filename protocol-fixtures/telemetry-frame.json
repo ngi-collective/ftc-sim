@@ -1,0 +1,25 @@
+{
+  "namespace": "telemetry",
+  "type": "frame",
+  "payload": {
+    "timestamp": 1789410542331,
+    "lines": [
+      "Cardinal Direction : NORTH",
+      "INIT Direction : NORTH",
+      "Driver Position : NORTH  (D-pad to change)",
+      "--- : ---",
+      "Heading Raw (deg) : 29.39",
+      "Heading Corrected (deg) : 29.39",
+      "Slow Mode : ON",
+      "Drive Input : -1.00",
+      "Strafe Input : 0.00",
+      "Twist Input : -0.40",
+      "Field Drive : -0.87",
+      "Field Strafe : 0.49",
+      "FL | FR : -0.19 | -0.16",
+      "BL | BR : -0.38 | 0.04",
+      "FL Vel | FR Vel : -0 | -438",
+      "BL Vel | BR Vel : -1074 | 101"
+    ]
+  }
+}

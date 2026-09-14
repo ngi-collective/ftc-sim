@@ -1,0 +1,7 @@
+{
+  "namespace": "opmode",
+  "type": "error",
+  "payload": {
+    "message": "IllegalArgumentException: no OpMode named does.not.Exist"
+  }
+}
