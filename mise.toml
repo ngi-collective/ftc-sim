@@ -35,9 +35,20 @@ run = "./gradlew :TeamCode:testSimulatedDebugUnitTest :TestFramework:testDebugUn
 
 # Runs the real Robot Controller app against fake hardware on whatever device adb is pointing at -
 # in practice an emulator. Create one first (once):
-#   sdkmanager "emulator" "system-images;android-30;default;arm64-v8a"
-#   avdmanager create avd -n ftc-sim -k "system-images;android-30;default;arm64-v8a"
-#   emulator -avd ftc-sim
+#   sdkmanager "emulator" "system-images;android-30;google_apis;arm64-v8a"
+#   avdmanager create avd -n ftc-sim-camera -k "system-images;android-30;google_apis;arm64-v8a"
+#
+# Then point the AVD's back camera at a host webcam, by editing
+# ~/.android/avd/ftc-sim-camera.avd/config.ini:
+#   hw.camera.back=webcam0     # `emulator -webcam-list` names the host's cameras
+#
+# The image must be `google_apis`, not `default`: the AOSP images ship no camera HAL at all, so
+# their camera device list is empty and `LocalVisionHost` has nothing to open. Vision also needs
+# the host OS to allow camera access to whatever launched the emulator - on macOS that is a
+# one-time prompt attributed to the terminal or IDE, and until it is granted the guest streams
+# black frames rather than failing.
+#
+#   emulator -avd ftc-sim-camera
 [tasks.simulator]
 description = "Install and launch the simulated Robot Controller on a running emulator"
 run = """
@@ -48,6 +59,13 @@ for permission in CAMERA READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE ACCESS_COA
 done
 adb shell am start -n "$pkg/org.firstinspires.ftc.teamcode.simulated.SimulatedPermissionValidatorWrapper"
 """
+
+# Vision is the one part of the framework that cannot run on a plain JVM: OpenCV and AprilTag ship
+# Android-only native libraries. These are instrumented tests, so they need the emulator above to
+# be running, which is why they are not part of `mise run test` or CI.
+[tasks.test-vision]
+description = "Run the vision tests against a running emulator's camera"
+run = "./gradlew :TestFramework:connectedDebugAndroidTest"
 
 # The dashboard is two processes: a JVM serving the simulated robot over a WebSocket, and the Vite
 # dev server for the browser UI. Run them in separate terminals.

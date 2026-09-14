@@ -18,6 +18,11 @@ android {
         minSdkVersion 24
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 28
+
+        // The vision host can only be exercised inside an Android runtime: OpenCV and AprilTag
+        // ship Android-only native libraries. Its tests are therefore instrumented tests, run
+        // against an emulator with a camera, not plain-JVM unit tests.
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     compileOptions {
@@ -38,4 +43,10 @@ dependencies {
     // Working android.util.Log / android.opengl.Matrix / android.os.SystemClock for unit tests,
     // replacing the android.jar stubs that throw. Test scope so they can never reach an APK.
     testImplementation project(':AndroidShims')
+
+    // Instrumented tests use JUnit 4, which is what the Android test runner drives; the
+    // plain-JVM unit tests above stay on JUnit 5.
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
 }
