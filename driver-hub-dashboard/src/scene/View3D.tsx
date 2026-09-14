@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GamepadState, SimConfig, SimPose, SimStatus } from '../protocol';
 import type { Dashboard } from '../useDashboard';
+import { CameraPip } from '../camera/CameraPip';
 import { GamepadView } from './GamepadView';
 import { Inspector } from './Inspector';
 import { parseLayoutFile, useLayout } from './layout';
@@ -37,6 +38,7 @@ export function View3D({
   const [selected, setSelected] = useState<string | null>(null);
   const [options, setOptions] = useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [cameraExpanded, setCameraExpanded] = useState(false);
 
   const loaded = dashboard.loadedLayout;
   const applyFile = api.applyFile;
@@ -109,6 +111,13 @@ export function View3D({
           </div>
           <div style={gamepadCaption}>{caption}</div>
         </div>
+
+        <CameraPip
+          stream={dashboard.cameraStream}
+          pose={pose}
+          expanded={cameraExpanded}
+          onExpandedChange={setCameraExpanded}
+        />
       </div>
 
       <Inspector

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CameraStream } from '../protocol';
+import type { CameraStream, SimPose } from '../protocol';
 
 /**
  * The Dashboard Camera View: what the simulated robot's camera sees, live.
@@ -12,20 +12,8 @@ import type { CameraStream } from '../protocol';
  * a `VisionPortal` opens the camera; this diverges deliberately, because "can the camera see the
  * tag from here" is a question you ask before writing the OpMode that depends on the answer.
  */
-export function CameraView({ stream }: { stream: CameraStream | null }) {
-  // Bumped to force a fresh connection: a dead MJPEG stream never recovers on its own, and the
-  // server outliving a page (or the other way round) is normal here.
-  const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<'connecting' | 'streaming' | 'failed'>('connecting');
-
-  useEffect(() => {
-    if (state !== 'failed') return;
-    const retry = setTimeout(() => {
-      setState('connecting');
-      setAttempt((count) => count + 1);
-    }, 2000);
-    return () => clearTimeout(retry);
-  }, [state]);
+export function CameraView({ stream, pose }: { stream: CameraStream | null; pose: SimPose | null }) {
+  const feed = useCameraFeed(stream);
 
   if (!stream) {
     return (
@@ -50,32 +38,68 @@ export function CameraView({ stream }: { stream: CameraStream | null }) {
           {stream.width}&times;{stream.height}
         </span>
         <span>{stream.framesPerSecond} fps</span>
-        <span style={state === 'streaming' ? live : stale}>
-          {state === 'streaming' ? 'live' : state === 'connecting' ? 'connecting' : 'no signal'}
-        </span>
+        <span style={feed.state === 'streaming' ? live : stale}>{describe(feed.state)}</span>
+        {/* Where the camera is standing. A frame with nothing in it is the commonest thing this
+            panel shows — the robot is somewhere the tags are not — and the pose is the only
+            readout that distinguishes "aimed at nothing" from "broken". */}
+        <span style={hint}>{pose ? describePose(pose) : 'no pose'}</span>
         {/* Said out loud, because a panel that looks like a recording invites conclusions about
             frames it never showed: the detector runs faster than this view samples it. */}
         <span style={hint}>sampled view, not every frame</span>
       </div>
       <div style={stage}>
-        <img
-          // The query string is the retry: without it a browser serves the dead stream from cache.
-          src={attempt === 0 ? stream.url : `${stream.url}?retry=${attempt}`}
-          alt="Simulated camera view"
-          width={stream.width}
-          height={stream.height}
-          onLoad={() => setState('streaming')}
-          onError={() => setState('failed')}
-          style={picture}
-        />
+        <img {...feed.imageProps} alt="Simulated camera view" style={picture} />
       </div>
-      {state === 'failed' && (
+      {feed.state === 'failed' && (
         <div style={errorLine}>
           {stream.url} is not answering. Retrying; check the dashboard server is still up.
         </div>
       )}
     </div>
   );
+}
+
+type FeedState = 'connecting' | 'streaming' | 'failed';
+
+/**
+ * One MJPEG connection, with the reconnect that a dead stream needs.
+ *
+ * Shared by the tab and the picture-in-picture so that both are literally the same feed logic; the
+ * two never render at once, so there is only ever one connection to the server.
+ */
+export function useCameraFeed(stream: CameraStream | null) {
+  // Bumped to force a fresh connection: a dead MJPEG stream never recovers on its own, and the
+  // server outliving a page (or the other way round) is normal here.
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<FeedState>('connecting');
+
+  useEffect(() => {
+    if (state !== 'failed') return;
+    const retry = setTimeout(() => {
+      setState('connecting');
+      setAttempt((count) => count + 1);
+    }, 2000);
+    return () => clearTimeout(retry);
+  }, [state]);
+
+  return {
+    state,
+    imageProps: {
+      // The query string is the retry: without it a browser serves the dead stream from cache.
+      src: !stream ? undefined : attempt === 0 ? stream.url : `${stream.url}?retry=${attempt}`,
+      onLoad: () => setState('streaming'),
+      onError: () => setState('failed'),
+    },
+  };
+}
+
+export function describe(state: FeedState) {
+  return state === 'streaming' ? 'live' : state === 'connecting' ? 'connecting' : 'no signal';
+}
+
+/** Metres and degrees, matching the field readouts everywhere else. */
+export function describePose(pose: SimPose) {
+  return `at ${pose.x.toFixed(2)}, ${pose.y.toFixed(2)} facing ${pose.headingDegrees.toFixed(0)}°`;
 }
 
 const frame: React.CSSProperties = {

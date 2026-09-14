@@ -221,7 +221,7 @@ export function App() {
           onReset={dashboard.resetBehavior}
         />
       )}
-      {view === 'camera' && <CameraView stream={dashboard.cameraStream} />}
+      {view === 'camera' && <CameraView stream={dashboard.cameraStream} pose={dashboard.pose} />}
     </div>
   );
 }
