@@ -23,10 +23,10 @@ import org.ngicollective.testframework.hardware.FakeHardwareMap;
  * a new robot) just redirects the ticks.</p>
  *
  * <p><b>Where this actually runs.</b> It is started by {@code SimulatedHardwareFactory}, which the
- * event loop calls when the robot starts &mdash; so on a Control Hub or a phone, but <em>not</em>
- * on an emulator, where the Robot Controller's robot setup waits for a Wi-Fi Direct network that
- * is not there and stops with an internal error. A test that needs simulated time on an emulator
- * advances the map itself; see the Simulation notes in CLAUDE.md.</p>
+ * event loop calls during robot start &mdash; so on a Control Hub or a phone, but <em>not</em> on
+ * an emulator, where robot start waits for a Wi-Fi Direct network that is not there and stops with
+ * an internal error. A test that needs simulated time on an emulator advances the map itself; see
+ * the Simulation notes in CLAUDE.md.</p>
  */
 public final class SimulatedClock {
 
