@@ -45,6 +45,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -65,17 +67,26 @@ import java.util.function.Consumer;
  * hands to the hardware is a session setting: scaled by a multiplier, withheld entirely while
  * paused, and released one cycle at a time by a step. Slowing the robot down by sleeping longer
  * between ticks would have starved every other message instead.</p>
+ *
+ * <p>Both the cycle and the clock it stamps frames with come from a {@link TickSource}, which
+ * production takes from the machine and a test supplies itself. {@link TickSource} says why that
+ * seam is here.</p>
  */
 public class LocalDashboardBackend implements DashboardBackend {
 
-    /** Control-cycle period. Matches the ~50 Hz the real Robot Controller event loop runs at. */
-    private static final long TICK_MILLIS = 20;
+    /**
+     * Control-cycle period. Matches the ~50 Hz the real Robot Controller event loop runs at.
+     *
+     * <p>Package-private because it is the unit a deterministic test counts in: how far the robot
+     * got is a function of how many of these have run.</p>
+     */
+    static final long TICK_MILLIS = 20;
 
     /** Device snapshots are for human eyes; every tick would be needless traffic. */
     private static final int TICKS_PER_DEVICE_BROADCAST = 5;
 
     /**
-     * How often a session's OpMode may transmit telemetry.
+     * How often a session's OpMode may transmit telemetry, for a session running on real time.
      *
      * <p>A {@code LinearOpMode} calls {@code telemetry.update()} once per loop, and its loop is
      * bounded only by how fast the thread spins &mdash; against zero-latency simulated hardware
@@ -96,14 +107,17 @@ public class LocalDashboardBackend implements DashboardBackend {
     private static final double MIN_MULTIPLIER = 0.1;
     private static final double MAX_MULTIPLIER = 8.0;
 
+    /**
+     * Faults already reported, so a permanent one is said once instead of fifty times a second.
+     *
+     * <p>Static because {@link RealTime} is: the net under the scheduler has no session to hang a
+     * field on, and a process runs one dashboard.</p>
+     */
+    private static final Set<String> REPORTED_FAULTS = ConcurrentHashMap.newKeySet();
+
     private final Map<String, OpModeEntry> opModes = new LinkedHashMap<>();
     private final SimulatedRobot robot;
-    private final ScheduledExecutorService ticker =
-            Executors.newSingleThreadScheduledExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "dashboard-tick");
-                thread.setDaemon(true);
-                return thread;
-            });
+    private final TickSource time;
 
     private final List<Consumer<OpModeStatus>> statusListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<TelemetryFrame>> telemetryListeners = new CopyOnWriteArrayList<>();
@@ -152,14 +166,123 @@ public class LocalDashboardBackend implements DashboardBackend {
     private final AtomicReference<TelemetryFrame> pendingTelemetry = new AtomicReference<>();
 
     public LocalDashboardBackend(SimulatedRobot robot, List<OpModeEntry> opModes) {
+        this(robot, opModes, new RealTime());
+    }
+
+    /**
+     * The same session with its time handed to it rather than taken from the machine; see
+     * {@link TickSource}.
+     */
+    LocalDashboardBackend(SimulatedRobot robot, List<OpModeEntry> opModes, TickSource time) {
         this.robot = robot;
+        this.time = time;
         for (OpModeEntry entry : opModes) {
             this.opModes.put(entry.info.className, entry);
         }
         synchronized (lock) {
             restLocked();
         }
-        ticker.scheduleAtFixedRate(this::tick, TICK_MILLIS, TICK_MILLIS, TimeUnit.MILLISECONDS);
+        time.start(this::tick);
+    }
+
+    /**
+     * Where a session's control cycles and its wall clock come from.
+     *
+     * <p>Production has one answer, {@link RealTime}: the daemon ticker this class has always run
+     * on. This interface exists for the tests, and on purpose. What this backend does is
+     * arithmetic on a cycle count &mdash; n cycles at multiplier m hand the hardware
+     * n &times; {@link #TICK_MILLIS} &times; m milliseconds of simulated time, and every pose,
+     * pause and step follows from that &mdash; and a test of arithmetic should assert the
+     * arithmetic. Without this seam the only way to observe a cycle was to sleep and hope the
+     * ticker thread had got far enough, which turned the tests of a deterministic simulator into
+     * timing experiments: they measured throughput, they passed on an idle laptop, and they were
+     * one loaded machine away from failing for a reason that had nothing to do with the
+     * code.</p>
+     *
+     * <p>A source that starts no thread and instead runs {@code cycle} on the calling thread lets
+     * a test state exactly how many cycles happened with nothing else moving in between. For that
+     * to hold, everything time-shaped on the cycle path has to arrive through here, which is what
+     * the other two methods are for: {@link #nowMillis()} is the only clock outbound frames are
+     * stamped from, and {@link #telemetryIntervalMillis()} is the throttle a running OpMode's own
+     * telemetry is held back by.</p>
+     */
+    interface TickSource {
+
+        /** Begins running {@code cycle} once per control cycle. Called once, from the constructor. */
+        void start(Runnable cycle);
+
+        /**
+         * The wall clock outbound frames are stamped with.
+         *
+         * <p>Read from a running OpMode's own thread as well as from the cycle, so an
+         * implementation has to be safe to call from any thread.</p>
+         */
+        long nowMillis();
+
+        /**
+         * How long a running OpMode's telemetry may be held between transmissions.
+         *
+         * <p>Enforced by the SDK against {@code System.nanoTime()}, inside {@code TelemetryImpl},
+         * where nothing here can reach it: a session that pumps its cycles by hand advances no
+         * real time, so leaving this above zero would hold every frame back and make a test of
+         * telemetry a test of how long the test took. Such a session turns it off and asserts this
+         * backend's own coalescing instead &mdash; at most one frame published per control cycle,
+         * which is the guarantee the browser depends on and the one this class is responsible
+         * for.</p>
+         */
+        int telemetryIntervalMillis();
+
+        /** Stops running cycles; the session is closing and will not tick again. */
+        void stop();
+    }
+
+    /** Production's source: the daemon ticker, the machine clock, the SDK's throttle left alone. */
+    private static final class RealTime implements TickSource {
+
+        private final ScheduledExecutorService ticker =
+                Executors.newSingleThreadScheduledExecutor(runnable -> {
+                    Thread thread = new Thread(runnable, "dashboard-tick");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+
+        /**
+         * {@inheritDoc}
+         *
+         * <p>The cycle is wrapped because {@code scheduleAtFixedRate} answers a task that throws by
+         * cancelling it &mdash; not this run, every run, with no log line and no way to ask whether
+         * it is still scheduled. The session then keeps its socket open and answers every request
+         * while the simulation behind it never advances again: no pose, so the robot never moves,
+         * and no device state, so the 3D view never even learns the robot has wheels. {@link #tick()}
+         * already contains its own faults; this is the net under it, because the cost of one escaping
+         * is the whole session rather than one cycle.</p>
+         */
+        @Override
+        public void start(Runnable cycle) {
+            Runnable guarded = () -> {
+                try {
+                    cycle.run();
+                } catch (Throwable e) {
+                    reportFault("control cycle", e);
+                }
+            };
+            ticker.scheduleAtFixedRate(guarded, TICK_MILLIS, TICK_MILLIS, TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public long nowMillis() {
+            return System.currentTimeMillis();
+        }
+
+        @Override
+        public int telemetryIntervalMillis() {
+            return TELEMETRY_INTERVAL_MILLIS;
+        }
+
+        @Override
+        public void stop() {
+            ticker.shutdownNow();
+        }
     }
 
     /**
@@ -431,15 +554,15 @@ public class LocalDashboardBackend implements DashboardBackend {
         synchronized (lock) {
             stopLocked();
         }
-        ticker.shutdownNow();
+        time.stop();
     }
 
     private void wireTelemetry(OpModeHarness target) {
-        target.setTelemetryTransmissionInterval(TELEMETRY_INTERVAL_MILLIS);
+        target.setTelemetryTransmissionInterval(time.telemetryIntervalMillis());
         // Runs on the OpMode's own thread: keep the newest frame and let the ticker publish it.
         pendingTelemetry.set(null);
         target.addTelemetryListener(
-                lines -> pendingTelemetry.set(new TelemetryFrame(System.currentTimeMillis(), lines)));
+                lines -> pendingTelemetry.set(new TelemetryFrame(time.nowMillis(), lines)));
     }
 
     private FakeDevice<?> requireDeviceLocked(String device) {
@@ -648,29 +771,68 @@ public class LocalDashboardBackend implements DashboardBackend {
      * One control cycle: advance simulated time, do the Robot Controller event loop's per-iteration
      * housekeeping, run an iterative OpMode's loop, notice a linear OpMode that has ended on its
      * own, and publish whatever the browser needs to see.
+     *
+     * <p>Nothing is allowed out of here. A cycle is scheduled at a fixed rate, and the scheduler's
+     * answer to a task that throws is to cancel every future run of it silently, so one bad cycle
+     * used to end the simulation for the life of the process while the socket stayed up and
+     * answered normally &mdash; a dashboard that lists OpModes, accepts a start and reads a gamepad,
+     * with a robot that never moves and a 3D view that never learns it has wheels. A cycle that
+     * fails is worth losing; the session is not.</p>
      */
     private void tick() {
-        Publication published = tickSession();
+        try {
+            Publication published = tickSession();
 
-        // Outside the lock, and once per tick at most: this is the only place telemetry reaches the
-        // browser, which is what keeps a fast OpMode loop from flooding the socket.
-        TelemetryFrame frame = pendingTelemetry.getAndSet(null);
-        if (frame != null) {
-            for (Consumer<TelemetryFrame> listener : telemetryListeners) {
+            // Outside the lock, and once per tick at most: this is the only place telemetry reaches
+            // the browser, which is what keeps a fast OpMode loop from flooding the socket.
+            TelemetryFrame frame = pendingTelemetry.getAndSet(null);
+            if (frame != null) {
+                publish("telemetry", telemetryListeners, frame);
+            }
+            if (published.pose != null) {
+                publish("pose", simPoseListeners, published.pose);
+            }
+            if (published.devices != null) {
+                publish("device state", deviceListeners, published.devices);
+            }
+        } catch (RuntimeException | Error e) {
+            reportFault("control cycle", e);
+        }
+    }
+
+    /**
+     * Hands one frame to every listener, keeping them independent of each other.
+     *
+     * <p>A listener is a browser, and the send at the end of it can fail for reasons that have
+     * nothing to do with the simulation or with the other browsers watching it &mdash; a connection
+     * closing mid-broadcast is the ordinary one. Without this, the first listener to throw would
+     * take the rest of that frame's recipients with it and then the cycle itself.</p>
+     */
+    private static <T> void publish(String what, List<Consumer<T>> listeners, T frame) {
+        for (Consumer<T> listener : listeners) {
+            try {
                 listener.accept(frame);
+            } catch (RuntimeException | Error e) {
+                reportFault(what + " listener", e);
             }
         }
+    }
 
-        if (published.pose != null) {
-            for (Consumer<SimPose> listener : simPoseListeners) {
-                listener.accept(published.pose);
-            }
-        }
-
-        if (published.devices != null) {
-            for (Consumer<List<DeviceState>> listener : deviceListeners) {
-                listener.accept(published.devices);
-            }
+    /**
+     * Says a fault happened, once per distinct fault.
+     *
+     * <p>Once, because the cycle runs 50 times a second and a fault that repeats is usually
+     * permanent: printing every occurrence would bury the session's own output within seconds. Said
+     * at all, because the bug this exists for was invisible &mdash; the simulation stopped and
+     * nothing anywhere recorded that it had.</p>
+     */
+    private static void reportFault(String where, Throwable e) {
+        String description = where + ": " + e;
+        if (REPORTED_FAULTS.add(description)) {
+            System.err.println("[dashboard] " + description
+                    + " (contained; the session keeps ticking. This is said once per distinct"
+                    + " fault.)");
+            e.printStackTrace();
         }
     }
 
@@ -770,7 +932,7 @@ public class LocalDashboardBackend implements DashboardBackend {
         Pose2d pose = drive.pose();
         ChassisVelocity velocity = drive.velocity();
         return new SimPose(
-                System.currentTimeMillis(),
+                time.nowMillis(),
                 hardware.elapsedSeconds(),
                 pose.x(),
                 pose.y(),
