@@ -30,6 +30,14 @@ public final class SimConfigFiles {
     /** Relative to the module the process runs in, which is TeamCode. See {@code DashboardMain}. */
     private static final String DIRECTORY = "robot-config";
 
+    /**
+     * Where field arrangements live, beside the robot description rather than inside it.
+     *
+     * <p>Separate because they change for different reasons: a robot configuration describes
+     * hardware that stays put for a season, while a scenario is the arrangement of one run.</p>
+     */
+    private static final String SCENARIO_DIRECTORY = "scenarios";
+
     private static final String FIELD_FILE = "field.json";
 
     private static final String EXTENSION = ".json";
@@ -40,6 +48,34 @@ public final class SimConfigFiles {
     /** Where the configuration files live on disk, absolute, for an error message to point at. */
     public static Path directory() {
         return Paths.get(DIRECTORY).toAbsolutePath().normalize();
+    }
+
+    /** Where scenarios live on disk, absolute, for an error message to point at. */
+    public static Path scenarioDirectory() {
+        return Paths.get(SCENARIO_DIRECTORY).toAbsolutePath().normalize();
+    }
+
+    /**
+     * The scenario described by {@code scenarios/<name>.json}, or by the packaged resource.
+     *
+     * <p>No default, deliberately. A caller that wants the competition field asks
+     * {@code BioBuzzField.official()} for it and gets the published geometry; a caller that named
+     * a scenario meant that scenario, and quietly substituting the official field for a
+     * misspelled name would make a test pass against the wrong arrangement.</p>
+     */
+    public static ScenarioConfig scenario(String name) {
+        String fileName = name + EXTENSION;
+        Path file = scenarioDirectory().resolve(fileName);
+        if (Files.isRegularFile(file)) {
+            return ScenarioConfig.load(file);
+        }
+        URL resource = resource(SCENARIO_DIRECTORY, fileName);
+        if (resource != null) {
+            return ScenarioConfig.load(resource);
+        }
+        throw new IllegalArgumentException("no scenario \"" + name + "\": there is no file at "
+                + file + " and no classpath resource \"" + SCENARIO_DIRECTORY + "/" + fileName
+                + "\"");
     }
 
     /**
@@ -89,10 +125,15 @@ public final class SimConfigFiles {
      * Gradle worker happened to leave behind.</p>
      */
     private static URL resource(String fileName) {
+        return resource(DIRECTORY, fileName);
+    }
+
+    private static URL resource(String directory, String fileName) {
+        String path = directory + "/" + fileName;
         ClassLoader loader = SimConfigFiles.class.getClassLoader();
         return loader == null
-                ? ClassLoader.getSystemResource(resourcePath(fileName))
-                : loader.getResource(resourcePath(fileName));
+                ? ClassLoader.getSystemResource(path)
+                : loader.getResource(path);
     }
 
     private static String resourcePath(String fileName) {

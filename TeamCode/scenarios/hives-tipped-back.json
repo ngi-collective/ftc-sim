@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "HIVEs tipped the other way",
+  "hives": {
+    "red": "AUDIENCE_DOWN",
+    "blue": "AUDIENCE_UP"
+  }
+}

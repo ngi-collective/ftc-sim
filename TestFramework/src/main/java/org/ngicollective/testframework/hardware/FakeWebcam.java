@@ -78,6 +78,9 @@ public class FakeWebcam extends FakeDevice<CameraState> implements WebcamName {
 
         FrameListener current = listener;
         if (current == null) {
+            // Nothing is consuming this camera, so nothing was rendered. Forgetting the frames is
+            // what stops a burst arriving the moment something attaches.
+            state().dropFramesDue();
             return;
         }
         int due = state().takeFramesDue();

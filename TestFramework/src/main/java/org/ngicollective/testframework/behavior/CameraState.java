@@ -77,4 +77,15 @@ public final class CameraState {
         framesDelivered += due;
         return due;
     }
+
+    /**
+     * Forgets any frames owed, without counting them as delivered.
+     *
+     * <p>For a camera nobody was listening to. The frames were never rendered, so calling them
+     * delivered would be a lie, and keeping them owed would hand a burst to whatever attached
+     * next.</p>
+     */
+    public void dropFramesDue() {
+        framesDue = 0;
+    }
 }

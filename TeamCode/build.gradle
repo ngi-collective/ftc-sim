@@ -96,6 +96,13 @@ tasks.register('dashboard', JavaExec) {
     classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
 }
 
+tasks.register('stageScenarios', Copy) {
+    group = 'ftc'
+    description = 'Stage TeamCode/scenarios as Java resources for the simulated APK'
+    from 'scenarios'
+    into layout.buildDirectory.dir('generated/robotConfig/scenarios')
+}
+
 tasks.register('stageRobotConfig', Copy) {
     group = 'ftc'
     description = 'Stage TeamCode/robot-config as Java resources for the simulated APK'
@@ -104,5 +111,5 @@ tasks.register('stageRobotConfig', Copy) {
 }
 
 tasks.named('preBuild') {
-    dependsOn 'stageRobotConfig'
+    dependsOn 'stageRobotConfig', 'stageScenarios'
 }

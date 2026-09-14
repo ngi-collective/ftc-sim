@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "Practice balls in front of the red HIVE",
+
+  "elements": {
+    "pollen-left": { "kind": "POLLEN", "xMetres": -0.55, "yMetres": -0.90 },
+    "pollen-right": { "kind": "POLLEN", "xMetres": -0.25, "yMetres": -0.90 },
+    "pollen-far": { "kind": "POLLEN", "xMetres": -0.40, "yMetres": -0.70 },
+    "red-nectar-left": { "kind": "RED_NECTAR", "xMetres": -0.60, "yMetres": -1.15 },
+    "red-nectar-right": { "kind": "RED_NECTAR", "xMetres": -0.20, "yMetres": -1.15 },
+    "blue-nectar-decoy": { "kind": "BLUE_NECTAR", "xMetres": -0.40, "yMetres": -1.05 }
+  }
+}

@@ -1,10 +1,15 @@
 package org.firstinspires.ftc.teamcode;
 
 import android.app.Activity;
+import android.app.Instrumentation;
+import android.content.Context;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.util.Log;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.qualcomm.robotcore.eventloop.opmode.OpModeManagerImpl;
 
@@ -86,8 +91,35 @@ public class SyntheticCameraAcceptanceTest {
         // before any of this. The app does it at robot start via the SDK's LibLoader hook.
         assertTrue("OpenCV native library failed to load", OpenCVLoader.initDebug());
 
+        grantTheAppItsPermissions();
         scenario = ActivityScenario.launch(SimulatedRobotControllerActivity.class);
         awaitOpModeManager();
+    }
+
+    /**
+     * Grants every runtime permission the Robot Controller declares.
+     *
+     * <p>Necessary because Gradle's own install does not grant them, and the app's permission
+     * validator refuses to set up a robot until they are held. The symptom without this is not a
+     * permission error but a silent hang: the activity launches, no {@code OpModeManagerImpl} is
+     * ever created, and the test times out waiting for a robot that was never asked for.</p>
+     */
+    private static void grantTheAppItsPermissions() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        Context target = instrumentation.getTargetContext();
+        PackageInfo info = target.getPackageManager()
+                .getPackageInfo(target.getPackageName(), PackageManager.GET_PERMISSIONS);
+        if (info.requestedPermissions == null) {
+            return;
+        }
+        for (String permission : info.requestedPermissions) {
+            // Normal permissions cannot be granted this way and do not need to be; let the
+            // shell refuse them rather than maintaining a list that drifts from the manifest.
+            instrumentation.getUiAutomation().executeShellCommand(
+                    "pm grant " + target.getPackageName() + " " + permission).close();
+        }
+        // The grants are asynchronous; the app reads them during its own startup.
+        Thread.sleep(500);
     }
 
     @AfterClass
