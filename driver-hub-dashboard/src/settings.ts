@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { DEFAULT_SIM_STATUS, type Alliance } from './protocol';
 
 /**
  * Dashboard preferences that survive a reload.
@@ -14,11 +15,25 @@ export interface Settings {
    * typing somewhere else; nobody should have to guess why their keystrokes went missing.</p>
    */
   keyboardGamepad: boolean;
+  /**
+   * Which driver station the operator is standing behind.
+   *
+   * <p>It decides the zero of the robot's reported heading, so it outlives a reload: a team that
+   * set up on blue should not come back from a refresh secretly running red's frame.</p>
+   */
+  alliance: Alliance;
+  /** How fast simulated time runs against the wall clock. */
+  simMultiplier: number;
 }
 
 const DEFAULTS: Settings = {
   keyboardGamepad: false,
+  alliance: DEFAULT_SIM_STATUS.alliance,
+  simMultiplier: DEFAULT_SIM_STATUS.multiplier,
 };
+
+/** The speeds the strip offers, and the only ones a stored preference is allowed to name. */
+export const SIM_MULTIPLIERS = [0.25, 0.5, 1, 2, 4] as const;
 
 const STORAGE_KEY = 'driverhub.settings.v1';
 
@@ -34,6 +49,13 @@ function load(): Settings {
         typeof fields.keyboardGamepad === 'boolean'
           ? fields.keyboardGamepad
           : DEFAULTS.keyboardGamepad,
+      alliance:
+        fields.alliance === 'blue' || fields.alliance === 'red'
+          ? fields.alliance
+          : DEFAULTS.alliance,
+      simMultiplier: SIM_MULTIPLIERS.some((rate) => rate === fields.simMultiplier)
+        ? (fields.simMultiplier as number)
+        : DEFAULTS.simMultiplier,
     };
   } catch {
     // Unreadable storage is not worth failing the page over; fall back to the defaults.

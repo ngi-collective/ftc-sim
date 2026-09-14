@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BEHAVIORS, type DeviceState } from '../protocol';
+import { BEHAVIORS, type Alliance, type DeviceState } from '../protocol';
 import { activeChip, button, chip, numberInput, railHeading, selectStyle } from '../ui';
 import { INLINE_OUTPUT, MOUNTS, type DeviceLayout, type LayoutApi, type Mount } from './layout';
 import type { ViewOptions } from './RobotScene';
@@ -373,11 +373,13 @@ export function Inspector({
   selected,
   api,
   options,
+  alliance,
   layoutFiles,
   layoutDirectory,
   savedLayout,
   onSelect,
   onOptions,
+  onAlliance,
   onOverride,
   onResetBehavior,
   onSaveLayout,
@@ -388,11 +390,14 @@ export function Inspector({
   selected: string | null;
   api: LayoutApi;
   options: ViewOptions;
+  /** Which alliance the sim is running for; the rail sets it, the sim owns it. */
+  alliance: Alliance;
   layoutFiles: string[];
   layoutDirectory: string | null;
   savedLayout: { name: string; path: string } | null;
   onSelect: (name: string | null) => void;
   onOptions: (patch: Partial<ViewOptions>) => void;
+  onAlliance: (alliance: Alliance) => void;
   onOverride: (device: string, type: string, value: number) => void;
   onResetBehavior: (device: string) => void;
   onSaveLayout: (name: string) => void;
@@ -437,6 +442,28 @@ export function Inspector({
           />
           snap 1cm
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={options.allianceView}
+            onChange={(event) => onOptions({ allianceView: event.target.checked })}
+          />
+          alliance view
+        </label>
+      </div>
+
+      {/* Alliance is not a camera preset: it is which station the sim zeroes the heading against. */}
+      <div style={railHeading}>alliance</div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+        {(['red', 'blue'] as Alliance[]).map((side) => (
+          <button
+            key={side}
+            style={side === alliance ? activeChip : chip}
+            onClick={() => onAlliance(side)}
+          >
+            {side}
+          </button>
+        ))}
       </div>
 
       <div style={railHeading}>devices</div>
@@ -465,7 +492,8 @@ export function Inspector({
       ) : (
         devices.length > 0 && (
           <div style={{ color: '#5f7a5f', marginTop: 8, lineHeight: 1.5 }}>
-            click a device in the scene to place it. drag to move, shift-drag to raise. left-drag
+            click a device in the scene to place it. drag to move, shift-drag to raise. drag the
+            chassis to place the robot on the field, shift-drag it to swing the heading. left-drag
             empty space orbits, wheel zooms.
           </div>
         )

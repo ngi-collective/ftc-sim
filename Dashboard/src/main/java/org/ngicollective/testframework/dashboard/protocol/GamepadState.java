@@ -20,6 +20,11 @@ public final class GamepadState {
     public boolean dpad_left;
     public boolean dpad_right;
 
+    public boolean left_bumper;
+    public boolean right_bumper;
+    public boolean left_stick_button;
+    public boolean right_stick_button;
+
     public boolean a;
     public boolean b;
     public boolean x;

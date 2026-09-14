@@ -1,10 +1,14 @@
 package org.ngicollective.testframework.dashboard;
 
+import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
+import org.ngicollective.testframework.dashboard.protocol.SimPose;
+import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 import org.ngicollective.testframework.dashboard.protocol.TelemetryFrame;
 
 import java.util.List;
@@ -47,6 +51,55 @@ public interface DashboardBackend {
 
     /** Periodic snapshots of every simulated device. */
     void subscribeDeviceState(Consumer<List<DeviceState>> listener);
+
+    /**
+     * Where the simulated chassis is, once per control cycle.
+     *
+     * <p>Every tick, not on the device-snapshot cadence: this drives an animation, and a robot
+     * redrawn ten times a second reads as stuttering rather than as fast.</p>
+     *
+     * <p>Silent while no OpMode is initialized, and silent for a robot whose configuration declares
+     * no drivetrain &mdash; there is no pose to report for hardware that cannot drive.</p>
+     */
+    void subscribeSimPose(Consumer<SimPose> listener);
+
+    /**
+     * The robot and field geometry the current session was built with, or null when nothing is
+     * initialized or the robot has no drivetrain.
+     */
+    SimConfigPayload simConfig();
+
+    /** Fires on every OpMode init, because a re-init re-reads the configuration files. */
+    void subscribeSimConfig(Consumer<SimConfigPayload> listener);
+
+    /** How the simulation is being run; also pushed to {@link #subscribeSimStatus} on change. */
+    SimStatus simStatus();
+
+    void subscribeSimStatus(Consumer<SimStatus> listener);
+
+    /**
+     * Sets time dilation and the pause flag.
+     *
+     * @param multiplier simulated seconds per wall-clock second; implementations clamp it to a
+     *                   range where the control loop still behaves like a control loop
+     * @param paused     true to freeze simulated time without ending the run
+     */
+    void setSimTime(double multiplier, boolean paused);
+
+    /**
+     * Advances exactly {@code ticks} control cycles while paused, one per tick of the event loop,
+     * so a person can walk a manoeuvre forward and watch each cycle's effect.
+     */
+    void stepSim(int ticks);
+
+    /** Teleports the chassis, for setting up a situation without driving to it. Degrees. */
+    void placeRobot(double xMetres, double yMetres, double headingDegrees);
+
+    /**
+     * Picks the driver station the session is played from, which sets the IMU yaw offset so heading
+     * zero means "facing away from my own wall".
+     */
+    void setAlliance(Alliance alliance);
 
     /**
      * Applies driver input.

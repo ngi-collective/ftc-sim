@@ -16,6 +16,7 @@ public class ImuState {
     private volatile double roll;
     private volatile double yawOffset;
     private volatile double yawRateDegreesPerSecond;
+    private volatile double chassisYawDegrees;
 
     /** Raw heading in degrees, before the reset offset. */
     public double getYaw() {
@@ -62,5 +63,21 @@ public class ImuState {
 
     public void setYawRateDegreesPerSecond(double yawRateDegreesPerSecond) {
         this.yawRateDegreesPerSecond = yawRateDegreesPerSecond;
+    }
+
+    /**
+     * Heading of the chassis the IMU is bolted to, in degrees, as the drive model computed it from
+     * the wheels.
+     *
+     * <p>Kept apart from {@link #getYaw()} on purpose: this is the truth, {@code yaw} is what the
+     * sensor claims, and the gap between them is a fault worth being able to simulate. Only
+     * {@link ImuBehaviors#followingChassis()} closes it.</p>
+     */
+    public double getChassisYawDegrees() {
+        return chassisYawDegrees;
+    }
+
+    public void setChassisYawDegrees(double chassisYawDegrees) {
+        this.chassisYawDegrees = AngleUnit.normalizeDegrees(chassisYawDegrees);
     }
 }

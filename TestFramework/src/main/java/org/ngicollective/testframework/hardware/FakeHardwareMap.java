@@ -9,6 +9,9 @@ import org.ngicollective.testframework.behavior.MotorBehaviors;
 import org.ngicollective.testframework.behavior.MotorState;
 import org.ngicollective.testframework.behavior.ServoBehaviors;
 import org.ngicollective.testframework.behavior.ServoState;
+import org.ngicollective.testframework.sim.DriveModel;
+import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.RobotConfig;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -34,6 +37,7 @@ public class FakeHardwareMap extends HardwareMap {
 
     private final Map<String, FakeDevice<?>> fakes = new LinkedHashMap<>();
     private double elapsedSeconds;
+    private DriveModel drive;
 
     private FakeHardwareMap() {
         // A null notifier is the SDK's own supported way of building a HardwareMap that no
@@ -74,6 +78,14 @@ public class FakeHardwareMap extends HardwareMap {
         return Collections.unmodifiableMap(fakes);
     }
 
+    /**
+     * The drive model turning this robot's wheels into a field pose, or null when no drivetrain was
+     * declared &mdash; a hardware map of one arm motor has no business having a pose.
+     */
+    public DriveModel drive() {
+        return drive;
+    }
+
     /** Simulated seconds elapsed since this map was built. */
     public double elapsedSeconds() {
         return elapsedSeconds;
@@ -90,6 +102,14 @@ public class FakeHardwareMap extends HardwareMap {
             throw new IllegalArgumentException("cannot advance simulated time backwards");
         }
         elapsedSeconds += seconds;
+        if (drive != null) {
+            // Before the devices, deliberately: the drive model publishes this tick's chassis
+            // heading into the IMU's state, and the IMU behavior that copies it out runs in the
+            // loop below. Advancing the devices first would report the heading the robot had a tick
+            // ago, and at 50 Hz a fast pivot moves several degrees in a tick -- exactly the lag a
+            // heading-holding routine would then be tuned against and fail on the real robot.
+            drive.advance(seconds);
+        }
         for (FakeDevice<?> device : fakes.values()) {
             device.advance(seconds);
         }
@@ -123,6 +143,8 @@ public class FakeHardwareMap extends HardwareMap {
         private final FakeHardwareMap map = new FakeHardwareMap();
         private int nextMotorPort;
         private int nextServoPort;
+        private RobotConfig drivetrainRobot;
+        private FieldConfig drivetrainField;
 
         private Builder() {
         }
@@ -151,7 +173,13 @@ public class FakeHardwareMap extends HardwareMap {
             return this;
         }
 
-        /** Adds an IMU with {@link ImuBehaviors#stationary()} behavior. */
+        /**
+         * Adds an IMU with {@link ImuBehaviors#stationary()} behavior.
+         *
+         * <p>A robot that also declares a drivetrain wants {@link ImuBehaviors#followingChassis()}
+         * instead: a stationary IMU on a robot whose wheels are turning reports a heading of zero
+         * forever, which looks less like a missing argument than like a broken OpMode.</p>
+         */
         public Builder addImu(String name) {
             return addImu(name, ImuBehaviors.stationary());
         }
@@ -163,7 +191,23 @@ public class FakeHardwareMap extends HardwareMap {
             return this;
         }
 
+        /**
+         * Declares that these motors drive a robot around a field, which is what gives the map a
+         * {@link DriveModel}.
+         *
+         * <p>Order does not matter: the model is built once every device has been declared, so this
+         * can be called before or after the motors and the IMU it resolves.</p>
+         */
+        public Builder withDrivetrain(RobotConfig robot, FieldConfig field) {
+            this.drivetrainRobot = robot;
+            this.drivetrainField = field;
+            return this;
+        }
+
         public FakeHardwareMap build() {
+            if (drivetrainRobot != null) {
+                map.drive = new DriveModel(drivetrainRobot, drivetrainField, map);
+            }
             return map;
         }
     }

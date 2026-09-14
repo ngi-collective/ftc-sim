@@ -31,6 +31,34 @@ export const selectStyle: React.CSSProperties = {
 
 export const railHeading: React.CSSProperties = { color: '#7CFC00', margin: '0 0 8px' };
 
+/**
+ * The alliance chips wear their alliance. The choice is not decoration — it sets the zero of every
+ * heading the robot reports — and a two-state toggle that reads the same in both states is a trap.
+ */
+export const redChip: React.CSSProperties = {
+  ...chip,
+  background: '#3a1414',
+  color: '#ffb3b3',
+  border: '1px solid #5c2020',
+};
+
+export const blueChip: React.CSSProperties = {
+  ...chip,
+  background: '#14203a',
+  color: '#b3ccff',
+  border: '1px solid #20355c',
+};
+
+/** Names a group of controls in a bar without competing with them for attention. */
+export const controlLabel: React.CSSProperties = {
+  color: '#5f7a5f',
+  fontSize: 11,
+  letterSpacing: 1,
+};
+
+/** A select sized to sit in a bar of chips rather than beside the OpMode picker. */
+export const smallSelect: React.CSSProperties = { ...selectStyle, padding: '2px 6px', fontSize: 11 };
+
 export const numberInput: React.CSSProperties = {
   background: '#0f1a12',
   color: '#d6f5d6',

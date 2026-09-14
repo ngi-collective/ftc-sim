@@ -1,8 +1,9 @@
 import { OrbitControls } from '@react-three/drei';
-import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import type { DeviceState, GamepadState } from '../protocol';
+import type { Alliance, DeviceState, GamepadState, SimConfig, SimPose } from '../protocol';
+import { Field, STANDARD_FIELD } from './Field';
 import { CHASSIS, type DeviceLayout } from './layout';
 import { DeviceLabel, ImuModel, MotorModel, SelectionRing, ServoModel } from './parts';
 
@@ -14,6 +15,8 @@ export interface ViewOptions {
   showLabels: boolean;
   /** Draw the left stick as a translation arrow and the right stick as a turn arc. */
   showStickVector: boolean;
+  /** Sit the camera where the alliance's drive team stands, instead of wherever it was left. */
+  allianceView: boolean;
 }
 
 export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
@@ -21,10 +24,25 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   snap: true,
   showLabels: true,
   showStickVector: true,
+  allianceView: true,
 };
 
 const SNAP_METRES = 0.01;
+/** A robot placed to the nearest degree; finer than a driver can see on a field. */
+const SNAP_DEGREES = 1;
 const GROUND = new THREE.Vector3(0, 1, 0);
+/** The floor, for dragging the robot across it. Owned here, never mutated. */
+const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+/** Every camera in this scene looks at the middle of the field. */
+const FIELD_CENTRE = new THREE.Vector3(0, 0, 0);
+
+/** Metres, scene frame, and how the chassis mesh is proportioned. */
+interface ChassisShape {
+  width: number;
+  depth: number;
+  height: number;
+  deckY: number;
+}
 
 /**
  * One device, placed and oriented by its layout.
@@ -32,7 +50,7 @@ const GROUND = new THREE.Vector3(0, 1, 0);
  * <p>Left-drag moves it across the deck; shift-drag raises and lowers it. The drag runs against a
  * plane through the device rather than against the mesh, so the pointer keeps its grip when it
  * leaves the geometry, and the result is converted back into the chassis frame — the chassis may be
- * yawed under it.</p>
+ * yawed and driven out across the field under it.</p>
  */
 function DeviceNode({
   device,
@@ -170,15 +188,19 @@ function DeviceNode({
  *
  * <p>The deck is translucent on purpose. A motor bolted under the plate is the normal case, and the
  * point of this view is to see it turn.</p>
+ *
+ * <p>Wall contact repaints the whole body and cages it in a wire box. A robot pinned against the
+ * perimeter still reports motor power and encoder counts, and mistaking that for motion is exactly
+ * the reading error the sim exists to prevent.</p>
  */
-function Chassis() {
-  const half = { x: CHASSIS.width / 2, z: CHASSIS.depth / 2 };
+function Chassis({ shape, contact }: { shape: ChassisShape; contact: boolean }) {
+  const half = { x: shape.width / 2, z: shape.depth / 2 };
   return (
     <group>
-      <mesh position={[0, CHASSIS.deckY, 0]} receiveShadow>
-        <boxGeometry args={[CHASSIS.width, 0.012, CHASSIS.depth]} />
+      <mesh position={[0, shape.deckY, 0]} receiveShadow>
+        <boxGeometry args={[shape.width, 0.012, shape.depth]} />
         <meshStandardMaterial
-          color="#33475c"
+          color={contact ? '#6b3340' : '#33475c'}
           metalness={0.3}
           roughness={0.6}
           transparent
@@ -187,26 +209,40 @@ function Chassis() {
         />
       </mesh>
       {[-half.x, half.x].map((x) => (
-        <mesh key={x} position={[x, CHASSIS.deckY - 0.03, 0]} castShadow>
-          <boxGeometry args={[0.012, 0.05, CHASSIS.depth]} />
-          <meshStandardMaterial color="#2d3c4c" metalness={0.4} roughness={0.6} />
+        <mesh key={x} position={[x, shape.deckY - 0.03, 0]} castShadow>
+          <boxGeometry args={[0.012, 0.05, shape.depth]} />
+          <meshStandardMaterial
+            color={contact ? '#8a3b46' : '#2d3c4c'}
+            metalness={0.4}
+            roughness={0.6}
+          />
         </mesh>
       ))}
       {[-half.z, half.z].map((z) => (
-        <mesh key={z} position={[0, CHASSIS.deckY - 0.03, z]} castShadow>
-          <boxGeometry args={[CHASSIS.width, 0.05, 0.012]} />
-          <meshStandardMaterial color="#2d3c4c" metalness={0.4} roughness={0.6} />
+        <mesh key={z} position={[0, shape.deckY - 0.03, z]} castShadow>
+          <boxGeometry args={[shape.width, 0.05, 0.012]} />
+          <meshStandardMaterial
+            color={contact ? '#8a3b46' : '#2d3c4c'}
+            metalness={0.4}
+            roughness={0.6}
+          />
         </mesh>
       ))}
       {/* Control hub, purely for orientation while the camera swings around. */}
-      <mesh position={[0.08, CHASSIS.deckY + 0.018, 0.09]} castShadow>
+      <mesh position={[0.08, shape.deckY + 0.018, 0.09]} castShadow>
         <boxGeometry args={[0.09, 0.024, 0.06]} />
         <meshStandardMaterial color="#1d2732" roughness={0.8} />
       </mesh>
-      <mesh position={[0, CHASSIS.deckY + 0.008, -half.z - 0.02]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, shape.deckY + 0.008, -half.z - 0.02]} rotation={[-Math.PI / 2, 0, 0]}>
         <coneGeometry args={[0.026, 0.05, 3]} />
         <meshStandardMaterial color="#7CFC00" emissive="#7CFC00" emissiveIntensity={0.4} />
       </mesh>
+      {contact && (
+        <mesh position={[0, shape.deckY - 0.02, 0]}>
+          <boxGeometry args={[shape.width + 0.04, shape.height + 0.1, shape.depth + 0.04]} />
+          <meshBasicMaterial color="#ff7043" wireframe transparent opacity={0.9} />
+        </mesh>
+      )}
     </group>
   );
 }
@@ -215,14 +251,14 @@ function Chassis() {
  * The driver's stick input drawn in the robot's own frame: an arrow for the translation the left
  * stick is asking for, an arc for the turn the right stick is asking for.
  */
-function StickVector({ gamepad }: { gamepad: GamepadState }) {
+function StickVector({ gamepad, deckY }: { gamepad: GamepadState; deckY: number }) {
   const strafe = gamepad.left_stick_x;
   // Sticks report -1 when pushed away from the driver, and the robot's nose points at -Z.
   const forward = -gamepad.left_stick_y;
   const magnitude = Math.min(1, Math.hypot(strafe, forward));
   const turn = gamepad.right_stick_x;
   const length = magnitude * 0.4;
-  const y = CHASSIS.deckY + 0.06;
+  const y = deckY + 0.06;
 
   return (
     <group>
@@ -251,34 +287,234 @@ function StickVector({ gamepad }: { gamepad: GamepadState }) {
   );
 }
 
+/**
+ * Parks the camera where that alliance's drive team physically stands, looking across the field.
+ *
+ * <p>Red's station is at {@code -Y_ftc} looking along {@code +Y}, which the scene's frame flip puts
+ * at {@code +Z}; blue is the mirror. The move is eased rather than snapped so the eye can follow
+ * which way the field turned, and the goal is dropped the moment it is reached — after that
+ * OrbitControls owns the camera again and the user can look wherever they like.</p>
+ */
+function AlliancePerspective({
+  alliance,
+  enabled,
+  fieldSize,
+  controls,
+}: {
+  alliance: Alliance;
+  enabled: boolean;
+  fieldSize: number;
+  controls: React.RefObject<React.ComponentRef<typeof OrbitControls> | null>;
+}) {
+  const camera = useThree((state) => state.camera);
+  const goal = useRef<THREE.Vector3 | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      goal.current = null;
+      return;
+    }
+    const side = alliance === 'red' ? 1 : -1;
+    goal.current = new THREE.Vector3(0, fieldSize * 0.55, side * fieldSize * 1.05);
+  }, [alliance, enabled, fieldSize]);
+
+  useFrame((_, delta) => {
+    const target = goal.current;
+    if (!target || !controls.current) return;
+    // Frame-rate independent ease, so a 30 fps tab takes the same half-second as a 144 fps one.
+    const step = 1 - Math.exp(-delta * 6);
+    camera.position.lerp(target, step);
+    controls.current.target.lerp(FIELD_CENTRE, step);
+    if (camera.position.distanceTo(target) < 0.01) {
+      camera.position.copy(target);
+      controls.current.target.set(0, 0, 0);
+      goal.current = null;
+    }
+    controls.current.update();
+  });
+
+  return null;
+}
+
 function SceneContents({
   devices,
   layout,
   selected,
   gamepad,
   options,
+  pose,
+  simConfig,
+  alliance,
+  subscribePose,
   onSelect,
   onMove,
+  onPlaceRobot,
 }: {
   devices: DeviceState[];
   layout: Record<string, DeviceLayout>;
   selected: string | null;
   gamepad: GamepadState;
   options: ViewOptions;
+  pose: SimPose | null;
+  simConfig: SimConfig | null;
+  alliance: Alliance;
+  subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
   onMove: (name: string, position: [number, number, number]) => void;
+  onPlaceRobot: (x: number, y: number, headingDegrees: number) => void;
 }) {
   const robot = useRef<THREE.Group>(null);
   const controls = useRef<React.ComponentRef<typeof OrbitControls>>(null);
 
+  /**
+   * The chassis the robot config declares, falling back to the layout's stand-in until {@code
+   * sim/config} lands — the devices are placed against that same stand-in, so the two agree.
+   */
+  const declared = simConfig?.robot.chassis;
+  const shape: ChassisShape = declared
+    ? {
+        width: declared.widthMetres,
+        depth: declared.lengthMetres,
+        height: declared.heightMetres,
+        deckY: declared.deckHeightMetres,
+      }
+    : { width: CHASSIS.width, depth: CHASSIS.depth, height: CHASSIS.height, deckY: CHASSIS.deckY };
+  const field = simConfig?.field ?? null;
+  const fieldSize = (field ?? STANDARD_FIELD).sizeMetres;
+
+  /**
+   * The pose the body is drawn at, kept out of React: it arrives at 50 Hz and the device rail has
+   * no business re-rendering for it. The prop is the throttled copy, and seeding from it keeps the
+   * body right when the socket goes quiet.
+   */
+  const live = useRef<SimPose | null>(pose);
+  useEffect(() => {
+    live.current = pose;
+  }, [pose]);
+  useEffect(() => subscribePose((next) => (live.current = next)), [subscribePose]);
+
   const imu = devices.find((device) => device.kind === 'imu');
-  const chassisYaw =
-    options.followYaw && imu ? THREE.MathUtils.degToRad(imu.yawDegrees) : 0;
+  const imuYaw = options.followYaw && imu ? THREE.MathUtils.degToRad(imu.yawDegrees) : 0;
+  /**
+   * How far the body is turned in the field frame. Driven by the sim once it is running, by the
+   * IMU when it is not, and the IMU compass needle reads against it either way.
+   */
+  const chassisYaw = pose ? THREE.MathUtils.degToRad(pose.headingDegrees) : imuYaw;
+
+  useFrame(() => {
+    const group = robot.current;
+    if (!group) return;
+    const current = live.current;
+    if (current) {
+      group.position.set(current.x, 0, -current.y);
+      group.rotation.y = THREE.MathUtils.degToRad(current.headingDegrees) - Math.PI / 2;
+    } else {
+      // Headless: no sim behind the dashboard, so the robot stays at the origin as it always did.
+      group.position.set(0, 0, 0);
+      group.rotation.y = imuYaw;
+    }
+  });
 
   const onDragChange = useCallback((dragging: boolean) => {
     if (controls.current) controls.current.enabled = !dragging;
     document.body.style.cursor = dragging ? 'grabbing' : 'auto';
   }, []);
+
+  /**
+   * Dragging the body places the robot: translate across the floor, shift-drag to swing the
+   * heading. This is the "what if the robot starts two inches off" question, asked directly.
+   *
+   * <p>The result goes out as a pose and comes back from the sim like any other tick, so what the
+   * screen shows is always what the sim believes — nothing is nudged locally.</p>
+   */
+  const chassisDrag = useRef<{
+    turning: boolean;
+    offsetX: number;
+    offsetY: number;
+    /** Where the turn was grabbed, once the pointer is far enough out to mean a direction. */
+    grabBearing: number | null;
+    startHeading: number;
+  } | null>(null);
+  const [placing, setPlacing] = useState(false);
+
+  const endPlacing = useCallback(() => {
+    if (!chassisDrag.current) return;
+    chassisDrag.current = null;
+    setPlacing(false);
+    onDragChange(false);
+  }, [onDragChange]);
+
+  useEffect(() => {
+    if (!placing) return;
+    window.addEventListener('pointerup', endPlacing);
+    window.addEventListener('pointercancel', endPlacing);
+    return () => {
+      window.removeEventListener('pointerup', endPlacing);
+      window.removeEventListener('pointercancel', endPlacing);
+    };
+  }, [placing, endPlacing]);
+
+  const onChassisDown = (event: ThreeEvent<PointerEvent>) => {
+    // The chassis is not a device, so grabbing it clears whatever the inspector was editing.
+    onSelect(null);
+    const current = live.current;
+    if (event.button !== 0 || !current) return;
+    const hit = new THREE.Vector3();
+    if (!event.ray.intersectPlane(FLOOR, hit)) return;
+    event.stopPropagation();
+
+    const grabX = hit.x;
+    const grabY = -hit.z;
+    chassisDrag.current = {
+      turning: event.shiftKey,
+      offsetX: current.x - grabX,
+      offsetY: current.y - grabY,
+      grabBearing: null,
+      startHeading: current.headingDegrees,
+    };
+    (event.target as Element).setPointerCapture(event.pointerId);
+    setPlacing(true);
+    onDragChange(true);
+  };
+
+  const onChassisMove = (event: ThreeEvent<PointerEvent>) => {
+    const state = chassisDrag.current;
+    const current = live.current;
+    if (!state || !current) return;
+    event.stopPropagation();
+
+    const hit = new THREE.Vector3();
+    if (!event.ray.intersectPlane(FLOOR, hit)) return;
+    const x = hit.x;
+    const y = -hit.z;
+
+    if (state.turning) {
+      // Near the centre of rotation the pointer has no lever arm, and its bearing is all noise:
+      // wait until the drag is clear of the robot before reading a heading out of it.
+      if (Math.hypot(x - current.x, y - current.y) < Math.max(shape.width, shape.depth) / 2) return;
+      const bearing = Math.atan2(y - current.y, x - current.x);
+      if (state.grabBearing === null) {
+        state.grabBearing = bearing;
+        state.startHeading = current.headingDegrees;
+        return;
+      }
+      const turned = state.startHeading + THREE.MathUtils.radToDeg(bearing - state.grabBearing);
+      const heading = options.snap ? Math.round(turned / SNAP_DEGREES) * SNAP_DEGREES : turned;
+      // A drag across the ±180 seam is the same heading, not another lap around the circle.
+      onPlaceRobot(current.x, current.y, ((((heading + 180) % 360) + 360) % 360) - 180);
+      return;
+    }
+
+    // Whatever the heading, the robot's diagonal is the most of it that can reach a wall.
+    const reach = fieldSize / 2 - Math.hypot(shape.width, shape.depth) / 2;
+    const place = (value: number) => {
+      const snapped = options.snap
+        ? Math.round(value / SNAP_METRES) * SNAP_METRES
+        : Number(value.toFixed(4));
+      return THREE.MathUtils.clamp(snapped, -reach, reach);
+    };
+    onPlaceRobot(place(x + state.offsetX), place(y + state.offsetY), current.headingDegrees);
+  };
 
   return (
     <>
@@ -287,31 +523,36 @@ function SceneContents({
       <ambientLight intensity={0.55} />
       <directionalLight
         castShadow
-        position={[0.9, 1.4, 0.8]}
+        position={[1.6, 3.2, 1.4]}
         intensity={1.6}
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-1}
-        shadow-camera-right={1}
-        shadow-camera-top={1}
-        shadow-camera-bottom={-1}
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-fieldSize / 2}
+        shadow-camera-right={fieldSize / 2}
+        shadow-camera-top={fieldSize / 2}
+        shadow-camera-bottom={-fieldSize / 2}
       />
 
-      {/* Empty space clears the selection, the same way clicking off a node does elsewhere. */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        receiveShadow
-        onPointerDown={(event) => {
+      <Field
+        field={field}
+        alliance={alliance}
+        onGroundDown={(event) => {
           if (event.button === 0) onSelect(null);
         }}
-      >
-        <planeGeometry args={[4, 4]} />
-        <meshStandardMaterial color="#0c1219" roughness={1} />
-      </mesh>
-      <gridHelper args={[2.4, 24, '#1d3040', '#141d26']} position={[0, 0.001, 0]} />
+      />
 
-      <group ref={robot} rotation={[0, chassisYaw, 0]}>
-        <Chassis />
-        {options.showStickVector && <StickVector gamepad={gamepad} />}
+      <group ref={robot}>
+        <group
+          onPointerDown={onChassisDown}
+          onPointerMove={onChassisMove}
+          onPointerUp={endPlacing}
+          onPointerOver={() => {
+            if (live.current) document.body.style.cursor = 'grab';
+          }}
+          onPointerOut={() => (document.body.style.cursor = 'auto')}
+        >
+          <Chassis shape={shape} contact={pose?.wallContact ?? false} />
+        </group>
+        {options.showStickVector && <StickVector gamepad={gamepad} deckY={shape.deckY} />}
         {devices.map((device) => (
           <DeviceNode
             key={device.name}
@@ -328,13 +569,19 @@ function SceneContents({
         ))}
       </group>
 
+      <AlliancePerspective
+        alliance={alliance}
+        enabled={options.allianceView}
+        fieldSize={fieldSize}
+        controls={controls}
+      />
       <OrbitControls
         ref={controls}
         makeDefault
         enablePan
-        target={[0, 0.1, 0]}
+        target={[0, 0, 0]}
         minDistance={0.35}
-        maxDistance={3}
+        maxDistance={12}
         maxPolarAngle={Math.PI / 2 - 0.02}
       />
     </>
@@ -347,11 +594,17 @@ export function RobotScene(props: {
   selected: string | null;
   gamepad: GamepadState;
   options: ViewOptions;
+  pose: SimPose | null;
+  simConfig: SimConfig | null;
+  alliance: Alliance;
+  subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
   onMove: (name: string, position: [number, number, number]) => void;
+  onPlaceRobot: (x: number, y: number, headingDegrees: number) => void;
 }) {
   return (
-    <Canvas shadows camera={{ position: [0.55, 0.6, 0.85], fov: 42, near: 0.05, far: 20 }}>
+    // Opens on the red drive team's view of the whole field, which is where the toggle starts too.
+    <Canvas shadows camera={{ position: [0, 1.97, 3.76], fov: 45, near: 0.05, far: 40 }}>
       <SceneContents {...props} />
     </Canvas>
   );

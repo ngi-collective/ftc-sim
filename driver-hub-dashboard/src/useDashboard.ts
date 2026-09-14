@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  DEFAULT_SIM_STATUS,
   parseLayoutList,
   parseLayoutRecord,
   parseSavedLayout,
+  type Alliance,
   type DeviceState,
   type Envelope,
   type GamepadState,
   type LayoutRecord,
   type OpModeInfo,
   type OpModeStatus,
+  type SimConfig,
+  type SimPose,
+  type SimStatus,
   type TelemetryFrame,
 } from './protocol';
+
+/**
+ * Pose arrives at 50 Hz, which is what the scene wants and far more than React does: every commit
+ * re-renders the console log and the device rail along with the canvas. The fast path is therefore
+ * a subscription fed straight off the socket, and {@link Dashboard.pose} is committed no more often
+ * than this — the cadence a plugged-in controller already re-renders the page at, so a running
+ * simulation costs the tree nothing it was not already paying.
+ */
+const POSE_COMMIT_INTERVAL_MS = 50;
 
 const DEFAULT_URL = `ws://${location.hostname}:8765`;
 
@@ -32,15 +46,39 @@ export interface Dashboard {
   loadedLayout: LayoutRecord | null;
   /** Where the last save landed, so the UI can say what to commit. */
   savedLayout: { name: string; path: string } | null;
+  /**
+   * The newest pose the server sent, in the FTC field frame, or null when nothing is driving.
+   *
+   * <p>Committed at {@link POSE_COMMIT_INTERVAL_MS}, so it is right for readouts and one tick
+   * behind for animation; anything that draws the robot should take {@link subscribePose}.</p>
+   */
+  pose: SimPose | null;
+  /**
+   * Every pose, as it lands, outside React. Returns its own unsubscribe. Meant for a render loop:
+   * a listener that writes a transform sees all 50 Hz without a single component re-rendering.
+   */
+  subscribePose: (listener: (pose: SimPose) => void) => () => void;
+  /** The robot and field the server is simulating, or null before the first `sim/config`. */
+  simConfig: SimConfig | null;
+  /** Clock and alliance, as the server last reported them. */
+  simStatus: SimStatus;
   init: (className: string) => void;
   start: () => void;
   stop: () => void;
-  sendGamepad: (state: GamepadState) => void;
+  /** Writes one gamepad slot on the robot: 1 or 2, matching {@code gamepad1} / {@code gamepad2}. */
+  sendGamepad: (state: GamepadState, which?: 1 | 2) => void;
   overrideBehavior: (device: string, type: string, value: number) => void;
   resetBehavior: (device: string) => void;
   saveLayout: (name: string, layout: unknown) => void;
   loadLayout: (name: string) => void;
   deleteLayout: (name: string) => void;
+  /** Sets the rate simulated time runs at, and whether it runs at all. */
+  setSimTime: (multiplier: number, paused: boolean) => void;
+  /** Advances exactly this many ticks while paused; ignored while running. */
+  stepSim: (ticks: number) => void;
+  /** Teleports the robot to a field pose, in metres and degrees. */
+  placeRobot: (x: number, y: number, headingDegrees: number) => void;
+  setAlliance: (alliance: Alliance) => void;
 }
 
 export function useDashboard(url: string = DEFAULT_URL): Dashboard {
@@ -59,6 +97,19 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [layoutDirectory, setLayoutDirectory] = useState<string | null>(null);
   const [loadedLayout, setLoadedLayout] = useState<LayoutRecord | null>(null);
   const [savedLayout, setSavedLayout] = useState<{ name: string; path: string } | null>(null);
+  const [simConfig, setSimConfig] = useState<SimConfig | null>(null);
+  const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
+  const [pose, setPose] = useState<SimPose | null>(null);
+  const poseRef = useRef<SimPose | null>(null);
+  const poseListeners = useRef(new Set<(pose: SimPose) => void>());
+  const lastPoseCommit = useRef(0);
+
+  // A robot that is not being simulated has no pose at all, and drawing the last one it had would
+  // claim it is still sitting there. Say nothing instead.
+  const clearPose = useCallback(() => {
+    poseRef.current = null;
+    setPose(null);
+  }, []);
 
   useEffect(() => {
     let closed = false;
@@ -76,6 +127,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       };
       socket.onclose = () => {
         setConnected(false);
+        clearPose();
         // The server outlives page reloads and vice versa; keep trying rather than dead-ending.
         if (!closed) retry = setTimeout(connect, 1000);
       };
@@ -91,9 +143,12 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
           case 'opmode/list':
             setOpModes((payload as { opModes: OpModeInfo[] }).opModes);
             break;
-          case 'opmode/status':
-            setStatus(payload as OpModeStatus);
+          case 'opmode/status': {
+            const next = payload as OpModeStatus;
+            setStatus(next);
+            if (next.state === 'STOPPED') clearPose();
             break;
+          }
           case 'telemetry/frame':
             setTelemetry(payload as TelemetryFrame);
             break;
@@ -118,6 +173,23 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
             if (saved) setSavedLayout(saved);
             break;
           }
+          case 'sim/pose': {
+            const next = payload as SimPose;
+            poseRef.current = next;
+            for (const listener of poseListeners.current) listener(next);
+            const now = performance.now();
+            if (now - lastPoseCommit.current >= POSE_COMMIT_INTERVAL_MS) {
+              lastPoseCommit.current = now;
+              setPose(next);
+            }
+            break;
+          }
+          case 'sim/config':
+            setSimConfig(payload as SimConfig);
+            break;
+          case 'sim/status':
+            setSimStatus(payload as SimStatus);
+            break;
         }
       };
     };
@@ -128,7 +200,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       clearTimeout(retry);
       socket.close();
     };
-  }, [url]);
+  }, [url, clearPose]);
 
   const send = useCallback((namespace: string, type: string, payload: unknown) => {
     const socket = socketRef.current;
@@ -155,9 +227,14 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     error,
     init,
     start: useCallback(() => send('opmode', 'start', {}), [send]),
-    stop: useCallback(() => send('opmode', 'stop', {}), [send]),
+    // Stopping tears the simulated robot down with the OpMode, so drop the pose now rather than
+    // leaving a ghost on the field until the server gets round to saying so.
+    stop: useCallback(() => {
+      clearPose();
+      send('opmode', 'stop', {});
+    }, [send, clearPose]),
     sendGamepad: useCallback(
-      (state: GamepadState) => send('gamepad', 'state', { gamepad: 1, ...state }),
+      (state: GamepadState, which: 1 | 2 = 1) => send('gamepad', 'state', { gamepad: which, ...state }),
       [send],
     ),
     overrideBehavior: useCallback(
@@ -176,5 +253,28 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     ),
     loadLayout: useCallback((name: string) => send('layout', 'load', { name }), [send]),
     deleteLayout: useCallback((name: string) => send('layout', 'delete', { name }), [send]),
+    pose,
+    subscribePose: useCallback((listener: (pose: SimPose) => void) => {
+      const listeners = poseListeners.current;
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    }, []),
+    simConfig,
+    simStatus,
+    setSimTime: useCallback(
+      (multiplier: number, paused: boolean) => send('sim', 'time', { multiplier, paused }),
+      [send],
+    ),
+    stepSim: useCallback((ticks: number) => send('sim', 'step', { ticks }), [send]),
+    placeRobot: useCallback(
+      (x: number, y: number, headingDegrees: number) => send('sim', 'pose', { x, y, headingDegrees }),
+      [send],
+    ),
+    setAlliance: useCallback(
+      (alliance: Alliance) => send('sim', 'alliance', { alliance }),
+      [send],
+    ),
   };
 }

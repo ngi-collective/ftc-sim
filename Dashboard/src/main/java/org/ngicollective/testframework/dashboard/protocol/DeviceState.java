@@ -21,6 +21,13 @@ public final class DeviceState {
     public double velocityTicksPerSecond;
     public int position;
     public String mode;
+    /**
+     * How many times this run's commanded power exceeded [-1, 1] and was clipped, and the last such
+     * command. The SDK clips silently, which hides the most common cause of a robot that drives
+     * straight when it was asked to curve: a mixer whose outputs were never normalized.
+     */
+    public int clippedCommandCount;
+    public double lastClippedCommand;
 
     // servo
     public double commandedPosition;

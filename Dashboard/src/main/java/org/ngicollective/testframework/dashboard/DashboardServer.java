@@ -8,9 +8,12 @@ import com.google.gson.JsonParseException;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
 import org.java_websocket.server.WebSocketServer;
+import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
+import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
+import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -33,9 +36,14 @@ import java.nio.file.Path;
  * layout/save    {name, layout}                     -&gt; layout/list, broadcast to every client
  * layout/load    {name}                             -&gt; layout/data   {name, layout}
  * layout/delete  {name}                             -&gt; layout/list, broadcast to every client
+ * sim/time       {multiplier, paused}               -&gt; sim/status, broadcast on change
+ * sim/step       {ticks}                            (advances a paused simulation)
+ * sim/pose       {x, y, headingDegrees}             (next sim/pose reflects it)
+ * sim/alliance   {alliance}                         -&gt; sim/status, broadcast on change
  * </pre>
  * <p>Pushed without being asked: {@code opmode/status}, {@code telemetry/frame},
- * {@code device/state}. A request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
+ * {@code device/state}, {@code sim/pose} every control cycle, and {@code sim/config} on connect
+ * and on every OpMode init. A request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
  */
 public class DashboardServer extends WebSocketServer {
 
@@ -71,6 +79,9 @@ public class DashboardServer extends WebSocketServer {
             payload.add("devices", gson.toJsonTree(devices));
             broadcast(new Envelope("device", "state", payload));
         });
+        backend.subscribeSimPose(pose -> broadcast("sim", "pose", pose));
+        backend.subscribeSimConfig(config -> broadcast("sim", "config", config));
+        backend.subscribeSimStatus(status -> broadcast("sim", "status", status));
     }
 
     private static InetAddress resolve(String host) {
@@ -93,6 +104,13 @@ public class DashboardServer extends WebSocketServer {
         // A fresh browser needs the whole picture before it can render anything.
         send(connection, opModeListEnvelope());
         send(connection, envelope("opmode", "status", backend.status()));
+        send(connection, envelope("sim", "status", backend.simStatus()));
+        // Geometry only exists once an OpMode has been initialized on a robot that can drive; until
+        // then the browser has nothing to draw a field for and will be told on the next init.
+        SimConfigPayload simConfig = backend.simConfig();
+        if (simConfig != null) {
+            send(connection, envelope("sim", "config", simConfig));
+        }
     }
 
     @Override
@@ -201,6 +219,25 @@ public class DashboardServer extends WebSocketServer {
                 layouts.delete(requireString(payload, "name"));
                 broadcast(layoutListEnvelope());
                 break;
+            case "sim/time": {
+                // Either field may be omitted, so a client that only moves the speed slider does
+                // not have to know whether someone else just paused.
+                SimStatus current = backend.simStatus();
+                backend.setSimTime(
+                        optionalDouble(payload, "multiplier", current.multiplier),
+                        optionalBoolean(payload, "paused", current.paused));
+                break;
+            }
+            case "sim/step":
+                backend.stepSim((int) optionalDouble(payload, "ticks", 1));
+                break;
+            case "sim/pose":
+                backend.placeRobot(requireDouble(payload, "x"), requireDouble(payload, "y"),
+                        requireDouble(payload, "headingDegrees"));
+                break;
+            case "sim/alliance":
+                backend.setAlliance(Alliance.fromWire(requireString(payload, "alliance")));
+                break;
             default:
                 send(connection, Envelope.error(request.namespace, "unknown message " + request));
         }
@@ -218,6 +255,25 @@ public class DashboardServer extends WebSocketServer {
             throw new IllegalArgumentException("missing \"" + field + "\"");
         }
         return payload.get(field).getAsString();
+    }
+
+    private static double requireDouble(JsonObject payload, String field) {
+        if (!payload.has(field) || payload.get(field).isJsonNull()) {
+            throw new IllegalArgumentException("missing \"" + field + "\"");
+        }
+        return payload.get(field).getAsDouble();
+    }
+
+    private static double optionalDouble(JsonObject payload, String field, double fallback) {
+        return payload.has(field) && !payload.get(field).isJsonNull()
+                ? payload.get(field).getAsDouble()
+                : fallback;
+    }
+
+    private static boolean optionalBoolean(JsonObject payload, String field, boolean fallback) {
+        return payload.has(field) && !payload.get(field).isJsonNull()
+                ? payload.get(field).getAsBoolean()
+                : fallback;
     }
 
     private Envelope opModeListEnvelope() {

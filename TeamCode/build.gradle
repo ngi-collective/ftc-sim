@@ -43,6 +43,16 @@ android {
             useJUnitPlatform()
         }
     }
+
+    // The simulated app runs on a device, where there is no repository checkout to read
+    // `robot-config/` out of. Stage those files as Java resources so the same JSON that the
+    // dashboard and the headless tests read off disk is also inside the APK. Nested one level
+    // deep so the resource path matches the on-disk path and SimConfigFiles can try both.
+    sourceSets {
+        simulated {
+            resources.srcDirs += layout.buildDirectory.dir('generated/robotConfig')
+        }
+    }
 }
 
 dependencies {
@@ -68,4 +78,15 @@ tasks.register('dashboard', JavaExec) {
     dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac'
     mainClass = 'org.ngicollective.testframework.dashboard.DashboardMain'
     classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
+}
+
+tasks.register('stageRobotConfig', Copy) {
+    group = 'ftc'
+    description = 'Stage TeamCode/robot-config as Java resources for the simulated APK'
+    from 'robot-config'
+    into layout.buildDirectory.dir('generated/robotConfig/robot-config')
+}
+
+tasks.named('preBuild') {
+    dependsOn 'stageRobotConfig'
 }

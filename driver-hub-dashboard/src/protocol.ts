@@ -2,7 +2,7 @@
 // these are the only shapes that cross the socket.
 
 export interface Envelope {
-  namespace: 'opmode' | 'telemetry' | 'gamepad' | 'device' | 'layout';
+  namespace: 'opmode' | 'telemetry' | 'gamepad' | 'device' | 'layout' | 'sim';
   type: string;
   payload: unknown;
 }
@@ -84,6 +84,9 @@ export interface DeviceState {
   hornPosition: number;
   yawDegrees: number;
   yawRateDegreesPerSecond: number;
+  /** How many times this motor was commanded past ±1 since the last reset, and the worst of them. */
+  clippedCommandCount: number;
+  lastClippedCommand: number;
 }
 
 export interface GamepadState {
@@ -97,6 +100,10 @@ export interface GamepadState {
   dpad_down: boolean;
   dpad_left: boolean;
   dpad_right: boolean;
+  left_bumper: boolean;
+  right_bumper: boolean;
+  left_stick_button: boolean;
+  right_stick_button: boolean;
   a: boolean;
   b: boolean;
   x: boolean;
@@ -115,6 +122,10 @@ export const NEUTRAL_GAMEPAD: GamepadState = {
   dpad_down: false,
   dpad_left: false,
   dpad_right: false,
+  left_bumper: false,
+  right_bumper: false,
+  left_stick_button: false,
+  right_stick_button: false,
   a: false,
   b: false,
   x: false,
@@ -140,3 +151,63 @@ export const BEHAVIORS: Record<string, { type: string; value?: number; label: st
     { type: 'stationary', label: 'stationary' },
   ],
 };
+
+/**
+ * The simulated field and the robot driving on it.
+ *
+ * <p>These are server-composed, so they are typed rather than parsed: the same tick that builds
+ * them builds the Java record, and a shape mismatch is a bug to fix on both sides, not a bad file
+ * to survive.</p>
+ *
+ * <p>Poses are in the FTC field frame — metres from field centre, heading CCW-positive with zero
+ * facing +X. The three.js conversion is the scene's business and lives there.</p>
+ */
+export type Alliance = 'red' | 'blue';
+
+export interface SimPose {
+  timestampMillis: number;
+  elapsedSeconds: number;
+  x: number;
+  y: number;
+  headingDegrees: number;
+  forwardVelocity: number;
+  lateralVelocity: number;
+  yawRateDegreesPerSecond: number;
+  wallContact: boolean;
+}
+
+export interface SimChassis {
+  widthMetres: number;
+  lengthMetres: number;
+  heightMetres: number;
+  deckHeightMetres: number;
+}
+
+export interface SimDrivetrain {
+  type: string;
+  wheelRadiusMetres: number;
+  gearRatio: number;
+  trackWidthMetres: number;
+  wheelBaseMetres: number;
+  strafeEfficiency: number;
+}
+
+export interface SimField {
+  sizeMetres: number;
+  wallHeightMetres: number;
+  tileMetres: number;
+}
+
+export interface SimConfig {
+  robot: { name: string; chassis: SimChassis; drivetrain: SimDrivetrain };
+  field: SimField;
+}
+
+export interface SimStatus {
+  multiplier: number;
+  paused: boolean;
+  alliance: Alliance;
+}
+
+/** What the clock is doing before the server has said otherwise: real time, running, red alliance. */
+export const DEFAULT_SIM_STATUS: SimStatus = { multiplier: 1, paused: false, alliance: 'red' };

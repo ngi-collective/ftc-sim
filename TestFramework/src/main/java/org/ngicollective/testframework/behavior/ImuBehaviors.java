@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.behavior;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+
 /** The built-in catalog of IMU behaviors. */
 public final class ImuBehaviors {
 
@@ -32,5 +34,28 @@ public final class ImuBehaviors {
     public static Behavior<ImuState> followingYawRate() {
         return (state, elapsedSeconds) ->
                 state.setYaw(state.getYaw() + state.getYawRateDegreesPerSecond() * elapsedSeconds);
+    }
+
+    /**
+     * An IMU bolted to the chassis: it reports whatever heading the drive model derived from the
+     * wheels, and an angular velocity derived from how that heading actually changed.
+     *
+     * <p>This is the default for a robot with a drivetrain, and it makes the other presets in this
+     * class fault injection rather than convenience. A {@link #stationary()} IMU on a robot that is
+     * pivoting, or a {@link #rotating(double)} one that drifts a degree a second past the truth, is
+     * a sensor lying to the OpMode &mdash; which is a real failure, and the reason those presets
+     * stay.</p>
+     */
+    public static Behavior<ImuState> followingChassis() {
+        return (state, elapsedSeconds) -> {
+            double chassisYaw = state.getChassisYawDegrees();
+            if (elapsedSeconds > 0.0) {
+                // Differencing the heading rather than being told the rate: an IMU measures its own
+                // motion, so a heading forced from elsewhere has to show up in the rate too.
+                double turned = AngleUnit.normalizeDegrees(chassisYaw - state.getYaw());
+                state.setYawRateDegreesPerSecond(turned / elapsedSeconds);
+            }
+            state.setYaw(chassisYaw);
+        };
     }
 }

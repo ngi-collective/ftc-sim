@@ -9,8 +9,9 @@ import com.google.gson.JsonObject;
  * <p>Mirrors the envelope the SDK's own {@code CoreRobotWebServer} uses, so the emulator-hosted
  * backend can speak the identical protocol later without a translation layer.</p>
  *
- * <p>Namespaces are {@code opmode}, {@code telemetry}, {@code gamepad} and {@code device}. A request
- * that fails is answered in its own namespace with type {@code error} and a {@code message}.</p>
+ * <p>Namespaces are {@code opmode}, {@code telemetry}, {@code gamepad}, {@code device},
+ * {@code layout} and {@code sim}. A request that fails is answered in its own namespace with type
+ * {@code error} and a {@code message}.</p>
  */
 public final class Envelope {
 

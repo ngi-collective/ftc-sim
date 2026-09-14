@@ -37,6 +37,8 @@ public class MotorState {
     private volatile double velocity;
     private volatile double currentAmps;
     private volatile double currentAlertAmps = Double.MAX_VALUE;
+    private volatile int clippedCommandCount;
+    private volatile double lastClippedCommand;
 
     /** Ticks per second the simulated shaft turns at full power. */
     public double getMaxTicksPerSecond() {
@@ -71,7 +73,33 @@ public class MotorState {
     }
 
     public void setCommandedPower(double commandedPower) {
+        // Recorded before the clip, because after it the evidence is gone. The SDK clips silently
+        // and so does this, so a joystick mixer that hands out 1.4 drives exactly like one that
+        // hands out 1.0 while quietly losing the difference between its wheels -- a robot that
+        // curves under hard turns and looks correct in every telemetry line. NaN counts as
+        // out of range too: every comparison against it is false, so Range.clip passes it straight
+        // through to the drive model.
+        if (!(commandedPower >= -1.0 && commandedPower <= 1.0)) {
+            clippedCommandCount++;
+            lastClippedCommand = commandedPower;
+        }
         this.commandedPower = Range.clip(commandedPower, -1.0, 1.0);
+    }
+
+    /** How many powers outside [-1, 1] this motor has been given since the last reset. */
+    public int getClippedCommandCount() {
+        return clippedCommandCount;
+    }
+
+    /** The most recent such power, unclipped, so a dashboard can show how far out of range it was. */
+    public double getLastClippedCommand() {
+        return lastClippedCommand;
+    }
+
+    /** Forgets the clipping seen so far, for a test or a dashboard run that starts counting fresh. */
+    public void resetClipStats() {
+        clippedCommandCount = 0;
+        lastClippedCommand = 0.0;
     }
 
     /** Power actually applied to the simulated shaft, with direction applied. */
