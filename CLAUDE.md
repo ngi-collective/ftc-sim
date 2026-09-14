@@ -52,6 +52,27 @@ applies mecanum forward kinematics, and integrates an `(x, y, heading)` pose on 
 with perimeter walls. `mise run dashboard` streams it at 50 Hz and the 3D view drives the robot
 from it.
 
+**The simulated app never starts its robot on an emulator.** The Robot Controller's robot setup
+waits for a Wi-Fi Direct network, which no emulator provides, and gives up:
+
+```
+Robot Status: stopped, waiting for Wi-Fi Direct to enable
+Robot Status: stopped, internal error
+```
+
+Consequences, all verified rather than assumed:
+
+- The event loop never runs, so `SimulatedHardwareFactory.createHardwareMap` is never called,
+  `SimulatedClock` never starts, and the OpMode registry stays empty — `initOpMode` on any name
+  falls through to `$Stop$Robot$`. On a real Control Hub with a Driver Station, all of this works.
+- So OpModes cannot be launched from the app's own UI on an emulator, and the app's real
+  `OpModeManagerImpl` cannot be driven there. `NetworkType.LOOPBACK` exists in the SDK but
+  `NetworkConnectionFactory` answers it with `return null; // not yet implemented`, so there is no
+  supported network mode to switch to.
+- Running OpModes in the app on an emulator therefore needs the harness path
+  (`LocalDashboardBackend`), which bypasses the RC service entirely — not the SDK's event loop.
+  That is the route an in-process dashboard server should take.
+
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
   track width, strafe efficiency, encoder resolution, chassis dimensions, per-motor mounting
   mirror. `VerityRobot` reads it; do not hardcode these numbers anywhere else. The files are also
