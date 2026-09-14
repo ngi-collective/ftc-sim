@@ -67,17 +67,22 @@ adb shell am start -n "$pkg/org.firstinspires.ftc.teamcode.simulated.SimulatedPe
 # Android-only native libraries. These are instrumented tests, so they need the emulator above to
 # be running, which is why they are not part of `mise run test` or CI.
 [tasks.test-vision]
-description = "Run the vision tests against a running emulator"
+description = "Run every vision test against a running emulator"
 run = """
-./gradlew :TeamCode:connectedSimulatedDebugAndroidTest
+mise run test-acceptance
 ./gradlew :TestFramework:connectedDebugAndroidTest
 """
 
-# The acceptance test alone: an unmodified sample OpMode against the simulated field. Needs no
-# host camera, so any AVD will do -- unlike the webcam tests above.
+# One Gradle invocation per class, deliberately. Each acceptance test builds a VisionPortal with
+# LiveView, and the second one in a process fails with "Viewport container specified by user is
+# not empty!" -- a portal's viewport is only released when a real OpMode stop tears it down, and
+# a portal that an OpMode never closed keeps the container occupied for the life of the process.
 [tasks.test-acceptance]
-description = "Run an unmodified vision OpMode against the simulated camera on an emulator"
-run = "./gradlew :TeamCode:connectedSimulatedDebugAndroidTest"
+description = "Run unmodified vision OpModes against the simulated camera on an emulator"
+run = """
+./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.RealEventLoopAcceptanceTest
+./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.SyntheticCameraAcceptanceTest
+"""
 
 # The dashboard is two processes: a JVM serving the simulated robot over a WebSocket, and the Vite
 # dev server for the browser UI. Run them in separate terminals.

@@ -52,28 +52,28 @@ applies mecanum forward kinematics, and integrates an `(x, y, heading)` pose on 
 with perimeter walls. `mise run dashboard` streams it at 50 Hz and the 3D view drives the robot
 from it.
 
-**Robot start never completes on an emulator.** It waits for a Wi-Fi Direct network, which no
-emulator provides, and gives up:
+**The simulated flavour starts its own robot**, because the SDK's robot start cannot finish on an
+emulator: it waits for a Wi-Fi Direct network that is not there and gives up with
+`Robot Status: stopped, internal error`. Without a robot start the event loop never runs, no
+hardware map is ever built, `SimulatedClock` never ticks, and the OpMode registry stays empty, so
+`initOpMode` on any name falls through to `$Stop$Robot$`. `NetworkType.LOOPBACK` exists in the SDK
+but `NetworkConnectionFactory` answers it with `return null; // not yet implemented`, so there is
+no supported network mode to switch to either.
 
-```
-Robot Status: stopped, waiting for Wi-Fi Direct to enable
-Robot Status: stopped, internal error
-```
+`SimulatedRobotStart` does the rest of the SDK's own sequence and skips that one step, so the
+event loop, `OpModeManagerImpl`, the OpMode registry and LiveView are all the genuine article. It
+replaces `FtcRobotControllerService.setupRobot`, which is what waits for the network.
 
-Robot start is owned by the SDK's `FtcRobotControllerService`, the Android service the Robot
-Controller activity binds to; it also owns the network connection and the web server.
-Consequences, all verified rather than assumed:
-
-- The event loop never runs, so `SimulatedHardwareFactory.createHardwareMap` is never called,
-  `SimulatedClock` never starts, and the OpMode registry stays empty — `initOpMode` on any name
-  falls through to `$Stop$Robot$`. On a real Control Hub with a Driver Station, all of this works.
-- So on an emulator no OpMode can be selected from the app's own UI, and the SDK's
-  `OpModeManagerImpl` cannot be driven there. `NetworkType.LOOPBACK` exists in the SDK but
-  `NetworkConnectionFactory` answers it with `return null; // not yet implemented`, so there is no
-  supported network mode to switch to.
-- Running OpModes in the app on an emulator therefore needs a **harness**, which drives an
-  OpMode's lifecycle in place of the event loop and so needs no robot start at all. That is the
-  route an in-process dashboard server should take.
+- **Measured, not assumed**: an iterative OpMode's `loop()` runs at roughly 600 Hz and a vision
+  OpMode streams at its configured frame rate (90 frames in 3 s at 30 fps). An earlier reading of
+  the SDK predicted 2 Hz, from a heartbeat throttle the control flow turns out never to reach.
+- **What is given up** is all Driver Station facing: no Robocol connection, so no Driver Station,
+  no telemetry off the device and no DS camera stream; the web server is not started, so no
+  OnBotJava. The app's "Restart Robot" menu goes through the SDK's own path and will hang on the
+  network wait — restart the app instead.
+- **Instrumented tests cannot use the app's robot.** The test runner stops any activity it did not
+  start, and the SDK shuts a robot down with its activity, so the tests start their own through
+  the same `SimulatedRobotStart`. See `RobotUnderTest`.
 
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
   track width, strafe efficiency, encoder resolution, chassis dimensions, per-motor mounting
@@ -121,8 +121,11 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
 - `WebcamFrameSource` keeps a **physical** camera behind the same `FrameSource` seam, as an
   oracle for "is the detector broken, or is my renderer?". It needs a `google_apis` AVD with
   `hw.camera.back=webcam0`; see `mise.toml`.
-- The acceptance test is instrumented and deliberately outside CI:
-  `./gradlew :TeamCode:connectedSimulatedDebugAndroidTest`.
+- The acceptance tests are instrumented and deliberately outside CI: `mise run test-acceptance`
+  runs both, one Gradle invocation each. `RealEventLoopAcceptanceTest` proves the SDK's own
+  lifecycle drives the camera; `SyntheticCameraAcceptanceTest` proves the detections are right by
+  reading an unmodified OpMode's telemetry. They cannot share a process: each builds a LiveView
+  portal, and a second portal fails with "Viewport container specified by user is not empty!".
 
 ## Conventions
 

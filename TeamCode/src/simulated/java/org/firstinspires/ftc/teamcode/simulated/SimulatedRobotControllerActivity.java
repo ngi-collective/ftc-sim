@@ -16,6 +16,7 @@ import org.firstinspires.ftc.ftccommon.internal.AnnotatedHooksClassFilter;
 import org.firstinspires.ftc.robotcontroller.internal.FtcRobotControllerActivity;
 import org.firstinspires.ftc.robotcore.internal.opmode.OnBotJavaHelper;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import com.qualcomm.robotcore.exception.RobotCoreException;
 import org.openftc.easyopencv.SyntheticCameras;
 
 /**
@@ -35,6 +36,9 @@ import org.openftc.easyopencv.SyntheticCameras;
 public class SimulatedRobotControllerActivity extends FtcRobotControllerActivity {
 
     public static final String TAG = "SimulatedRC";
+
+    /** The robot this activity started, and is responsible for shutting down. */
+    private SimulatedRobotStart robotStart;
 
     /** The simulated robot every session in this build runs against. */
     protected SimulatedRobot simulatedRobot() {
@@ -89,13 +93,30 @@ public class SimulatedRobotControllerActivity extends FtcRobotControllerActivity
                 new SimulatedHardwareFactory(context, simulatedRobot());
 
         OpModeRegister userOpModeRegister = createOpModeRegister();
-        eventLoop = new FtcEventLoop(hardwareFactory, userOpModeRegister, callback, this);
-        FtcEventLoopIdle idleLoop =
-                new FtcEventLoopIdle(hardwareFactory, userOpModeRegister, callback, this);
-
         controllerService.setCallback(callback);
-        controllerService.setupRobot(eventLoop, idleLoop, null);
+
+        // Not controllerService.setupRobot(): that waits for a Wi-Fi Direct network, which an
+        // emulator does not have, so the event loop would never start. See SimulatedRobotStart.
+        robotStart = new SimulatedRobotStart(this, controllerService);
+        try {
+            robotStart.start(hardwareFactory, userOpModeRegister, callback);
+        } catch (RobotCoreException e) {
+            RobotLog.ee(TAG, e, "could not start the simulated robot");
+            return;
+        }
+        eventLoop = robotStart.eventLoop();
 
         AnnotatedHooksClassFilter.getInstance().callOnCreateEventLoopMethods(this, eventLoop);
+    }
+
+    @Override
+    protected void onDestroy() {
+        // This activity owns the robot now, so it has to put it down: a leaked event loop would
+        // keep running OpModes against a hardware map nothing else can reach.
+        if (robotStart != null) {
+            robotStart.shutdown();
+            robotStart = null;
+        }
+        super.onDestroy();
     }
 }
