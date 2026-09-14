@@ -3,9 +3,12 @@ package org.ngicollective.testframework.camera;
 import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.sim.Pose2d;
 
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * What the rasteriser actually puts on the pixels.
@@ -87,14 +90,56 @@ class TagRasteriserTest {
         }
     }
 
-    /**
-     * Renders the tag, then checks each of its 64 cells by projecting that cell's centre from
-     * three-dimensional space and reading the pixel it lands on.
-     */
+    @Test
+    void theFieldDrawnBehindATagLeavesItsPixelsAlone() {
+        // What the whole renderer rests on: adding a floor and four walls must not disturb one
+        // pixel of a tag. Anything that shifted them would move the corners the detector refines
+        // to a fraction of a pixel, and with them the range it solves.
+        FieldTag tag = new FieldTag(30, 0.3,
+                Pose3d.ofDegrees(new Vec3(1.0, 0.0, 0.0), 180.0, 0.0, 0.0));
+        TagCluster cluster = new TagCluster("TEST", tag.pose(),
+                Collections.singletonList(new TagCluster.Member(30, 0.0, 0.0, 0.0, 0.3)));
+        CameraView view = CAMERA.viewFrom(Pose2d.ORIGIN);
+
+        SyntheticFrame overVoid = render(view, tag);
+        SyntheticFrame overField = new SyntheticFrame(LENS.width(), LENS.height());
+        assertEquals(1, new SimulatedScene(Collections.singletonList(cluster),
+                Collections.<GameElement>emptyList()).renderInto(overField, view));
+
+        // There is genuinely a field in the second frame: the perimeter's slate fills the rows
+        // above the horizon, where the void render has nothing but grey.
+        assertTrue(overField.blueAt(100, 200) > overField.redAt(100, 200) + 20,
+                "the perimeter wall should have been drawn behind the tag");
+
+        // Every cell still the shade the three-dimensional geometry says it is.
+        assertCellsMatch(tag, overField, view, "a tag over the rendered field");
+
+        // And the pixels themselves. Square on at 1 m the black square runs 245..395 across and
+        // 165..315 down; inside it the tag is opaque, so the two frames must agree exactly.
+        for (int y = 167; y <= 313; y++) {
+            for (int x = 247; x <= 393; x++) {
+                if (overVoid.redAt(x, y) != overField.redAt(x, y)
+                        || overVoid.greenAt(x, y) != overField.greenAt(x, y)
+                        || overVoid.blueAt(x, y) != overField.blueAt(x, y)) {
+                    fail("pixel (" + x + ", " + y + ") inside the tag changed when a field was "
+                            + "drawn behind it");
+                }
+            }
+        }
+    }
+
+    /** Renders the tag over an empty grey frame, then checks every one of its 64 cells. */
     private static void assertCellsMatch(FieldTag tag, String what) {
         CameraView view = CAMERA.viewFrom(Pose2d.ORIGIN);
-        SyntheticFrame frame = render(view, tag);
+        assertCellsMatch(tag, render(view, tag), view, what);
+    }
 
+    /**
+     * Checks each cell of an already-rendered tag by projecting that cell's centre from
+     * three-dimensional space and reading the pixel it lands on.
+     */
+    private static void assertCellsMatch(FieldTag tag, SyntheticFrame frame, CameraView view,
+                                         String what) {
         int cells = Tag36h11.CELLS_ACROSS;
         double cellSize = tag.sizeMetres() / cells;
         double half = tag.sizeMetres() / 2.0;

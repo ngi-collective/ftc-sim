@@ -2,8 +2,16 @@ import { OrbitControls } from '@react-three/drei';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import type { Alliance, DeviceState, GamepadState, SimConfig, SimPose } from '../protocol';
+import type {
+  Alliance,
+  DeviceState,
+  GamepadState,
+  SceneContents,
+  SimConfig,
+  SimPose,
+} from '../protocol';
 import { Field, STANDARD_FIELD } from './Field';
+import { FieldContents } from './FieldContents';
 import { CHASSIS, type DeviceLayout } from './layout';
 import { DeviceLabel, ImuModel, MotorModel, SelectionRing, ServoModel } from './parts';
 
@@ -17,6 +25,8 @@ export interface ViewOptions {
   showStickVector: boolean;
   /** Sit the camera where the alliance's drive team stands, instead of wherever it was left. */
   allianceView: boolean;
+  /** Draw the AprilTags and game elements the camera can see, as the server placed them. */
+  showTags: boolean;
 }
 
 export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
@@ -25,6 +35,7 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   showLabels: true,
   showStickVector: true,
   allianceView: true,
+  showTags: true,
 };
 
 const SNAP_METRES = 0.01;
@@ -336,7 +347,7 @@ function AlliancePerspective({
   return null;
 }
 
-function SceneContents({
+function Scene({
   devices,
   layout,
   selected,
@@ -344,6 +355,7 @@ function SceneContents({
   options,
   pose,
   simConfig,
+  simScene,
   alliance,
   subscribePose,
   onSelect,
@@ -357,6 +369,7 @@ function SceneContents({
   options: ViewOptions;
   pose: SimPose | null;
   simConfig: SimConfig | null;
+  simScene: SceneContents | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
@@ -539,6 +552,7 @@ function SceneContents({
           if (event.button === 0) onSelect(null);
         }}
       />
+      {options.showTags && <FieldContents contents={simScene} />}
 
       <group ref={robot}>
         <group
@@ -596,6 +610,7 @@ export function RobotScene(props: {
   options: ViewOptions;
   pose: SimPose | null;
   simConfig: SimConfig | null;
+  simScene: SceneContents | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
@@ -605,7 +620,7 @@ export function RobotScene(props: {
   return (
     // Opens on the red drive team's view of the whole field, which is where the toggle starts too.
     <Canvas shadows camera={{ position: [0, 1.97, 3.76], fov: 45, near: 0.05, far: 40 }}>
-      <SceneContents {...props} />
+      <Scene {...props} />
     </Canvas>
   );
 }

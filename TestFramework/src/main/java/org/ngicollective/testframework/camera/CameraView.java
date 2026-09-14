@@ -76,14 +76,42 @@ public final class CameraView {
      * off-frame corner would be poorly served by a clamped one.</p>
      */
     public Pixel project(Vec3 fieldPoint) {
+        return projectFromCameraFrame(inCameraFrame(fieldPoint));
+    }
+
+    /**
+     * A field point in the camera's own frame: x right, y down, z along the optical axis.
+     *
+     * <p>Handed out so that geometry which cannot be projected as it stands &mdash; a floor plane
+     * running back past the lens &mdash; can be clipped in the frame the near plane is defined in
+     * before it is projected at all. See {@link SurfaceRasteriser}.</p>
+     */
+    public Vec3 inCameraFrame(Vec3 fieldPoint) {
         Vec3 relative = fieldPoint.minus(pose.position());
-        double depth = relative.dot(axis);
-        if (depth < MIN_RANGE_METRES) {
+        return new Vec3(relative.dot(right), relative.dot(down), relative.dot(axis));
+    }
+
+    /**
+     * Where a point already in the camera frame lands in the image, or {@code null} if it is not
+     * far enough in front of the lens to have a projection.
+     */
+    public Pixel projectFromCameraFrame(Vec3 cameraPoint) {
+        if (cameraPoint.z() < MIN_RANGE_METRES) {
             return null;
         }
         return new Pixel(
-                intrinsics.centreX() + intrinsics.focalX() * relative.dot(right) / depth,
-                intrinsics.centreY() + intrinsics.focalY() * relative.dot(down) / depth);
+                intrinsics.centreX() + intrinsics.focalX() * cameraPoint.x() / cameraPoint.z(),
+                intrinsics.centreY() + intrinsics.focalY() * cameraPoint.y() / cameraPoint.z());
+    }
+
+    /**
+     * How far in front of the lens a point must be to have a projection, in metres.
+     *
+     * <p>The plane a rasteriser clips against: a polygon trimmed to this plane projects to a
+     * polygon, whereas one that straddles it does not.</p>
+     */
+    public double nearPlaneMetres() {
+        return MIN_RANGE_METRES;
     }
 
     /**

@@ -450,6 +450,14 @@ export function Inspector({
           />
           alliance view
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={options.showTags}
+            onChange={(event) => onOptions({ showTags: event.target.checked })}
+          />
+          tags &amp; elements
+        </label>
       </div>
 
       {/* Alliance is not a camera preset: it is which station the sim zeroes the heading against. */}

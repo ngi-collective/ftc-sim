@@ -13,6 +13,7 @@ import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
+import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 
@@ -43,9 +44,9 @@ import java.nio.file.Path;
  * sim/alliance   {alliance}                         -&gt; sim/status, broadcast on change
  * </pre>
  * <p>Pushed without being asked: {@code opmode/status}, {@code telemetry/frame},
- * {@code device/state}, {@code sim/pose} every control cycle, {@code sim/config} on connect and on
- * every OpMode init, and {@code camera/stream} on connect. A request that fails comes back as
- * {@code &lt;namespace&gt;/error}.</p>
+ * {@code device/state}, {@code sim/pose} every control cycle, {@code sim/config} and
+ * {@code sim/scene} on connect and on every OpMode init, and {@code camera/stream} on connect. A
+ * request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
  */
 public class DashboardServer extends WebSocketServer {
 
@@ -104,6 +105,7 @@ public class DashboardServer extends WebSocketServer {
         });
         backend.subscribeSimPose(pose -> broadcast("sim", "pose", pose));
         backend.subscribeSimConfig(config -> broadcast("sim", "config", config));
+        backend.subscribeScene(scene -> broadcast("sim", "scene", scene));
         backend.subscribeSimStatus(status -> broadcast("sim", "status", status));
     }
 
@@ -133,6 +135,11 @@ public class DashboardServer extends WebSocketServer {
         SimConfigPayload simConfig = backend.simConfig();
         if (simConfig != null) {
             send(connection, envelope("sim", "config", simConfig));
+        }
+        // The field's contents come from the camera's scene, so only a scene-backed camera has any.
+        ScenePayload scene = backend.scene();
+        if (scene != null) {
+            send(connection, envelope("sim", "scene", scene));
         }
         if (cameraStream != null) {
             send(connection, envelope("camera", "stream", cameraStream));

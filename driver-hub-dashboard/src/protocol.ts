@@ -224,5 +224,57 @@ export interface CameraStream {
   framesPerSecond: number;
 }
 
+/**
+ * What the simulated world holds besides the robot, as the server sees it: the AprilTags the
+ * camera can detect and the game elements on the floor. Sent on connect and whenever the scene
+ * changes, so the field view can draw exactly what the camera view is looking at.
+ *
+ * <p>Geometry arrives finished. The server sends the four corners it derived the tag's pose from
+ * and the pattern it printed on the tag, rather than a pose and a family id, because a mirrored
+ * 36h11 pattern is mostly an invalid codeword: a tag the scene built itself from a pose would look
+ * plausible here while being undetectable there, which is the disagreement this message exists to
+ * remove.</p>
+ */
+export interface FieldPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SceneTag {
+  id: number;
+  /** The owning cluster, named as the server's {@code TagCluster} names it. */
+  cluster: string;
+  sizeMetres: number;
+  /**
+   * Field-frame metres, ordered [topLeft, topRight, bottomRight, bottomLeft] as seen by a viewer
+   * looking at the tag's visible face. The order is the contract: nothing downstream can tell a
+   * rotated or mirrored quad from a correct one except by the tag coming out wrong.
+   */
+  corners: FieldPoint[];
+  /**
+   * The pattern itself: one string per row, {@code 'B'} black and {@code 'W'} white, row 0 the top
+   * row and column 0 the left as that same viewer sees them. The server stays the only place the
+   * family's bit tables live.
+   */
+  cells: string[];
+}
+
+export interface SceneElement {
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  radiusMetres: number;
+  red: number;
+  green: number;
+  blue: number;
+}
+
+export interface SceneContents {
+  tags: SceneTag[];
+  elements: SceneElement[];
+}
+
 /** What the clock is doing before the server has said otherwise: real time, running, red alliance. */
 export const DEFAULT_SIM_STATUS: SimStatus = { multiplier: 1, paused: false, alliance: 'red' };

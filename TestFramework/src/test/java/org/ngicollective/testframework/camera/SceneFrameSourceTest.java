@@ -74,11 +74,13 @@ class SceneFrameSourceTest {
         source.render(frame);
         assertTrue(hasDarkPixels(frame), "the tag should be in the first frame");
 
+        // Onto the competition field, with nothing on it: the tag is gone, and the field itself
+        // is never dark enough to be mistaken for one.
         source.setScene(new SimulatedScene(Collections.<TagCluster>emptyList(),
                 Collections.<GameElement>emptyList()));
         source.render(frame);
 
-        assertTrue(!hasDarkPixels(frame), "with the scene emptied, nothing should be drawn");
+        assertTrue(!hasDarkPixels(frame), "with the tag gone, no tag should be in the frame");
     }
 
     /** How wide the tag's dark pixels are, as a fraction of the frame. */

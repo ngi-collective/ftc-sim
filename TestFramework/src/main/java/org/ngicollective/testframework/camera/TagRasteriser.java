@@ -73,7 +73,7 @@ public final class TagRasteriser {
             return false;
         }
         Pixel[] corners = quad.corners();
-        if (areaOf(corners) < MIN_AREA_PIXELS) {
+        if (Math.abs(Pixel.signedAreaOf(corners)) < MIN_AREA_PIXELS) {
             return false;
         }
 
@@ -163,16 +163,5 @@ public final class TagRasteriser {
             return null;
         }
         return new int[] {left, top, right, bottom};
-    }
-
-    /** Shoelace area of the projected quad, in square pixels. */
-    private static double areaOf(Pixel[] corners) {
-        double sum = 0.0;
-        for (int i = 0; i < corners.length; i++) {
-            Pixel current = corners[i];
-            Pixel next = corners[(i + 1) % corners.length];
-            sum += current.x() * next.y() - next.x() * current.y();
-        }
-        return Math.abs(sum) / 2.0;
     }
 }

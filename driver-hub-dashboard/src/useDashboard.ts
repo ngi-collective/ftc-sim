@@ -12,6 +12,7 @@ import {
   type LayoutRecord,
   type OpModeInfo,
   type OpModeStatus,
+  type SceneContents,
   type SimConfig,
   type SimPose,
   type SimStatus,
@@ -62,6 +63,11 @@ export interface Dashboard {
   /** The robot and field the server is simulating, or null before the first `sim/config`. */
   simConfig: SimConfig | null;
   /**
+   * The tags and game elements the server has placed on that field, or null before the first
+   * `sim/scene`. Sent again whenever the scene changes.
+   */
+  simScene: SceneContents | null;
+  /**
    * Where the camera view is served, or null when this session has no camera.
    *
    * Sent once on connect. The panel points an `<img>` at it; no frame ever crosses this socket.
@@ -105,6 +111,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [loadedLayout, setLoadedLayout] = useState<LayoutRecord | null>(null);
   const [savedLayout, setSavedLayout] = useState<{ name: string; path: string } | null>(null);
   const [simConfig, setSimConfig] = useState<SimConfig | null>(null);
+  const [simScene, setSimScene] = useState<SceneContents | null>(null);
   const [cameraStream, setCameraStream] = useState<CameraStream | null>(null);
   const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
   const [pose, setPose] = useState<SimPose | null>(null);
@@ -196,6 +203,9 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
           case 'sim/config':
             setSimConfig(payload as SimConfig);
             break;
+          case 'sim/scene':
+            setSimScene(payload as SceneContents);
+            break;
           case 'camera/stream':
             setCameraStream(payload as CameraStream);
             break;
@@ -269,6 +279,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       };
     }, []),
     simConfig,
+    simScene,
     cameraStream,
     simStatus,
     setSimTime: useCallback(

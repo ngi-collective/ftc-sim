@@ -1,6 +1,7 @@
 package org.ngicollective.testframework.camera;
 
 import org.junit.jupiter.api.Test;
+import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
 
 import java.util.Arrays;
@@ -9,12 +10,22 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** How a whole scene composes: colour, size, and what hides what. */
+/** How a whole scene composes: colour, size, the field it stands on, and what hides what. */
 class SimulatedSceneTest {
 
     private static final CameraIntrinsics LENS = CameraIntrinsics.of(640, 480, 500.0);
     private static final SimulatedCamera CAMERA =
             new SimulatedCamera("Webcam 1", LENS, Pose3d.facingForward(new Vec3(0.0, 0.0, 0.05)));
+
+    /** Distance from the field's centre to its perimeter, for the competition field. */
+    private static final double HALF_FIELD = FieldConfig.standard().halfExtentMetres();
+
+    /**
+     * The grey beyond the perimeter, for the scenes below.
+     *
+     * <p>Brighter than any tile or wall, so "this pixel is not the field" needs no tolerance.</p>
+     */
+    private static final int SKY = 200;
 
     @Test
     void eachKindOfBallKeepsItsOwnColour() {
@@ -123,6 +134,126 @@ class SimulatedSceneTest {
         // here, because a shallower plate can raise a tag even as the HIVE it hangs from drops.
         assertEquals(-0.866, normalZOf(upright), 1e-3);
         assertEquals(-0.500, normalZOf(tipped), 1e-3);
+    }
+
+    @Test
+    void aCameraPitchedDownSeesTheFloorBelowTheHorizonAndNothingAboveIt() {
+        SimulatedCamera downward = new SimulatedCamera("Webcam 1", LENS,
+                Pose3d.ofDegrees(new Vec3(0.0, 0.0, 0.5), 0.0, -20.0, 0.0));
+        CameraView view = downward.viewFrom(Pose2d.ORIGIN);
+        SyntheticFrame frame = new SyntheticFrame(LENS.width(), LENS.height());
+        fieldWith().renderInto(frame, view);
+
+        // Where a horizontal ray vanishes. Every part of the field is below this row, because the
+        // perimeter wall is lower than the camera, so anything drawn above it is a floor plane
+        // that was projected without being clipped first.
+        int horizon = (int) Math.round(view.project(new Vec3(1e6, 0.0, 0.5)).y());
+        for (int y = 0; y < horizon - 2; y++) {
+            for (int x = 0; x < frame.width(); x += 7) {
+                assertEquals(SKY, frame.luminanceAt(x, y),
+                        "pixel (" + x + ", " + y + ") is above the horizon");
+            }
+        }
+
+        // Two tiles side by side, sampled where the geometry says their centres project.
+        double pitch = FieldConfig.standard().tileMetres();
+        int[] near = pixelOf(view, new Vec3(1.5 * pitch, 0.5 * pitch, 0.0));
+        int[] far = pixelOf(view, new Vec3(2.5 * pitch, 0.5 * pitch, 0.0));
+
+        assertTrue(Math.abs(frame.luminanceAt(near[0], near[1])
+                        - frame.luminanceAt(far[0], far[1])) > 15,
+                "adjacent tiles must differ, or a driver counting tiles has nothing to count");
+        for (int[] tile : new int[][] {near, far}) {
+            int luminance = frame.luminanceAt(tile[0], tile[1]);
+            assertTrue(luminance > 60,
+                    "a floor as dark as a tag's black square makes every threshold ambiguous; "
+                            + "was " + luminance);
+            assertTrue(frame.blueAt(tile[0], tile[1]) > frame.redAt(tile[0], tile[1]) + 20,
+                    "the floor should be the field view's slate, not grey");
+        }
+    }
+
+    @Test
+    void eachAllianceEndCarriesItsOwnColour() {
+        // Which end is which comes from Field.tsx, the field view's own authority: its red wall
+        // and its RED STATION label sit at scene +Z, and sceneZ = -ftcY, so red is the end at -Y.
+        // A camera that disagreed would tell an OpMode it was facing the wrong alliance.
+        assertEndColour(-90.0, -HALF_FIELD, "red");
+        assertEndColour(90.0, HALF_FIELD, "blue");
+    }
+
+    @Test
+    void aTagInFrontOfAWallDrawsOverIt() {
+        // The field's surfaces take part in the same depth sort as everything else. Get that
+        // backwards and the perimeter paints over the tags hanging in front of it, which reads as
+        // a detector that has stopped working.
+        FieldTag tag = new FieldTag(30, 0.2,
+                Pose3d.ofDegrees(new Vec3(0.0, -HALF_FIELD + 0.3, 0.15), 90.0, 0.0, 0.0));
+        TagCluster cluster = new TagCluster("TEST", tag.pose(),
+                Collections.singletonList(new TagCluster.Member(30, 0.0, 0.0, 0.0, 0.2)));
+        CameraView view = CAMERA.viewFrom(new Pose2d(0.0, 0.0, Math.toRadians(-90.0)));
+
+        SyntheticFrame withTag = new SyntheticFrame(LENS.width(), LENS.height());
+        assertEquals(1, fieldWith(cluster).renderInto(withTag, view));
+        SyntheticFrame wallOnly = new SyntheticFrame(LENS.width(), LENS.height());
+        fieldWith().renderInto(wallOnly, view);
+
+        int[] cell = pixelOf(view, aBlackCellCentre(tag));
+        assertTrue(withTag.luminanceAt(cell[0], cell[1]) < 55,
+                "a black cell in front of the wall should be black, was "
+                        + withTag.luminanceAt(cell[0], cell[1]));
+        assertTrue(wallOnly.redAt(cell[0], cell[1]) > 2 * wallOnly.greenAt(cell[0], cell[1]),
+                "without the tag that pixel is the red wall, which is what the tag covered");
+    }
+
+    /** That a camera turned to the given heading sees an alliance colour on the wall behind it. */
+    private static void assertEndColour(double headingDegrees, double wallY, String alliance) {
+        CameraView view = CAMERA.viewFrom(new Pose2d(0.0, 0.0, Math.toRadians(headingDegrees)));
+        SyntheticFrame frame = new SyntheticFrame(LENS.width(), LENS.height());
+        fieldWith().renderInto(frame, view);
+
+        int[] pixel = pixelOf(view, new Vec3(0.0, wallY, 0.15));
+        int red = frame.redAt(pixel[0], pixel[1]);
+        int green = frame.greenAt(pixel[0], pixel[1]);
+        int blue = frame.blueAt(pixel[0], pixel[1]);
+        String seen = "(" + red + ", " + green + ", " + blue + ")";
+        if ("red".equals(alliance)) {
+            assertTrue(red > 2 * green && red > 2 * blue, "the red end read as " + seen);
+        } else {
+            assertTrue(blue > 2 * red && blue > green, "the blue end read as " + seen);
+        }
+    }
+
+    /** The competition field with these clusters on it and nothing else. */
+    private static SimulatedScene fieldWith(TagCluster... clusters) {
+        return new SimulatedScene(Arrays.asList(clusters),
+                Collections.<GameElement>emptyList(), SKY);
+    }
+
+    private static int[] pixelOf(CameraView view, Vec3 fieldPoint) {
+        Pixel pixel = view.project(fieldPoint);
+        return new int[] {(int) Math.round(pixel.x()), (int) Math.round(pixel.y())};
+    }
+
+    /**
+     * The centre of one of the tag's inner black cells, in the field frame.
+     *
+     * <p>Inner, so the pixel it lands on is well away from the tag's antialiased edge.</p>
+     */
+    private static Vec3 aBlackCellCentre(FieldTag tag) {
+        int cells = Tag36h11.CELLS_ACROSS;
+        double cellSize = tag.sizeMetres() / cells;
+        double half = tag.sizeMetres() / 2.0;
+        for (int row = 1; row < cells - 1; row++) {
+            for (int column = 1; column < cells - 1; column++) {
+                if (!Tag36h11.isWhite(tag.id(), row, column)) {
+                    return tag.pose().position()
+                            .plus(tag.tagX().scaled(half - (column + 0.5) * cellSize))
+                            .plus(tag.tagY().scaled(half - (row + 0.5) * cellSize));
+                }
+            }
+        }
+        throw new IllegalStateException("tag " + tag.id() + " has no inner black cell");
     }
 
     private static double spacingOf(SimulatedScene scene) {

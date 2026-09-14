@@ -7,6 +7,7 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -86,6 +87,20 @@ public interface DashboardBackend {
      * assume any streaming state.</p>
      */
     FrameSource cameraFrames();
+
+    /**
+     * What is standing on the field for the Field View to draw, or null when this session has no
+     * scene to publish.
+     *
+     * <p>Null for the same kind of reason {@link #simConfig()} is null for a robot with no
+     * drivetrain: a robot with no camera, or one whose camera renders something other than a
+     * simulated scene, has no field contents to describe. Reporting an empty scene instead would
+     * tell the browser the field is bare, which is a different and false statement.</p>
+     */
+    ScenePayload scene();
+
+    /** Fires on every OpMode init, because a re-init rebuilds the robot and so its scene. */
+    void subscribeScene(Consumer<ScenePayload> listener);
 
     /** How the simulation is being run; also pushed to {@link #subscribeSimStatus} on change. */
     SimStatus simStatus();

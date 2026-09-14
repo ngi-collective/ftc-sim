@@ -28,6 +28,25 @@ public final class Pixel {
         return y;
     }
 
+    /**
+     * Shoelace area of a polygon of pixels, in square pixels, signed by its winding.
+     *
+     * <p>Both rasterisers that fill a projected polygon need this: the magnitude says whether
+     * there is enough of the shape left to be worth drawing, and the sign says which way round
+     * its corners run, which is what an inside-the-polygon test has to know before it can call a
+     * side "inward". Projection flips the winding of anything the camera sees from behind, so the
+     * sign cannot be assumed from how the corners were written down.</p>
+     */
+    public static double signedAreaOf(Pixel[] polygon) {
+        double sum = 0.0;
+        for (int i = 0; i < polygon.length; i++) {
+            Pixel current = polygon[i];
+            Pixel next = polygon[(i + 1) % polygon.length];
+            sum += current.x() * next.y() - next.x() * current.y();
+        }
+        return sum / 2.0;
+    }
+
     @Override
     public String toString() {
         return String.format("(%.2f, %.2f)px", x, y);

@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.camera;
 
+import org.ngicollective.testframework.sim.FieldConfig;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -9,38 +11,66 @@ import java.util.List;
 /**
  * Everything on the field a camera could see, and how to draw it.
  *
- * <p>Tag clusters and coloured game elements over a flat background. The background is a colour
- * rather than a rendered floor because nothing under test cares: what is being exercised is an
- * OpMode's reaction to detections, and a detector run over a photorealistic field reaches the same
- * conclusions it reaches over a grey one, just slower and with more code to be wrong.</p>
+ * <p>The field itself &mdash; its tiles, its perimeter and its alliance ends, from
+ * {@link FieldSurfaces} &mdash; plus the tag clusters and coloured game elements standing on it.
+ * The field is drawn because the Dashboard shows this camera beside a field view of the same
+ * world, and a camera that saw a grey void could not be checked against it; the grey is now only
+ * what lies beyond the perimeter.</p>
  *
  * <p>Drawn back to front, so a ball in front of a tag hides it. That is not decoration either: a
  * robot's own intake blocking its view of a tag is an ordinary situation, and an OpMode that
- * assumed a tag stays visible should fail in simulation rather than at a competition.</p>
+ * assumed a tag stays visible should fail in simulation rather than at a competition. The field's
+ * surfaces take part in the same sort, so a tag hanging in front of a wall covers it and a ball
+ * on the far side of one does not.</p>
  */
 public final class SimulatedScene {
 
-    /** Grey, in the neighbourhood of the field's foam tiles. */
+    /** Grey, standing in for the gym beyond the perimeter: everything that is not the field. */
     private static final int DEFAULT_BACKGROUND = 110;
 
     private final List<TagCluster> clusters;
     private final List<GameElement> elements;
+    private final List<FieldSurfaces.Surface> surfaces;
     private final int background;
 
     public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements) {
-        this(clusters, elements, DEFAULT_BACKGROUND);
+        this(clusters, elements, FieldConfig.standard(), DEFAULT_BACKGROUND);
     }
 
     public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
                           int backgroundGrey) {
+        this(clusters, elements, FieldConfig.standard(), backgroundGrey);
+    }
+
+    /** A scene on a field that is not the competition one: a half field, or a taped-out gym. */
+    public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
+                          FieldConfig field) {
+        this(clusters, elements, field, DEFAULT_BACKGROUND);
+    }
+
+    public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
+                          FieldConfig field, int backgroundGrey) {
+        this(clusters, elements, FieldSurfaces.of(field), backgroundGrey);
+    }
+
+    private SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
+                           List<FieldSurfaces.Surface> surfaces, int backgroundGrey) {
         this.clusters = Collections.unmodifiableList(new ArrayList<>(clusters));
         this.elements = Collections.unmodifiableList(new ArrayList<>(elements));
+        this.surfaces = surfaces;
         this.background = backgroundGrey;
     }
 
-    /** A scene with nothing in it but tags. */
+    /**
+     * A scene with nothing in it but tags: no field either, just a flat grey void.
+     *
+     * <p>The fixture for a test about projection or rasterising, where a floor and four walls
+     * would be geometry to reason around for no gain. Anything asking what a camera on the robot
+     * sees wants a field, and therefore a constructor.</p>
+     */
     public static SimulatedScene of(TagCluster... clusters) {
-        return new SimulatedScene(Arrays.asList(clusters), Collections.<GameElement>emptyList());
+        return new SimulatedScene(Arrays.asList(clusters), Collections.<GameElement>emptyList(),
+                Collections.<FieldSurfaces.Surface>emptyList(), DEFAULT_BACKGROUND);
     }
 
     public List<TagCluster> clusters() {
@@ -49,6 +79,20 @@ public final class SimulatedScene {
 
     public List<GameElement> elements() {
         return elements;
+    }
+
+    /**
+     * This scene standing on a different field.
+     *
+     * <p>For the caller that knows which perimeter is really in the room. A season's tag geometry
+     * is fixed by the game manual, so it is built without reference to a field; the field a robot
+     * is actually simulated on comes from configuration, and those two facts meet here rather than
+     * in every constructor. Handing a season scene to a robot without this is how the camera comes
+     * to draw a competition perimeter while the field view draws the half field somebody
+     * configured.</p>
+     */
+    public SimulatedScene on(FieldConfig field) {
+        return new SimulatedScene(clusters, elements, FieldSurfaces.of(field), background);
     }
 
     /**
@@ -71,7 +115,7 @@ public final class SimulatedScene {
         if (!found) {
             throw new IllegalArgumentException("no cluster named \"" + name + "\" in this scene");
         }
-        return new SimulatedScene(moved, elements, background);
+        return new SimulatedScene(moved, elements, surfaces, background);
     }
 
     /**
@@ -86,7 +130,11 @@ public final class SimulatedScene {
     public int renderInto(SyntheticFrame frame, CameraView view) {
         frame.fillGrey(background);
 
-        List<Drawable> drawables = new ArrayList<>(elements.size() + clusters.size() * 4);
+        List<Drawable> drawables = new ArrayList<>(
+                elements.size() + clusters.size() * 4 + surfaces.size());
+        for (FieldSurfaces.Surface surface : surfaces) {
+            drawables.add(new SurfaceDrawable(surface, surface.depthFrom(view)));
+        }
         for (TagCluster cluster : clusters) {
             for (FieldTag tag : cluster.tags()) {
                 drawables.add(new TagDrawable(tag, view.depthOf(tag.pose().position())));
@@ -151,6 +199,21 @@ public final class SimulatedScene {
         @Override
         boolean draw(SyntheticFrame frame, CameraView view) {
             return ElementRasteriser.draw(frame, view, element);
+        }
+    }
+
+    private static final class SurfaceDrawable extends Drawable {
+
+        private final FieldSurfaces.Surface surface;
+
+        SurfaceDrawable(FieldSurfaces.Surface surface, double depth) {
+            super(depth);
+            this.surface = surface;
+        }
+
+        @Override
+        boolean draw(SyntheticFrame frame, CameraView view) {
+            return SurfaceRasteriser.draw(frame, view, surface);
         }
     }
 }

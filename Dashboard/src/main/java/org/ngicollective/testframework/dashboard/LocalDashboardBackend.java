@@ -4,13 +4,21 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.Gamepad;
 
+import org.ngicollective.testframework.camera.FieldTag;
 import org.ngicollective.testframework.camera.FrameSource;
+import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.SceneFrameSource;
+import org.ngicollective.testframework.camera.SimulatedScene;
+import org.ngicollective.testframework.camera.Tag36h11;
+import org.ngicollective.testframework.camera.TagCluster;
+import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -103,6 +111,7 @@ public class LocalDashboardBackend implements DashboardBackend {
     private final List<Consumer<SimPose>> simPoseListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SimConfigPayload>> simConfigListeners =
             new CopyOnWriteArrayList<>();
+    private final List<Consumer<ScenePayload>> sceneListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new CopyOnWriteArrayList<>();
 
     private final Object lock = new Object();
@@ -211,8 +220,10 @@ public class LocalDashboardBackend implements DashboardBackend {
             running = entry;
             setStatusLocked(new OpModeStatus(entry.info.name, OpModeStatus.State.INIT, null));
             // Re-init re-reads the configuration files, so the browser's geometry may be stale even
-            // though the robot has not changed identity.
+            // though the robot has not changed identity. The same rebuild gives the camera a new
+            // scene, which can have moved a HIVE or removed a ball.
             publishSimConfigLocked();
+            publishSceneLocked();
         }
     }
 
@@ -283,13 +294,29 @@ public class LocalDashboardBackend implements DashboardBackend {
     @Override
     public FrameSource cameraFrames() {
         synchronized (lock) {
-            for (FakeDevice<?> device : hardware.devices().values()) {
-                if (device instanceof FakeWebcam) {
-                    return ((FakeWebcam) device).frameSource();
-                }
-            }
-            return null;
+            return cameraFramesLocked();
         }
+    }
+
+    private FrameSource cameraFramesLocked() {
+        for (FakeDevice<?> device : hardware.devices().values()) {
+            if (device instanceof FakeWebcam) {
+                return ((FakeWebcam) device).frameSource();
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public ScenePayload scene() {
+        synchronized (lock) {
+            return sceneLocked();
+        }
+    }
+
+    @Override
+    public void subscribeScene(Consumer<ScenePayload> listener) {
+        sceneListeners.add(listener);
     }
 
     @Override
@@ -469,6 +496,16 @@ public class LocalDashboardBackend implements DashboardBackend {
         }
     }
 
+    private void publishSceneLocked() {
+        ScenePayload scene = sceneLocked();
+        if (scene == null) {
+            return;
+        }
+        for (Consumer<ScenePayload> listener : sceneListeners) {
+            listener.accept(scene);
+        }
+    }
+
     /**
      * Puts the IMU's zero where this alliance's driver expects it: pointing away from their own
      * wall, which is what {@code resetYaw()} on a robot set down for a match would have captured.
@@ -520,6 +557,91 @@ public class LocalDashboardBackend implements DashboardBackend {
                                 drivetrain.wheelBaseMetres(), drivetrain.strafeEfficiency())),
                 new SimConfigPayload.Field(
                         field.sizeMetres(), field.wallHeightMetres(), field.tileMetres()));
+    }
+
+    /**
+     * The wire form of whatever the session's camera is looking at, or null when there is nothing
+     * to look at.
+     *
+     * <p>The scene belongs to the camera rather than to the robot: it is the renderer's input, and
+     * a session gets one by configuring a webcam that draws from a {@link SceneFrameSource}. A
+     * robot with no camera, or one whose camera paints test patterns instead, genuinely has no
+     * field contents to report, and an empty scene would claim the field is bare.</p>
+     */
+    private ScenePayload sceneLocked() {
+        FrameSource frames = cameraFramesLocked();
+        if (!(frames instanceof SceneFrameSource)) {
+            return null;
+        }
+        SimulatedScene scene = ((SceneFrameSource) frames).scene();
+
+        List<ScenePayload.Tag> tags = new ArrayList<>();
+        for (TagCluster cluster : scene.clusters()) {
+            for (FieldTag tag : cluster.tags()) {
+                tags.add(tagPayload(tag, cluster.name()));
+            }
+        }
+
+        List<ScenePayload.Element> elements = new ArrayList<>(scene.elements().size());
+        for (GameElement element : scene.elements()) {
+            Vec3 centre = element.centre();
+            elements.add(new ScenePayload.Element(element.name(),
+                    centre.x(), centre.y(), centre.z(), element.radiusMetres(),
+                    element.red(), element.green(), element.blue()));
+        }
+        return new ScenePayload(tags, elements);
+    }
+
+    /**
+     * One tag, with its corners put into the order the browser's texture mapping needs.
+     *
+     * <p>{@link FieldTag} is explicit that its +X points to the <em>left</em> of whoever is
+     * looking at the printed face and its +Y points up, so the viewer's own axes are
+     * {@code left = +tagX} and {@code up = +tagY}. Adding and subtracting half an edge along those
+     * two gives the four corners the payload promises directly, with no index table in between.
+     * That is deliberately derived here rather than taken from {@link FieldTag#corners()}, which
+     * is ordered for the detector: its indices run top-right, top-left, bottom-left, bottom-right,
+     * and quietly reusing them would put the browser's texture on mirrored.</p>
+     */
+    private static ScenePayload.Tag tagPayload(FieldTag tag, String cluster) {
+        double half = tag.sizeMetres() / 2.0;
+        Vec3 towardsViewersLeft = tag.tagX().scaled(half);
+        Vec3 towardsViewersUp = tag.tagY().scaled(half);
+        Vec3 centre = tag.pose().position();
+
+        List<ScenePayload.Corner> corners = new ArrayList<>(4);
+        corners.add(corner(centre.plus(towardsViewersLeft).plus(towardsViewersUp)));
+        corners.add(corner(centre.minus(towardsViewersLeft).plus(towardsViewersUp)));
+        corners.add(corner(centre.minus(towardsViewersLeft).minus(towardsViewersUp)));
+        corners.add(corner(centre.plus(towardsViewersLeft).minus(towardsViewersUp)));
+
+        return new ScenePayload.Tag(tag.id(), cluster, tag.sizeMetres(), corners,
+                cellsOf(tag.id()));
+    }
+
+    private static ScenePayload.Corner corner(Vec3 point) {
+        return new ScenePayload.Corner(point.x(), point.y(), point.z());
+    }
+
+    /**
+     * The tag's bit pattern as rows of {@code 'B'} and {@code 'W'}.
+     *
+     * <p>{@link Tag36h11#isWhite} already addresses cells the way a viewer facing the tag reads
+     * them &mdash; row 0 the top, column 0 the left &mdash; which is the orientation the rasteriser
+     * samples in and the orientation {@code Tag36h11Test} pins against apriltag's own rendering. So
+     * this copies rather than transposes or flips; a conversion here would be a second convention
+     * for the same picture.</p>
+     */
+    private static List<String> cellsOf(int id) {
+        List<String> rows = new ArrayList<>(Tag36h11.CELLS_ACROSS);
+        for (int row = 0; row < Tag36h11.CELLS_ACROSS; row++) {
+            StringBuilder cells = new StringBuilder(Tag36h11.CELLS_ACROSS);
+            for (int column = 0; column < Tag36h11.CELLS_ACROSS; column++) {
+                cells.append(Tag36h11.isWhite(id, row, column) ? 'W' : 'B');
+            }
+            rows.add(cells.toString());
+        }
+        return rows;
     }
 
     /**
