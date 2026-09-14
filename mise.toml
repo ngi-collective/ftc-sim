@@ -44,7 +44,9 @@ run = "./gradlew :TeamCode:testSimulatedDebugUnitTest :TestFramework:testDebugUn
 #   hw.camera.back=webcam0     # `emulator -webcam-list` names the host's cameras
 #
 # The image must be `google_apis`, not `default`: the AOSP images ship no camera HAL at all, so
-# their camera device list is empty and `LocalVisionHost` has nothing to open. Vision also needs
+# their camera device list is empty and `WebcamFrameSource` has nothing to open. This AVD is only
+# needed for the physical-camera oracle; the simulated camera renders its own frames and works on
+# any AVD. Vision also needs
 # the host OS to allow camera access to whatever launched the emulator - on macOS that is a
 # one-time prompt attributed to the terminal or IDE, and until it is granted the guest streams
 # black frames rather than failing.

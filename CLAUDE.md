@@ -70,22 +70,36 @@ from it.
 ## Vision
 
 Real `VisionProcessor` implementations (`AprilTagProcessor`, `ColorBlobLocatorProcessor`, custom
-ones) run unmodified against a development machine's webcam through
-`org.ngicollective.testframework.vision.LocalVisionHost`.
+ones) run against a **simulated camera** bolted to the simulated robot, which renders the BioBuzz
+field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterated.md`.
 
-- **It only runs in an Android runtime** — emulator or device. OpenCV and AprilTag ship
-  Android-only native libraries, so there is no plain-JVM vision path and never will be.
-- **It replaces `VisionPortal`, not the processors.** `VisionPortal` finds a camera by USB
-  enumeration; an emulator exposes the host webcam only through Camera2, with no USB device node,
-  so `WebcamName` lookup cannot work there. `LocalVisionHost` opens the Camera2 device and calls
-  `init` / `processFrame` / `onDrawFrame` itself. This is the one sanctioned OpMode change in the
-  framework — see `ConceptLocalVision` in the `simulated` flavor.
+- **The seam is `OpenCvCameraFactory.theInstance`**, which is static, package-private and not
+  final, and is read afresh for every `VisionPortal`. `org.openftc.easyopencv.SyntheticCameras`
+  assigns it — no reflection, and an SDK rename becomes a compile error. Installed in
+  `SimulatedRobotControllerActivity.onServiceBind()`, so the competition APK is untouched.
+- **The simulated camera reports itself as a Logitech C920.** `VisionPortal` decides a processor's
+  calibration by looking the camera's identity up in the SDK's built-in table; with no identity,
+  `AprilTagProcessor` solves with `fx=fy=cx=cy=0` and every pose is nonsense while detection still
+  works. `WebcamCalibrations` reads the SDK's calibration back to configure the renderer, so
+  frames are drawn through the very lens the solver inverts.
+- **Geometry only**: correct tag quads through a pinhole model, plus flat coloured game elements.
+  No lighting or photorealism — what is under test is the OpMode's reaction to detections.
+- **The renderer is pure Java** (`camera` package): no OpenCV, no Android, so projection and
+  pixels are unit-tested on a plain JVM in milliseconds. `Tag36h11` holds all 587 committed
+  codewords; regenerate with `tools/generate-tag36h11.py`.
+- **Tag +X points leftward as seen**, so `+Z` faces *into* the mounting surface and the visible
+  normal is `−Z`. Get it backwards and tags render mirrored, which reads as zero detections
+  because mirrored 36h11 patterns are mostly not valid codewords. See `FieldTag`.
+- **BioBuzz tags face the floor**, 35–50 in up and tilted 30°, so a camera **must aim up**; the
+  mount in `robot-config` is 6-DOF for that reason. A recognised cluster is reported as one
+  `AprilTagClusterDetection` with **no** per-tag singles.
 - **Processors are handed RGBA (`CV_8UC4`) Mats.** The SDK's own processors run conversions
   (`COLOR_RGBA2GRAY`, `COLOR_RGBA2RGB`) that OpenCV rejects on 3-channel input.
-- Overlays come from each processor's real `onDrawFrame`, so a preview shows what the Driver
-  Station would. `VisionFrameListener` is the seam a dashboard `vision` namespace will consume.
-- The AVD needs a `google_apis` image and `hw.camera.back=webcam0`; see `mise.toml`. Tests are
-  instrumented (`mise run test-vision`) and deliberately outside CI.
+- `WebcamFrameSource` keeps a **physical** camera behind the same `FrameSource` seam, as an
+  oracle for "is the detector broken, or is my renderer?". It needs a `google_apis` AVD with
+  `hw.camera.back=webcam0`; see `mise.toml`.
+- The acceptance test is instrumented and deliberately outside CI:
+  `./gradlew :TeamCode:connectedSimulatedDebugAndroidTest`.
 
 ## Conventions
 

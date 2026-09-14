@@ -16,10 +16,10 @@ public final class CameraIntrinsics {
      * Focal length as a fraction of frame width for a 60&deg; horizontal field of view, which is
      * typical of the USB webcams on a dev desk.
      *
-     * <p>This is the same number {@code LocalVisionHost} hands the SDK as an approximate
-     * calibration, and {@link #approximate} is asserted to agree with
-     * {@link #fromHorizontalFieldOfView} so the two ways of saying "an ordinary webcam" cannot
-     * drift apart.</p>
+     * <p>This is the nominal lens a simulated camera carries before an OpMode picks a resolution
+     * and the SDK's own calibration replaces it, and the one the plain-JVM tests render through.
+     * {@link #approximate} is asserted to agree with {@link #fromHorizontalFieldOfView} so that
+     * the two ways of saying "an ordinary webcam" cannot drift apart.</p>
      */
     private static final double DEFAULT_FOCAL_LENGTH_RATIO = 0.866;
 

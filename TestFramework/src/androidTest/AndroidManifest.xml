@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The instrumented tests in this module open a camera directly, which the test APK cannot do
+    without asking. A library module's own manifest does not cover its test APK, so the permission
+    is declared here; without it Camera2 refuses with a SecurityException that surfaces only as
+    "could not open camera 0".
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+</manifest>
