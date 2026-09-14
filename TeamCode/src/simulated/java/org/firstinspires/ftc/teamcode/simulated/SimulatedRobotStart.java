@@ -10,6 +10,8 @@ import com.qualcomm.robotcore.eventloop.EventLoopManager;
 import com.qualcomm.robotcore.eventloop.opmode.EventLoopManagerClient;
 import com.qualcomm.robotcore.exception.RobotCoreException;
 import com.qualcomm.robotcore.robot.Robot;
+import com.qualcomm.robotcore.robot.RobotState;
+import com.qualcomm.robotcore.robot.RobotStatus;
 import com.qualcomm.robotcore.util.RobotLog;
 
 /**
@@ -84,6 +86,32 @@ final class SimulatedRobotStart {
                 new FtcEventLoopIdle(hardwareFactory, register, callback, activity);
 
         eventLoopManager = new EventLoopManager(activity, client, idleLoop);
+
+        // The service normally installs this, and without it the app's own screen keeps saying
+        // "Robot Status: stopped" while the event loop runs -- which is a worse lie than an error.
+        eventLoopManager.setMonitor(new EventLoopManager.EventLoopMonitor() {
+            @Override
+            public void onStateChange(RobotState state) {
+                callback.updateRobotState(state);
+                if (state == RobotState.RUNNING) {
+                    callback.updateRobotStatus(RobotStatus.NONE);
+                }
+            }
+
+            @Override
+            public void onTelemetryTransmitted() {
+            }
+
+            @Override
+            public void onPeerConnected() {
+                // There is no Driver Station to connect, by design.
+            }
+
+            @Override
+            public void onPeerDisconnected() {
+            }
+        });
+
         robot = new Robot(eventLoopManager);
         robot.start(eventLoop);
 
