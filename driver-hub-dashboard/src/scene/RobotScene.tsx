@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type {
   Alliance,
+  CameraMountPayload,
   DeviceState,
   GamepadState,
   ScenePayload,
@@ -15,7 +16,14 @@ import type { BodyBuffer } from './bodies';
 import { FieldContents } from './FieldContents';
 import { fieldGround, sceneGround, sceneYaw } from './frame';
 import { CHASSIS, type DeviceLayout } from './layout';
-import { DeviceLabel, ImuModel, MotorModel, SelectionRing, ServoModel } from './parts';
+import {
+  CameraFrustum,
+  DeviceLabel,
+  ImuModel,
+  MotorModel,
+  SelectionRing,
+  ServoModel,
+} from './parts';
 import { placementFromDrag, type DragState } from './placement';
 
 export interface ViewOptions {
@@ -359,6 +367,7 @@ function Scene({
   simConfig,
   simScene,
   bodies,
+  cameraMount,
   alliance,
   subscribePose,
   onSelect,
@@ -374,6 +383,8 @@ function Scene({
   simConfig: SimConfig | null;
   simScene: ScenePayload | null;
   bodies: BodyBuffer;
+  /** The webcam's mount, which places and aims its frustum; null when the robot has no camera. */
+  cameraMount: CameraMountPayload | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
@@ -546,20 +557,32 @@ function Scene({
           <Chassis shape={shape} contact={pose?.wallContact ?? false} />
         </group>
         {options.showStickVector && <StickVector gamepad={gamepad} deckY={shape.deckY} />}
-        {devices.map((device) => (
-          <DeviceNode
-            key={device.name}
-            device={device}
-            layout={layout[device.name]}
-            selected={selected === device.name}
-            chassisYaw={chassisYaw}
-            robot={robot}
-            options={options}
-            onSelect={onSelect}
-            onMove={onMove}
-            onDragChange={onDragChange}
+        {/* The camera has no cosmetic placement to draw: its mount is the real thing, so it is
+            drawn from the mount and left out of the device nodes entirely. */}
+        {devices
+          .filter((device) => device.name !== cameraMount?.name)
+          .map((device) => (
+            <DeviceNode
+              key={device.name}
+              device={device}
+              layout={layout[device.name]}
+              selected={selected === device.name}
+              chassisYaw={chassisYaw}
+              robot={robot}
+              options={options}
+              onSelect={onSelect}
+              onMove={onMove}
+              onDragChange={onDragChange}
+            />
+          ))}
+        {cameraMount && devices.some((device) => device.name === cameraMount.name) && (
+          <CameraFrustum
+            mount={cameraMount}
+            selected={selected === cameraMount.name}
+            showLabel={options.showLabels}
+            onSelect={() => onSelect(cameraMount.name)}
           />
-        ))}
+        )}
       </group>
 
       <AlliancePerspective
@@ -591,6 +614,7 @@ export function RobotScene(props: {
   simConfig: SimConfig | null;
   simScene: ScenePayload | null;
   bodies: BodyBuffer;
+  cameraMount: CameraMountPayload | null;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;

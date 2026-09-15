@@ -136,6 +136,26 @@ public final class SimConfigFiles {
     }
 
     /**
+     * The file {@link #robot(String)} reads, or null when this build has only the packaged copy.
+     *
+     * <p>For a caller that needs to write a number back into the description it loaded &mdash;
+     * the dashboard saving a camera mount someone aimed by hand. Null because a resource inside
+     * an APK is not a file and cannot be written to, and handing out a path that nothing is at
+     * would turn that into a mysterious write failure instead of an honest refusal.</p>
+     */
+    public static Path robotFile(String name) {
+        Path file = directory().resolve(name + EXTENSION);
+        return Files.isRegularFile(file) ? file : null;
+    }
+
+    /**
+     * The file {@link #robot(Path, String)} reads, which that method insists exists.
+     */
+    public static Path robotFile(Path directory, String name) {
+        return directory.resolve(name + EXTENSION);
+    }
+
+    /**
      * The field described by {@code <directory>/field.json}, or the competition field when that
      * directory describes none.
      *

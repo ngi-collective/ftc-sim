@@ -9,6 +9,7 @@ import {
   inferWheel,
   parseDeviceLayout,
   parseLayoutFile,
+  placements,
   type DeviceLayout,
 } from './layout';
 
@@ -154,7 +155,11 @@ describe('reading a hand-edited layout file', () => {
 
   it('still reads the layout the team actually ships', () => {
     const parsed = parseLayoutFile(shipped);
-    expect(Object.keys(parsed?.devices ?? {})).toEqual(['imu', 'FL', 'FR', 'BL', 'BR']);
+    // Every device the file names keeps its placement: the plausible bug in a parser this strict
+    // is dropping one entry quietly, which draws that device back at the origin. Named against
+    // the file's own keys rather than a hard-coded list, because the file grows a device whenever
+    // the robot does.
+    expect(Object.keys(parsed?.devices ?? {})).toEqual(Object.keys(shipped.devices));
     expect(parsed?.devices.FL.mount).toBe('wheel');
     expect(parsed?.devices.FL.ratio).toBe(1);
     expect(parsed?.devices.FR.ratio).toBe(-1);
@@ -180,5 +185,32 @@ describe('writing a layout back out', () => {
   it('keeps a placement that is already written to that precision exactly as it was', () => {
     const parsed = parseLayoutFile(shipped);
     expect(forFile(parsed?.devices ?? {})).toEqual(parsed?.devices);
+  });
+});
+
+describe('placing the devices on the robot', () => {
+  it('leaves the webcam out, because its real mount is not a placement at all', () => {
+    // The webcam is aimed by the robot's configuration file, which is what the rendered camera
+    // reads. A cosmetic placement beside it is a set of sliders that look like they aim the camera
+    // and do not, and it ends up committed in the layout file where nothing ever reads it.
+    const placed = placements([device('FL', 'motor'), device('Webcam 1', 'unknown')], {}, 'Webcam 1');
+    expect(Object.keys(placed)).toEqual(['FL']);
+  });
+
+  it('leaves it out even when a layout file already saved one for it', () => {
+    // Layout files committed before the camera had a mount editor carry a "Webcam 1" placement,
+    // and those files are loaded straight into the overrides. The entry has to die on load, not
+    // survive as the one device whose stored numbers outlive the feature.
+    const stale = { 'Webcam 1': { position: [0.1, 0.2, 0.3] as [number, number, number] } };
+    expect(placements([device('Webcam 1', 'unknown')], stale, 'Webcam 1')).toEqual({});
+  });
+
+  it('closes up the row of spares the camera used to sit in', () => {
+    // Devices no rule can place are dealt out in a row across the deck by index. Skipping the
+    // camera must not leave a gap where it was standing.
+    const devices = [device('Webcam 1', 'unknown'), device('sensorColor', 'unknown')];
+    expect(placements(devices, {}, 'Webcam 1').sensorColor).toEqual(
+      defaultLayout(device('sensorColor', 'unknown'), 0),
+    );
   });
 });

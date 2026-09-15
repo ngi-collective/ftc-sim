@@ -4,6 +4,7 @@ import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -14,6 +15,8 @@ import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 import org.ngicollective.testframework.dashboard.protocol.TelemetryFrame;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -44,6 +47,10 @@ final class FakeDashboardBackend implements DashboardBackend {
     SimConfigPayload simConfig;
     ScenePayload scene;
     FrameSource cameraFrames;
+    CameraMountPayload cameraMount;
+
+    /** Where a save says it wrote, so a protocol test can check the path reaches the saver. */
+    Path cameraMountFile = Paths.get("/tmp/robot-config/fixture.json");
 
     /** Null until asked; boxed so a test can tell "not called" from "called with the default". */
     String initializedOpMode;
@@ -62,6 +69,9 @@ final class FakeDashboardBackend implements DashboardBackend {
     boolean started;
     boolean stopped;
     boolean closed;
+    double[] aimedCameraMount;
+    boolean savedCameraMount;
+    boolean revertedCameraMount;
 
     private final List<Consumer<OpModeStatus>> statusListeners = new ArrayList<>();
     private final List<Consumer<TelemetryFrame>> telemetryListeners = new ArrayList<>();
@@ -71,6 +81,7 @@ final class FakeDashboardBackend implements DashboardBackend {
     private final List<Consumer<ScenePayload>> sceneListeners = new ArrayList<>();
     private final List<Consumer<BodiesPayload>> bodyListeners = new ArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new ArrayList<>();
+    private final List<Consumer<CameraMountPayload>> cameraMountListeners = new ArrayList<>();
 
     @Override
     public List<OpModeInfo> listOpModes() {
@@ -145,6 +156,34 @@ final class FakeDashboardBackend implements DashboardBackend {
     @Override
     public void subscribeBodies(Consumer<BodiesPayload> listener) {
         bodyListeners.add(listener);
+    }
+
+    @Override
+    public CameraMountPayload cameraMount() {
+        return cameraMount;
+    }
+
+    @Override
+    public void setCameraMount(double forwardMetres, double leftMetres, double heightMetres,
+                               double yawDegrees, double pitchDegrees, double rollDegrees) {
+        aimedCameraMount = new double[] {forwardMetres, leftMetres, heightMetres,
+                yawDegrees, pitchDegrees, rollDegrees};
+    }
+
+    @Override
+    public Path saveCameraMount() {
+        savedCameraMount = true;
+        return cameraMountFile;
+    }
+
+    @Override
+    public void revertCameraMount() {
+        revertedCameraMount = true;
+    }
+
+    @Override
+    public void subscribeCameraMount(Consumer<CameraMountPayload> listener) {
+        cameraMountListeners.add(listener);
     }
 
     @Override
@@ -234,5 +273,9 @@ final class FakeDashboardBackend implements DashboardBackend {
 
     void emitSimStatus(SimStatus pushed) {
         simStatusListeners.forEach(listener -> listener.accept(pushed));
+    }
+
+    void emitCameraMount(CameraMountPayload pushed) {
+        cameraMountListeners.forEach(listener -> listener.accept(pushed));
     }
 }

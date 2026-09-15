@@ -8,11 +8,14 @@
  */
 
 import {
+  parseCameraMount,
   parseDeviceStates,
   parseLayoutList,
   parseLayoutRecord,
   parseOpModeList,
+  parseSavedCameraMount,
   parseSavedLayout,
+  type CameraMountPayload,
   type CameraStreamInfo,
   type DeviceState,
   type Envelope,
@@ -60,6 +63,9 @@ export interface MessageSinks {
   setSimConfig: (config: SimConfig) => void;
   setSimScene: (scene: ScenePayload) => void;
   setCameraStream: (stream: CameraStreamInfo) => void;
+  setCameraMount: (mount: CameraMountPayload) => void;
+  /** Where {@code sim/camera-save} wrote, so the rail can name the file worth committing. */
+  setSavedCameraMount: (saved: { path: string }) => void;
   setSimStatus: (status: SimStatus) => void;
   pose: PoseSink;
   /**
@@ -181,6 +187,16 @@ export function applyMessage(envelope: Envelope, sinks: MessageSinks): void {
     case 'sim/status':
       sinks.setSimStatus(payload as SimStatus);
       break;
+    case 'sim/camera': {
+      const mount = parseCameraMount(envelope.payload);
+      if (mount) sinks.setCameraMount(mount);
+      break;
+    }
+    case 'sim/camera-saved': {
+      const saved = parseSavedCameraMount(envelope.payload);
+      if (saved) sinks.setSavedCameraMount(saved);
+      break;
+    }
     case 'camera/stream':
       sinks.setCameraStream(payload as CameraStreamInfo);
       break;

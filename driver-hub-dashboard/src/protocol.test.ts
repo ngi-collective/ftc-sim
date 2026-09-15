@@ -8,6 +8,8 @@ import opModeErrorFrame from '../../protocol-fixtures/opmode-error.json';
 import opModeListFrame from '../../protocol-fixtures/opmode-list.json';
 import opModeStatusFrame from '../../protocol-fixtures/opmode-status.json';
 import simBodiesFrame from '../../protocol-fixtures/sim-bodies.json';
+import simCameraFrame from '../../protocol-fixtures/sim-camera.json';
+import simCameraSavedFrame from '../../protocol-fixtures/sim-camera-saved.json';
 import simConfigFrame from '../../protocol-fixtures/sim-config.json';
 import simPoseFrame from '../../protocol-fixtures/sim-pose.json';
 import simSceneFrame from '../../protocol-fixtures/sim-scene.json';
@@ -15,10 +17,13 @@ import simStatusFrame from '../../protocol-fixtures/sim-status.json';
 import telemetryFrame from '../../protocol-fixtures/telemetry-frame.json';
 import unknownErrorFrame from '../../protocol-fixtures/unknown-error.json';
 import {
+  parseCameraMount,
   parseDeviceStates,
   parseEnvelope,
   parseLayoutList,
   parseOpModeList,
+  parseSavedCameraMount,
+  type CameraMountPayload,
   type CameraStreamInfo,
   type DeviceState,
   type Namespace,
@@ -88,6 +93,8 @@ describe('the envelope', () => {
     simConfigFrame,
     simSceneFrame,
     simStatusFrame,
+    simCameraFrame,
+    simCameraSavedFrame,
     cameraStreamFrame,
   ];
 
@@ -411,6 +418,52 @@ describe('camera frames', () => {
     expect(cameraStreamFrame.payload.width).toBeGreaterThan(0);
     expect(cameraStreamFrame.payload.height).toBeGreaterThan(0);
     expect(cameraStreamFrame.payload.framesPerSecond).toBeGreaterThan(0);
+  });
+
+  it('carry the mount in the units the robot configuration file is written in', () => {
+    const named = [
+      'name',
+      'forwardMetres',
+      'leftMetres',
+      'heightMetres',
+      'yawDegrees',
+      'pitchDegrees',
+      'rollDegrees',
+      'horizontalFovDegrees',
+      'verticalFovDegrees',
+      'unsaved',
+    ] satisfies (keyof CameraMountPayload)[];
+    expectFields(simCameraFrame.payload, named);
+    // Metres and degrees, unconverted: the editor shows these numbers as they are and a save has
+    // to read back identically, so a millimetre or radian anywhere in this frame is a rewrite.
+    expect(parseCameraMount(simCameraFrame.payload)).toEqual(simCameraFrame.payload);
+  });
+
+  it('identify the camera by the device name the rail already shows', () => {
+    // The one place this frame and device/state have to agree. A second marker — a new
+    // DeviceState.kind, a flag — is a second answer to "which device is the camera", and the two
+    // can disagree; matching on the name cannot.
+    const names = deviceStateFrame.payload.devices.map((candidate) => candidate.name);
+    expect(names).toContain(simCameraFrame.payload.name);
+  });
+
+  it('refuse a mount with a number missing rather than aiming the camera at NaN', () => {
+    // These numbers come off a hand-edited file and are multiplied into geometry every frame. One
+    // NaN does not draw a wrong frustum, it drops the whole robot group out of the scene.
+    const missing: Record<string, unknown> = { ...simCameraFrame.payload };
+    delete missing.pitchDegrees;
+    expect(parseCameraMount(missing)).toBeNull();
+    expect(parseCameraMount({ ...simCameraFrame.payload, yawDegrees: '35' })).toBeNull();
+    expect(parseCameraMount({ ...simCameraFrame.payload, unsaved: 'false' })).toBeNull();
+    expect(parseCameraMount(null)).toBeNull();
+  });
+
+  it('answer a save with the absolute path it wrote, which is the file to commit', () => {
+    expectFields(simCameraSavedFrame.payload, ['path']);
+    // Absolute because the browser may be nowhere near the machine holding the repository: a
+    // relative path is a path only the server can resolve, and it is shown to be typed into git.
+    expect(simCameraSavedFrame.payload.path.startsWith('/')).toBe(true);
+    expect(parseSavedCameraMount(simCameraSavedFrame.payload)).toEqual(simCameraSavedFrame.payload);
   });
 });
 

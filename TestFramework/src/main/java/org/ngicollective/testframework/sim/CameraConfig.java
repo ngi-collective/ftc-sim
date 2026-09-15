@@ -3,14 +3,10 @@ package org.ngicollective.testframework.sim;
 /**
  * Where a camera is bolted to the robot, and how fast it streams.
  *
- * <p>Six degrees of freedom, because BioBuzz needs them: the AprilTag clusters hang under the
- * CELLs facing the floor, three to four feet up, so a camera that could only yaw would never see
- * one. Pitch is positive upward for that reason.</p>
- *
- * <p>The mount is in the robot frame &mdash; +X out the nose, +Y to the robot's left, +Z up, from
- * the floor at the centre of the footprint &mdash; because that is the frame someone can hold a
- * ruler against. Height defaults to the chassis deck, since that is where a camera actually gets
- * mounted, and a number nobody measured is better inherited from the robot than invented here.</p>
+ * <p>The six degrees of freedom are {@link CameraMount}'s, which documents the frame they are
+ * measured in. Height is the one number that may be omitted: it defaults to the chassis deck,
+ * since that is where a camera actually gets mounted, and a number nobody measured is better
+ * inherited from the robot than invented here.</p>
  *
  * <p>Optics are deliberately absent. The simulated camera reports itself as a specific real
  * webcam so that the SDK hands the vision processors a genuine calibration, and the renderer then
@@ -20,38 +16,27 @@ package org.ngicollective.testframework.sim;
 public final class CameraConfig {
 
     private final String name;
-    private final double x;
-    private final double y;
-    private final double z;
-    private final double yaw;
-    private final double pitch;
-    private final double roll;
+    private final CameraMount mount;
     private final double framesPerSecond;
 
-    CameraConfig(String name, double xMetres, double yMetres, double zMetres,
-                 double yawDegrees, double pitchDegrees, double rollDegrees,
-                 double framesPerSecond) {
+    CameraConfig(String name, CameraMount mount, double framesPerSecond) {
         this.name = name;
-        this.x = xMetres;
-        this.y = yMetres;
-        this.z = zMetres;
-        this.yaw = yawDegrees;
-        this.pitch = pitchDegrees;
-        this.roll = rollDegrees;
+        this.mount = mount;
         this.framesPerSecond = framesPerSecond;
     }
 
     static CameraConfig from(ConfigJson json, ChassisConfig chassis) {
         return new CameraConfig(
                 json.string("name"),
-                json.number("forwardMetres"),
-                json.number("leftMetres"),
-                json.names().contains("heightMetres")
-                        ? json.positive("heightMetres")
-                        : chassis.deckHeightMetres(),
-                json.number("yawDegrees"),
-                json.number("pitchDegrees"),
-                json.number("rollDegrees"),
+                new CameraMount(
+                        json.number("forwardMetres"),
+                        json.number("leftMetres"),
+                        json.names().contains("heightMetres")
+                                ? json.positive("heightMetres")
+                                : chassis.deckHeightMetres(),
+                        json.number("yawDegrees"),
+                        json.number("pitchDegrees"),
+                        json.number("rollDegrees")),
                 json.positive("framesPerSecond"));
     }
 
@@ -60,34 +45,9 @@ public final class CameraConfig {
         return name;
     }
 
-    /** Metres ahead of the robot's centre. */
-    public double forwardMetres() {
-        return x;
-    }
-
-    /** Metres to the robot's left of centre. */
-    public double leftMetres() {
-        return y;
-    }
-
-    /** Metres above the floor. */
-    public double heightMetres() {
-        return z;
-    }
-
-    /** Degrees the camera is turned from straight ahead, counter-clockwise positive. */
-    public double yawDegrees() {
-        return yaw;
-    }
-
-    /** Degrees the camera is aimed above the horizon. */
-    public double pitchDegrees() {
-        return pitch;
-    }
-
-    /** Degrees the camera is rolled about its own optical axis. */
-    public double rollDegrees() {
-        return roll;
+    /** Where on the robot the camera is bolted, and which way it is aimed. */
+    public CameraMount mount() {
+        return mount;
     }
 
     /** Frames per second of simulated time. */

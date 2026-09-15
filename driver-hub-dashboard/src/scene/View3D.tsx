@@ -34,7 +34,10 @@ export function View3D({
   placeRobot: (x: number, y: number, headingDegrees: number) => void;
 }) {
   const devices = dashboard.devices;
-  const api = useLayout(devices);
+  const cameraMount = dashboard.cameraMount;
+  // The camera's placement is its mount, not a layout entry: excluded here so it never accrues a
+  // cosmetic one, and so a saved layout file stops carrying numbers nothing reads.
+  const api = useLayout(devices, cameraMount?.name ?? null);
   const [selected, setSelected] = useState<string | null>(null);
   const [options, setOptions] = useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
@@ -70,6 +73,7 @@ export function View3D({
           simConfig={simConfig}
           simScene={dashboard.simScene}
           bodies={dashboard.bodies}
+          cameraMount={cameraMount}
           alliance={simStatus.alliance}
           subscribePose={dashboard.subscribePose}
           onSelect={setSelected}
@@ -131,6 +135,8 @@ export function View3D({
         layoutFiles={dashboard.layouts}
         layoutDirectory={dashboard.layoutDirectory}
         savedLayout={dashboard.savedLayout}
+        cameraMount={cameraMount}
+        savedCameraMount={dashboard.savedCameraMount}
         onSelect={setSelected}
         onOptions={(patch) => setOptions((previous) => ({ ...previous, ...patch }))}
         onAlliance={dashboard.setAlliance}
@@ -139,6 +145,9 @@ export function View3D({
         onSaveLayout={(name) => dashboard.saveLayout(name, api.toFile())}
         onLoadLayout={dashboard.loadLayout}
         onDeleteLayout={dashboard.deleteLayout}
+        onCameraMount={dashboard.setCameraMount}
+        onSaveCameraMount={dashboard.saveCameraMount}
+        onRevertCameraMount={dashboard.revertCameraMount}
       />
     </div>
   );

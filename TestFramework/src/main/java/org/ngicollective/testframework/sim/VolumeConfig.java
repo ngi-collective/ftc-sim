@@ -3,7 +3,7 @@ package org.ngicollective.testframework.sim;
 /**
  * A box bolted to the robot: the space a mechanism can reach into, or the space a sensor can see.
  *
- * <p>The frame is the one {@link CameraConfig} mounts in &mdash; +X out the nose, +Y to the
+ * <p>The frame is the one {@link CameraMount} is measured in &mdash; +X out the nose, +Y to the
  * robot's left, +Z up, measured from the floor at the centre of the footprint &mdash; because that
  * is the frame someone can hold a ruler against.</p>
  *

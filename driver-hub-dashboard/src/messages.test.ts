@@ -6,6 +6,8 @@ import handshake from '../../protocol-fixtures/handshake.json';
 import layoutListFrame from '../../protocol-fixtures/layout-list.json';
 import opModeListFrame from '../../protocol-fixtures/opmode-list.json';
 import opModeStatusFrame from '../../protocol-fixtures/opmode-status.json';
+import simCameraFrame from '../../protocol-fixtures/sim-camera.json';
+import simCameraSavedFrame from '../../protocol-fixtures/sim-camera-saved.json';
 import simConfigFrame from '../../protocol-fixtures/sim-config.json';
 import simPoseFrame from '../../protocol-fixtures/sim-pose.json';
 import simSceneFrame from '../../protocol-fixtures/sim-scene.json';
@@ -50,6 +52,8 @@ function recorder() {
     setSimScene: record('setSimScene'),
     setCameraStream: record('setCameraStream'),
     setSimStatus: record('setSimStatus'),
+    setCameraMount: record('setCameraMount'),
+    setSavedCameraMount: record('setSavedCameraMount'),
     pose: { publish: record('publish'), commit: record('commit') },
     bodies: record('bodies'),
   };
@@ -103,6 +107,8 @@ describe('applyMessage', () => {
       [simSceneFrame as Envelope, 'setSimScene'],
       [simStatusFrame as Envelope, 'setSimStatus'],
       [cameraStreamFrame as Envelope, 'setCameraStream'],
+      [simCameraFrame as Envelope, 'setCameraMount'],
+      [simCameraSavedFrame as Envelope, 'setSavedCameraMount'],
     ];
     for (const [envelope, sink] of routes) {
       const { sinks, calls } = recorder();

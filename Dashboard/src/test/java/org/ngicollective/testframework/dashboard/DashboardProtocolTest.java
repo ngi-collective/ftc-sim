@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
@@ -24,6 +25,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -96,6 +98,24 @@ class DashboardProtocolTest {
 
         assertEquals(Arrays.asList("opmode/list", "opmode/status", "sim/status", "sim/config",
                 "camera/stream"), routes(protocol(CAMERA).greeting()));
+    }
+
+    /**
+     * Only a robot with a camera has a mount, and the mount sliders are drawn from this frame.
+     * Sent after the stream because it belongs to the same panel.
+     */
+    @Test
+    void greetingCarriesTheCameraMountOnlyWhenTheSessionHasACamera() {
+        backend.simConfig = someSimConfig();
+        backend.scene = someScene();
+
+        assertFalse(routes(protocol(CAMERA).greeting()).contains("sim/camera"),
+                "a robot with no camera has no mount to aim");
+
+        backend.cameraMount = someCameraMount(false);
+
+        assertEquals(Arrays.asList("opmode/list", "opmode/status", "sim/status", "sim/config",
+                "sim/scene", "camera/stream", "sim/camera"), routes(protocol(CAMERA).greeting()));
     }
 
     /** No stream means the camera panel says so, rather than showing a broken image. */
@@ -271,6 +291,48 @@ class DashboardProtocolTest {
         assertEquals(Alliance.BLUE, backend.alliance);
     }
 
+    /**
+     * All six numbers, each to its own parameter. A mount assembled in the wrong order aims the
+     * camera somewhere plausible and wrong, which is the one failure the view cannot show you.
+     */
+    @Test
+    void simCameraAimsTheCameraWithEverySixOfItsNumbers() {
+        receive("{\"namespace\":\"sim\",\"type\":\"camera\",\"payload\":"
+                + "{\"forwardMetres\":0.21,\"leftMetres\":-0.05,\"heightMetres\":0.3,"
+                + "\"yawDegrees\":25.0,\"pitchDegrees\":-30.0,\"rollDegrees\":3.5}}");
+
+        assertArrayEquals(new double[] {0.21, -0.05, 0.3, 25.0, -30.0, 3.5},
+                backend.aimedCameraMount, 0.0);
+        assertEquals(Collections.emptyList(), routes(replies.replied));
+    }
+
+    /**
+     * The saver needs the path to commit, and every browser needs to stop warning that the mount
+     * is about to be lost. A reply-only save would leave a second browser warning about a loss
+     * that has already been prevented.
+     */
+    @Test
+    void simCameraSaveTellsTheSaverThePathAndTellsEveryoneTheMountIsOnFile() {
+        backend.cameraMount = someCameraMount(false);
+
+        receive("{\"namespace\":\"sim\",\"type\":\"camera-save\",\"payload\":{}}");
+
+        assertTrue(backend.savedCameraMount);
+        assertEquals(Collections.singletonList("sim/camera-saved"), routes(replies.replied));
+        assertEquals(backend.cameraMountFile.toAbsolutePath().toString(),
+                payloadOf(replies.replied.get(0)).get("path").getAsString());
+
+        assertEquals(Collections.singletonList("sim/camera"), routes(replies.broadcast));
+        assertFalse(payloadOf(replies.broadcast.get(0)).get("unsaved").getAsBoolean());
+    }
+
+    @Test
+    void simCameraRevertDropsTheSessionsMount() {
+        receive("{\"namespace\":\"sim\",\"type\":\"camera-revert\",\"payload\":{}}");
+
+        assertTrue(backend.revertedCameraMount);
+    }
+
     // Layouts, where one request has two audiences.
 
     /**
@@ -427,6 +489,11 @@ class DashboardProtocolTest {
     private static ScenePayload someScene() {
         return new ScenePayload(Collections.<ScenePayload.Tag>emptyList(),
                 Collections.<ScenePayload.Element>emptyList());
+    }
+
+    private static CameraMountPayload someCameraMount(boolean unsaved) {
+        return new CameraMountPayload("Webcam 1", 0.16, 0.0, 0.105, 0.0, 35.0, 0.0,
+                60.0, 46.8, unsaved);
     }
 
     private static List<String> routes(List<Envelope> envelopes) {

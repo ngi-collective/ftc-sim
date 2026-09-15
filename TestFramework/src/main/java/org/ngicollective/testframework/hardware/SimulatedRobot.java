@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.hardware;
 
+import java.nio.file.Path;
+
 /**
  * A team's simulated robot configuration: the same device names and types their real robot
  * configuration file declares.
@@ -24,4 +26,18 @@ public interface SimulatedRobot {
 
     /** Builds a fresh simulated robot. */
     FakeHardwareMap create();
+
+    /**
+     * The configuration file this robot's numbers came from, or null when they did not come from
+     * one.
+     *
+     * <p>Null is the answer for a robot handed its {@code RobotConfig} by a test, and it means
+     * "these numbers cannot be written back": there is no file to write them into. A caller that
+     * wants to save something a person adjusted &mdash; the dashboard saving a camera mount
+     * &mdash; has to ask, because the alternative is inventing a path and creating a
+     * configuration file nobody asked for.</p>
+     */
+    default Path configurationFile() {
+        return null;
+    }
 }

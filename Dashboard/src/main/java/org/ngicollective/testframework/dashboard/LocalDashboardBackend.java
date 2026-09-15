@@ -4,10 +4,12 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.Gamepad;
 
+import org.ngicollective.testframework.camera.CameraIntrinsics;
 import org.ngicollective.testframework.camera.FieldTag;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.SceneFrameSource;
+import org.ngicollective.testframework.camera.SimulatedCamera;
 import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.camera.Tag36h11;
 import org.ngicollective.testframework.camera.TagCluster;
@@ -15,6 +17,7 @@ import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -36,6 +39,7 @@ import org.ngicollective.testframework.harness.LinearOpModeHarness;
 import org.ngicollective.testframework.harness.OpModeHarness;
 import org.ngicollective.testframework.physics.BodyState;
 import org.ngicollective.testframework.physics.FieldPhysics;
+import org.ngicollective.testframework.sim.CameraMount;
 import org.ngicollective.testframework.sim.ChassisConfig;
 import org.ngicollective.testframework.sim.ChassisVelocity;
 import org.ngicollective.testframework.sim.DriveModel;
@@ -43,7 +47,9 @@ import org.ngicollective.testframework.sim.DrivetrainConfig;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
 import org.ngicollective.testframework.sim.RobotConfig;
+import org.ngicollective.testframework.sim.RobotConfigFile;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -131,6 +137,8 @@ public class LocalDashboardBackend implements DashboardBackend {
     private final List<Consumer<ScenePayload>> sceneListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<BodiesPayload>> bodyListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<CameraMountPayload>> cameraMountListeners =
+            new CopyOnWriteArrayList<>();
 
     private final Object lock = new Object();
 
@@ -172,6 +180,28 @@ public class LocalDashboardBackend implements DashboardBackend {
      * driver pressed INIT, which is the moment they would stop believing the view.</p>
      */
     private SimulatedScene sessionScene;
+
+    /**
+     * Where the robot's configuration put the camera when the session last built one, or null for
+     * a robot with no scene-backed camera.
+     *
+     * <p>Kept so that {@link #cameraMount()} can say whether the session is holding something the
+     * file does not have. Read afresh on every rebuild, because the file is read afresh on every
+     * rebuild: someone who edits {@code verity.json} and presses INIT has changed what "saved"
+     * means.</p>
+     */
+    private CameraMount fileMount;
+
+    /**
+     * The mount this session is aiming the camera with instead, or null to follow the file.
+     *
+     * <p>Session state, for the reason {@link #sessionScene} is: it is a choice made by whoever is
+     * sitting in front of the dashboard, and {@link #restLocked()} builds a fresh robot on every
+     * init and every stop. An override applied only when it arrived would spring back to the
+     * file's angle the first time a driver pressed INIT, which is the moment they would stop
+     * believing the view they are aiming by.</p>
+     */
+    private CameraMount sessionMount;
 
     /**
      * The physics world the balls on the field live in, or null when this session's robot has no
@@ -319,13 +349,13 @@ public class LocalDashboardBackend implements DashboardBackend {
      *
      * <p>The configuration files are read again here, because {@link SimulatedRobot#create()}
      * reads them: the numbers a robot is built from are data, and the whole point of data in a
-     * file is that editing it changes what happens next. Three things are deliberately carried
+     * file is that editing it changes what happens next. Four things are deliberately carried
      * across the rebuild instead of being rebuilt with it &mdash; the alliance, the arrangement of
-     * the field, and where the robot is standing. All three are choices made by whoever is sitting
-     * in front of the dashboard rather than properties of the robot, and someone checking a moved
-     * camera drags the chassis somewhere worth looking at and presses INIT: teleporting it back to
-     * the middle of the field on every INIT and every STOP would make that impossible to do
-     * twice.</p>
+     * the field, where the robot is standing, and an unsaved camera mount. All four are choices
+     * made by whoever is sitting in front of the dashboard rather than properties of the robot,
+     * and someone aiming a camera drags the chassis somewhere worth looking at and presses INIT:
+     * teleporting it back to the middle of the field on every INIT and every STOP, or springing
+     * the camera back to the file's angle, would make that impossible to do twice.</p>
      *
      * <p>A configuration file that will not parse throws out of {@code create()} before anything
      * here is replaced, which leaves the session running on the last robot that did parse.</p>
@@ -337,6 +367,14 @@ public class LocalDashboardBackend implements DashboardBackend {
         hardware = robot.create();
         if (standing != null && hardware.drive() != null) {
             hardware.drive().setPose(standing);
+        }
+        // Before any override is applied, while the camera is still aimed the way the robot's
+        // configuration file just said to aim it: this is the reading "unsaved" is measured
+        // against, and reading it afterwards would measure the override against itself.
+        SimulatedCamera camera = sceneCameraLocked();
+        fileMount = camera == null ? null : CameraMount.of(camera.mount());
+        if (sessionMount != null) {
+            aimLocked(sessionMount);
         }
         applyAllianceLocked();
         applySceneLocked();
@@ -464,6 +502,7 @@ public class LocalDashboardBackend implements DashboardBackend {
             // can have moved a HIVE or removed a ball.
             publishSimConfigLocked();
             publishSceneLocked();
+            publishCameraMountLocked();
         }
     }
 
@@ -545,6 +584,123 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
         }
         return null;
+    }
+
+    /**
+     * The scene-backed camera this session renders through, or null when it has none.
+     *
+     * <p>Scene-backed specifically, because aiming a camera means replacing the one a
+     * {@link SceneFrameSource} draws with. A webcam painting a test pattern has no mount to
+     * change.</p>
+     */
+    private SimulatedCamera sceneCameraLocked() {
+        FrameSource frames = cameraFramesLocked();
+        return frames instanceof SceneFrameSource ? ((SceneFrameSource) frames).camera() : null;
+    }
+
+    @Override
+    public CameraMountPayload cameraMount() {
+        synchronized (lock) {
+            return cameraMountLocked();
+        }
+    }
+
+    private CameraMountPayload cameraMountLocked() {
+        SimulatedCamera camera = sceneCameraLocked();
+        if (camera == null || fileMount == null) {
+            return null;
+        }
+        CameraMount showing = sessionMount == null ? fileMount : sessionMount;
+        CameraIntrinsics lens = camera.intrinsics();
+        return new CameraMountPayload(camera.name(),
+                showing.forwardMetres(), showing.leftMetres(), showing.heightMetres(),
+                showing.yawDegrees(), showing.pitchDegrees(), showing.rollDegrees(),
+                lens.horizontalFieldOfViewDegrees(), lens.verticalFieldOfViewDegrees(),
+                sessionMount != null && !sessionMount.equals(fileMount));
+    }
+
+    @Override
+    public void setCameraMount(double forwardMetres, double leftMetres, double heightMetres,
+                               double yawDegrees, double pitchDegrees, double rollDegrees) {
+        synchronized (lock) {
+            if (sceneCameraLocked() == null) {
+                throw new IllegalStateException("robot \"" + robot.name() + "\" has no"
+                        + " scene-backed camera, so it has no mount to aim; aiming a camera needs"
+                        + " a webcam built on a SceneFrameSource");
+            }
+            sessionMount = new CameraMount(forwardMetres, leftMetres, heightMetres,
+                    yawDegrees, pitchDegrees, rollDegrees);
+            aimLocked(sessionMount);
+            publishCameraMountLocked();
+        }
+    }
+
+    @Override
+    public Path saveCameraMount() {
+        synchronized (lock) {
+            Path file = robot.configurationFile();
+            if (file == null) {
+                throw new IllegalStateException("robot \"" + robot.name() + "\" did not read its"
+                        + " numbers from a configuration file, so there is nowhere to save a"
+                        + " camera mount to");
+            }
+            // Nothing held means the file already says what the session is aiming with, so the
+            // save is answered with the path and the file is left alone: rewriting it would put
+            // a fresh diff in front of someone who changed nothing.
+            if (sessionMount != null) {
+                RobotConfigFile.writeCameraMount(file, sessionMount);
+                // The file now says what the session says, verified by the write itself, so this
+                // is the saved mount rather than one more reading of the same numbers.
+                fileMount = sessionMount;
+                sessionMount = null;
+            }
+            publishCameraMountLocked();
+            return file;
+        }
+    }
+
+    @Override
+    public void revertCameraMount() {
+        synchronized (lock) {
+            sessionMount = null;
+            if (fileMount != null) {
+                aimLocked(fileMount);
+            }
+            publishCameraMountLocked();
+        }
+    }
+
+    @Override
+    public void subscribeCameraMount(Consumer<CameraMountPayload> listener) {
+        cameraMountListeners.add(listener);
+    }
+
+    /**
+     * Points the session's camera at a mount.
+     *
+     * <p>A new {@link SimulatedCamera} rather than a mutated one, keeping the name the OpMode
+     * looks it up under and the calibration the frames are drawn through: those belong to the
+     * camera, and only where it is bolted is being changed. {@link SceneFrameSource} reads the
+     * camera per frame, so the next frame rendered is taken through this one &mdash; which is the
+     * whole point, since the view is what the angle is being judged by.</p>
+     */
+    private void aimLocked(CameraMount mount) {
+        SimulatedCamera camera = sceneCameraLocked();
+        if (camera == null) {
+            return;
+        }
+        ((SceneFrameSource) cameraFramesLocked())
+                .setCamera(new SimulatedCamera(camera.name(), camera.intrinsics(), mount.pose()));
+    }
+
+    private void publishCameraMountLocked() {
+        CameraMountPayload mount = cameraMountLocked();
+        if (mount == null) {
+            return;
+        }
+        for (Consumer<CameraMountPayload> listener : cameraMountListeners) {
+            listener.accept(mount);
+        }
     }
 
     @Override

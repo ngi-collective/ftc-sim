@@ -309,6 +309,95 @@ export interface CameraStreamInfo {
 }
 
 /**
+ * Where the simulated webcam is bolted to the robot, and how wide it sees. Java
+ * {@code CameraMountPayload}.
+ *
+ * <p>The six mount numbers are in the units the robot's configuration file uses: metres in the
+ * robot frame — {@code +X} out the nose, {@code +Y} to the robot's left, {@code +Z} up, origin on
+ * the floor at the footprint centre — and degrees, yaw CCW from the nose, <em>pitch positive
+ * upward</em>, roll about the optical axis. They are the numbers a person types into that file, so
+ * the editor can show them unconverted and a saved value reads back identically.</p>
+ *
+ * <p>The two field-of-view angles are the camera's own and are not editable here; they come from
+ * the same file. {@link unsaved} is the server saying the session is aiming somewhere the file
+ * does not yet describe.</p>
+ *
+ * <p>Sent in the greeting for a session whose robot declares a webcam, and again on every change.
+ * {@link name} is that webcam's {@link DeviceState#name}: the device rail and this frame agree on
+ * one spelling rather than on a second flag saying which device is the camera.</p>
+ */
+export interface CameraMountPayload {
+  name: string;
+  forwardMetres: number;
+  leftMetres: number;
+  heightMetres: number;
+  yawDegrees: number;
+  pitchDegrees: number;
+  rollDegrees: number;
+  horizontalFovDegrees: number;
+  verticalFovDegrees: number;
+  unsaved: boolean;
+}
+
+/** The part of a mount a browser may set: where the camera sits and where it looks. */
+export type CameraMount = Pick<
+  CameraMountPayload,
+  | 'forwardMetres'
+  | 'leftMetres'
+  | 'heightMetres'
+  | 'yawDegrees'
+  | 'pitchDegrees'
+  | 'rollDegrees'
+>;
+
+const MOUNT_NUMBERS = [
+  'forwardMetres',
+  'leftMetres',
+  'heightMetres',
+  'yawDegrees',
+  'pitchDegrees',
+  'rollDegrees',
+  'horizontalFovDegrees',
+  'verticalFovDegrees',
+] satisfies (keyof CameraMountPayload)[];
+
+/**
+ * A mount out of a {@code sim/camera} payload, or null when a number is missing or not finite.
+ *
+ * <p>Checked rather than asserted, unlike the other server-composed frames: these numbers come off
+ * a hand-edited configuration file, and they are multiplied into the frustum's geometry every
+ * frame. One {@code NaN} there does not draw a wrong pyramid, it makes three.js drop the whole
+ * robot group, so a typo in the file would read as the dashboard being broken.</p>
+ */
+export function parseCameraMount(payload: unknown): CameraMountPayload | null {
+  const message = fields(payload);
+  if (!message || typeof message.name !== 'string' || typeof message.unsaved !== 'boolean') {
+    return null;
+  }
+  for (const key of MOUNT_NUMBERS) {
+    if (!Number.isFinite(message[key])) return null;
+  }
+  return {
+    name: message.name,
+    forwardMetres: message.forwardMetres as number,
+    leftMetres: message.leftMetres as number,
+    heightMetres: message.heightMetres as number,
+    yawDegrees: message.yawDegrees as number,
+    pitchDegrees: message.pitchDegrees as number,
+    rollDegrees: message.rollDegrees as number,
+    horizontalFovDegrees: message.horizontalFovDegrees as number,
+    verticalFovDegrees: message.verticalFovDegrees as number,
+    unsaved: message.unsaved,
+  };
+}
+
+/** Where a {@code sim/camera-save} landed, out of the {@code sim/camera-saved} reply. */
+export function parseSavedCameraMount(payload: unknown): { path: string } | null {
+  const message = fields(payload);
+  return message && typeof message.path === 'string' ? { path: message.path } : null;
+}
+
+/**
  * What the simulated world holds besides the robot, as the server sees it: the AprilTags the
  * camera can detect and the game elements on the floor. Sent on connect and whenever the scene
  * changes, so the field view can draw exactly what the camera view is looking at.

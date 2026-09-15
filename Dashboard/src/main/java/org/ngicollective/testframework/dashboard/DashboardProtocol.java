@@ -7,6 +7,7 @@ import com.google.gson.JsonParseException;
 
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
@@ -97,6 +98,10 @@ final class DashboardProtocol {
         // browser that has just connected is up to date until the next thing moves.
         backend.subscribeBodies(bodies -> broadcasts.accept(envelope("sim", "bodies", bodies)));
         backend.subscribeSimStatus(status -> broadcasts.accept(envelope("sim", "status", status)));
+        // The camera's mount, because a slider that aims it has to move on every browser watching:
+        // two people looking at one view must not disagree about where the camera is.
+        backend.subscribeCameraMount(
+                mount -> broadcasts.accept(envelope("sim", "camera", mount)));
     }
 
     /** What a fresh browser needs before it can render anything, in the order it is sent. */
@@ -118,6 +123,12 @@ final class DashboardProtocol {
         }
         if (cameraStream != null) {
             greeting.add(envelope("camera", "stream", cameraStream));
+        }
+        // Beside the stream, because the browser draws the mount controls onto the camera panel:
+        // only a robot with a camera has a mount to aim.
+        CameraMountPayload mount = backend.cameraMount();
+        if (mount != null) {
+            greeting.add(envelope("sim", "camera", mount));
         }
         return greeting;
     }
@@ -248,6 +259,34 @@ final class DashboardProtocol {
                 break;
             case "sim/alliance":
                 backend.setAlliance(Alliance.fromWire(requireString(payload, "alliance")));
+                break;
+            case "sim/camera":
+                // Every number required: a mount with a missing angle is not a camera aimed
+                // somewhere sensible, it is five numbers and a guess.
+                backend.setCameraMount(
+                        requireDouble(payload, "forwardMetres"),
+                        requireDouble(payload, "leftMetres"),
+                        requireDouble(payload, "heightMetres"),
+                        requireDouble(payload, "yawDegrees"),
+                        requireDouble(payload, "pitchDegrees"),
+                        requireDouble(payload, "rollDegrees"));
+                break;
+            case "sim/camera-save": {
+                JsonObject saved = new JsonObject();
+                saved.addProperty("path",
+                        backend.saveCameraMount().toAbsolutePath().toString());
+                replies.reply(new Envelope("sim", "camera-saved", saved));
+                // The saver is told which file to commit; everyone watching is told the mount is
+                // no longer unsaved, so a second browser stops warning about a loss that has
+                // already been prevented.
+                CameraMountPayload onFile = backend.cameraMount();
+                if (onFile != null) {
+                    replies.broadcast(envelope("sim", "camera", onFile));
+                }
+                break;
+            }
+            case "sim/camera-revert":
+                backend.revertCameraMount();
                 break;
             default:
                 replies.reply(Envelope.error(request.namespace, "unknown message " + request));

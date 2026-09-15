@@ -1,8 +1,9 @@
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import type { DeviceState } from '../protocol';
+import type { CameraMountPayload, DeviceState } from '../protocol';
+import { cameraFrustum, FRUSTUM_LENGTH_METRES } from './cameraMount';
 import type { DeviceLayout, Mount } from './layout';
 
 /**
@@ -416,3 +417,118 @@ export function SelectionRing() {
     </mesh>
   );
 }
+
+/** Lens body, frustum edges, and the edge that shows which way up the picture is. */
+const LENS = '#2b3a4a';
+const FRUSTUM = '#5ad1ff';
+const PICTURE_TOP = '#c8ffc8';
+
+/**
+ * The camera, drawn as what it can see rather than as the box it lives in.
+ *
+ * <p>A grey cube says where a camera is bolted and nothing about where it looks, which is the only
+ * question anyone aiming one has. So this is the pyramid the lens actually covers: apex at the
+ * mount, axis where the mount aims, opening the camera's own field of view. The top edge of the far
+ * face is drawn in a second colour, because roll is otherwise invisible — a camera rolled 90° looks
+ * exactly like one that is level until you notice the picture is sideways.</p>
+ *
+ * <p>Everything here is in the chassis model's local frame, so it belongs inside the robot group
+ * beside the devices and needs no transform of its own. {@link cameraFrustum} owns the two-frame
+ * conversion that makes that true.</p>
+ */
+export function CameraFrustum({
+  mount,
+  selected,
+  showLabel,
+  onSelect,
+}: {
+  mount: CameraMountPayload;
+  selected: boolean;
+  showLabel: boolean;
+  onSelect: () => void;
+}) {
+  const { edges, pictureTop, apex } = useMemo(() => {
+    const frustum = cameraFrustum(mount);
+    const far = frustum.corners.map((corner) => [
+      frustum.apex[0] + corner[0] * FRUSTUM_LENGTH_METRES,
+      frustum.apex[1] + corner[1] * FRUSTUM_LENGTH_METRES,
+      frustum.apex[2] + corner[2] * FRUSTUM_LENGTH_METRES,
+    ]);
+    // Four rays out of the lens, then three sides of the far face: the fourth side is the top
+    // edge, drawn separately so it can wear its own colour.
+    const segments: number[][] = [
+      [...frustum.apex, ...far[0]],
+      [...frustum.apex, ...far[1]],
+      [...frustum.apex, ...far[2]],
+      [...frustum.apex, ...far[3]],
+      [...far[1], ...far[2]],
+      [...far[2], ...far[3]],
+      [...far[3], ...far[0]],
+    ];
+    return {
+      apex: frustum.apex,
+      edges: new Float32Array(segments.flat()),
+      pictureTop: new Float32Array([...far[0], ...far[1]]),
+    };
+  }, [mount]);
+
+  return (
+    <group>
+      <mesh
+        position={apex}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          onSelect();
+        }}
+        onPointerOver={() => (document.body.style.cursor = 'pointer')}
+        onPointerOut={() => (document.body.style.cursor = 'auto')}
+      >
+        <boxGeometry args={[0.03, 0.03, 0.03]} />
+        <meshStandardMaterial color={selected ? FRUSTUM : LENS} />
+      </mesh>
+      {/* Never culled: the positions are rebuilt whenever the mount moves, and a geometry whose
+          bounding sphere was computed for the previous aim can cull the pyramid out of a view it
+          is plainly inside. Eight segments are not worth a culling test. */}
+      <lineSegments frustumCulled={false}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[edges, 3]} />
+        </bufferGeometry>
+        <lineBasicMaterial color={FRUSTUM} transparent opacity={selected ? 0.95 : 0.55} />
+      </lineSegments>
+      <lineSegments frustumCulled={false}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[pictureTop, 3]} />
+        </bufferGeometry>
+        <lineBasicMaterial color={PICTURE_TOP} transparent opacity={selected ? 0.95 : 0.7} />
+      </lineSegments>
+      {showLabel && (
+        <Html
+          position={[apex[0], apex[1] + 0.05, apex[2]]}
+          center
+          distanceFactor={1.1}
+          pointerEvents="none"
+          zIndexRange={[10, 0]}
+        >
+          <div
+            style={{
+              whiteSpace: 'nowrap',
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: 11,
+              padding: '2px 6px',
+              borderRadius: 3,
+              border: `1px solid ${selected ? '#7CFC00' : '#22303c'}`,
+              background: 'rgba(8, 12, 16, 0.82)',
+              color: selected ? '#c8ffc8' : '#9fb4c7',
+            }}
+          >
+            {mount.name}{' '}
+            <span style={{ color: '#6f8698' }}>
+              {mount.yawDegrees.toFixed(0)}° / {mount.pitchDegrees.toFixed(0)}° up
+            </span>
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+

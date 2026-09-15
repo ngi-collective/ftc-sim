@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
@@ -360,6 +361,34 @@ class WireFormatTest {
                 640, 480, 15.0);
 
         assertMatchesFixture("camera-stream", protocol().envelope("camera", "stream", stream));
+    }
+
+    /**
+     * The camera's mount, in the units its configuration file writes: metres in the robot frame
+     * and degrees, with the two fields of view derived from the lens the frames are rendered
+     * through. The browser's mount sliders read every one of these by name.
+     */
+    @Test
+    void cameraMountFrameMatchesTheCapturedFixture() {
+        CameraMountPayload mount = new CameraMountPayload("Webcam 1",
+                0.16, 0.0, 0.105, 0.0, 35.0, 0.0, 60.0, 46.8, false);
+
+        assertMatchesFixture("sim-camera", protocol().envelope("sim", "camera", mount));
+    }
+
+    /**
+     * The save reply, whose payload the server composes by hand rather than from a record. The
+     * path is a checkout path and so is read out of the fixture, like the layout directory below;
+     * what is pinned is that the saver is told a file to commit, under that key, on that
+     * namespace.
+     */
+    @Test
+    void cameraSavedFrameMatchesTheCapturedFixture() {
+        JsonObject saved = new JsonObject();
+        saved.addProperty("path",
+                ProtocolFixtures.payload("sim-camera-saved").get("path").getAsString());
+
+        assertMatchesFixture("sim-camera-saved", new Envelope("sim", "camera-saved", saved));
     }
 
     /**

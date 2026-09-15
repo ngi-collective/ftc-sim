@@ -1,0 +1,16 @@
+{
+  "namespace": "sim",
+  "type": "camera",
+  "payload": {
+    "name": "Webcam 1",
+    "forwardMetres": 0.16,
+    "leftMetres": 0.0,
+    "heightMetres": 0.105,
+    "yawDegrees": 0.0,
+    "pitchDegrees": 35.0,
+    "rollDegrees": 0.0,
+    "horizontalFovDegrees": 60.0,
+    "verticalFovDegrees": 46.8,
+    "unsaved": false
+  }
+}

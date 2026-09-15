@@ -23,6 +23,7 @@ import {
 import { useDashboard } from './useDashboard';
 import { KEYBOARD_HELP, KEYBOARD_OFF, useKeyboardGamepad } from './useKeyboardGamepad';
 import { describePads, useHardwareGamepads } from './useHardwareGamepads';
+import { useUnsavedGuard } from './useUnsavedGuard';
 
 type View = 'scene' | 'console' | 'camera';
 
@@ -47,6 +48,10 @@ export function App() {
     describePads(hardware.pads) ?? (settings.keyboardGamepad ? KEYBOARD_HELP : KEYBOARD_OFF);
   const [selected, setSelected] = useState('');
   const [view, setView] = useState<View>('scene');
+
+  // A camera aimed by hand and not yet saved exists only in this session. Reloading the page to
+  // see whether the stream looks better is exactly the reflex that would throw it away.
+  useUnsavedGuard(dashboard.cameraMount?.unsaved ?? false);
 
   useEffect(() => {
     if (!selected && dashboard.opModes.length > 0) {

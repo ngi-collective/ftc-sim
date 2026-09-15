@@ -30,10 +30,14 @@ import java.net.UnknownHostException;
  * sim/step       {ticks}                            (advances a paused simulation)
  * sim/pose       {x, y, headingDegrees}             (next sim/pose reflects it)
  * sim/alliance   {alliance}                         -&gt; sim/status, broadcast on change
+ * sim/camera     {forwardMetres, ... rollDegrees}   -&gt; sim/camera, broadcast; aims the live view
+ * sim/camera-save{}                                 -&gt; sim/camera-saved {path}, and sim/camera
+ * sim/camera-revert {}                              -&gt; sim/camera, broadcast
  * </pre>
  * <p>Pushed without being asked: {@code opmode/status}, {@code telemetry/frame},
  * {@code device/state}, {@code sim/pose} every control cycle, {@code sim/config} and
- * {@code sim/scene} on connect and on every OpMode init, and {@code camera/stream} on connect. A
+ * {@code sim/scene} on connect and on every OpMode init, {@code camera/stream} and
+ * {@code sim/camera} on connect, and {@code sim/camera} again whenever the mount changes. A
  * request that fails comes back as {@code &lt;namespace&gt;/error}.</p>
  *
  * <p>What each of those messages <i>means</i> is {@link DashboardProtocol}'s; this class is the

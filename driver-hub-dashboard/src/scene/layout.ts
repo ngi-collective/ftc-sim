@@ -238,6 +238,33 @@ export function forFile(layout: Record<string, DeviceLayout>): Record<string, De
   return devices;
 }
 
+/**
+ * Every device's effective placement: the inferred default with the team's override on top.
+ *
+ * <p>{@code unplaced} names the one device that has no cosmetic placement at all — the webcam. Its
+ * real mount lives in the robot's configuration file and aims the camera the vision code actually
+ * receives, so a second placement here would be a set of sliders that look like they aim the camera
+ * and do not. Leaving it out keeps it out of the saved file too, which is the point: a committed
+ * layout should not carry numbers nothing reads.</p>
+ */
+export function placements(
+  devices: DeviceState[],
+  overrides: LayoutOverrides,
+  unplaced: string | null,
+): Record<string, DeviceLayout> {
+  const result: Record<string, DeviceLayout> = {};
+  let spare = 0;
+  for (const device of devices) {
+    if (device.name === unplaced) continue;
+    const placedByName = device.kind === 'imu' || inferWheel(device.name) !== null;
+    result[device.name] = {
+      ...defaultLayout(device, placedByName ? 0 : spare++),
+      ...overrides[device.name],
+    };
+  }
+  return result;
+}
+
 export interface LayoutApi {
   /** Effective layout per device name: defaults with any override applied. */
   layout: Record<string, DeviceLayout>;
@@ -251,25 +278,15 @@ export interface LayoutApi {
   applyFile: (file: LayoutFile) => void;
 }
 
-export function useLayout(devices: DeviceState[]): LayoutApi {
+/** @param camera the webcam's device name, whose placement belongs to its mount instead */
+export function useLayout(devices: DeviceState[], camera: string | null = null): LayoutApi {
   const [overrides, setOverrides] = useState<LayoutOverrides>(load);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
   }, [overrides]);
 
-  const layout = useMemo(() => {
-    const result: Record<string, DeviceLayout> = {};
-    let spare = 0;
-    for (const device of devices) {
-      const placedByName = device.kind === 'imu' || inferWheel(device.name) !== null;
-      result[device.name] = {
-        ...defaultLayout(device, placedByName ? 0 : spare++),
-        ...overrides[device.name],
-      };
-    }
-    return result;
-  }, [devices, overrides]);
+  const layout = useMemo(() => placements(devices, overrides, camera), [devices, overrides, camera]);
 
   const update = useCallback((name: string, patch: Partial<DeviceLayout>) => {
     setOverrides((previous) => ({ ...previous, [name]: { ...previous[name], ...patch } }));

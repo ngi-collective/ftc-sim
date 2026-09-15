@@ -4,6 +4,7 @@ import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
 import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
+import org.ngicollective.testframework.dashboard.protocol.CameraMountPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -14,6 +15,7 @@ import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 import org.ngicollective.testframework.dashboard.protocol.TelemetryFrame;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -102,6 +104,46 @@ public interface DashboardBackend {
 
     /** Fires on every OpMode init, because a re-init rebuilds the robot and so its scene. */
     void subscribeScene(Consumer<ScenePayload> listener);
+
+    /**
+     * Where this session's camera is mounted and what it sees from there, or null when the robot
+     * declares no camera.
+     *
+     * <p>The mount the session is <em>using</em>, which is not always the one on disk: see
+     * {@link #setCameraMount}.</p>
+     */
+    CameraMountPayload cameraMount();
+
+    /**
+     * Aims the camera, effective on the next rendered frame.
+     *
+     * <p>No INIT and no file write, because the question this answers &mdash; "is the tag in shot
+     * from this angle" &mdash; is answered by looking at the view while dragging. A mount that
+     * needed a rebuild to take effect would make that a guess-and-check loop several seconds
+     * long, and one that wrote the file on every drag would commit every angle anyone tried.
+     * Saving is {@link #saveCameraMount()}, and is a separate thing a person asks for.</p>
+     *
+     * <p>Session state, like the alliance and the field arrangement: it survives the rebuild that
+     * INIT and STOP do.</p>
+     *
+     * @throws IllegalStateException if this session's robot has no scene-backed camera to aim
+     */
+    void setCameraMount(double forwardMetres, double leftMetres, double heightMetres,
+                        double yawDegrees, double pitchDegrees, double rollDegrees);
+
+    /**
+     * Writes the session's mount into the robot's configuration file and returns the file.
+     *
+     * @throws IllegalStateException if the robot's numbers did not come from a file, since there
+     *     is then nowhere to put them
+     */
+    Path saveCameraMount();
+
+    /** Drops the session's mount and goes back to the one the configuration file describes. */
+    void revertCameraMount();
+
+    /** Fires whenever the mount changes, saved or not. */
+    void subscribeCameraMount(Consumer<CameraMountPayload> listener);
 
     /**
      * Fires on every control cycle in which a body on the field moved, and on none of the others.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createCoalescedSender } from './coalesce';
 import {
   applyMessage,
   createThrottledPoseSink,
@@ -10,6 +11,8 @@ import {
   parseEnvelope,
   type Alliance,
   type BehaviorSpec,
+  type CameraMount,
+  type CameraMountPayload,
   type CameraStreamInfo,
   type DeviceState,
   type GamepadState,
@@ -77,6 +80,18 @@ export interface Dashboard {
    * Sent once on connect. The panel points an `<img>` at it; no frame ever crosses this socket.
    */
   cameraStream: CameraStreamInfo | null;
+  /**
+   * Where the simulated webcam is bolted on and where it looks, or null when this session's robot
+   * declares no camera.
+   *
+   * <p>This is the mount that actually aims the rendered camera, unlike a device's layout, which
+   * only says how the robot is drawn. It arrives in the greeting and again on every change,
+   * including the changes this browser asked for — the server is the one copy, so a slider reads
+   * back what the simulation is really using rather than what this page hoped for.</p>
+   */
+  cameraMount: CameraMountPayload | null;
+  /** Where the last {@code sim/camera-save} wrote, so the rail can name the file to commit. */
+  savedCameraMount: { path: string } | null;
   /** Clock and alliance, as the server last reported them. */
   simStatus: SimStatus;
   init: (className: string) => void;
@@ -96,6 +111,18 @@ export interface Dashboard {
   /** Teleports the robot to a field pose, in metres and degrees. */
   placeRobot: (x: number, y: number, headingDegrees: number) => void;
   setAlliance: (alliance: Alliance) => void;
+  /**
+   * Aims the camera now. Effective on the next rendered frame — no INIT, and nothing written to
+   * disk, so a questionable angle costs nothing to try.
+   *
+   * <p>Safe to call from a pointer handler: sends coalesce to one message per animation frame,
+   * with the value the drag ended on always among them.</p>
+   */
+  setCameraMount: (mount: CameraMount) => void;
+  /** Writes the mount the session is using into the robot's configuration file. */
+  saveCameraMount: () => void;
+  /** Throws the session's edits away and goes back to what the file says. */
+  revertCameraMount: () => void;
 }
 
 export function useDashboard(url: string = DEFAULT_URL): Dashboard {
@@ -117,6 +144,10 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [simConfig, setSimConfig] = useState<SimConfig | null>(null);
   const [simScene, setSimScene] = useState<ScenePayload | null>(null);
   const [cameraStream, setCameraStream] = useState<CameraStreamInfo | null>(null);
+  // Named apart from the sender below: the server owns the mount, and this is the browser adopting
+  // what it was told, not the browser deciding.
+  const [cameraMount, adoptCameraMount] = useState<CameraMountPayload | null>(null);
+  const [savedCameraMount, setSavedCameraMount] = useState<{ path: string } | null>(null);
   const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
   const [pose, setPose] = useState<SimPose | null>(null);
   const poseRef = useRef<SimPose | null>(null);
@@ -160,6 +191,8 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
         setSimScene(scene);
       },
       setCameraStream,
+      setCameraMount: adoptCameraMount,
+      setSavedCameraMount,
       setSimStatus,
       pose: createThrottledPoseSink({
         // Un-throttled on purpose: this is the 50 Hz path the 3D view reads, and it never touches
@@ -214,6 +247,17 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       socket.send(JSON.stringify({ namespace, type, payload }));
     }
   }, []);
+
+  /**
+   * The one path a dragged slider takes. One per hook rather than per render: the coalescer holds
+   * the value waiting for the next frame, and a fresh one each render would hold nothing.
+   */
+  const sendCameraMount = useRef(
+    createCoalescedSender<CameraMount>({
+      send: (mount) => send('sim', 'camera', mount),
+      schedule: (flush) => requestAnimationFrame(flush),
+    }),
+  ).current;
 
   const init = useCallback(
     (className: string) => {
@@ -271,6 +315,11 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     simConfig,
     simScene,
     cameraStream,
+    cameraMount,
+    savedCameraMount,
+    setCameraMount: sendCameraMount,
+    saveCameraMount: useCallback(() => send('sim', 'camera-save', {}), [send]),
+    revertCameraMount: useCallback(() => send('sim', 'camera-revert', {}), [send]),
     simStatus,
     setSimTime: useCallback(
       (multiplier: number, paused: boolean) => send('sim', 'time', { multiplier, paused }),

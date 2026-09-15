@@ -86,6 +86,11 @@ public final class CameraIntrinsics {
         return Math.toDegrees(2.0 * Math.atan((width / 2.0) / focalX));
     }
 
+    /** The vertical field of view these intrinsics describe, in degrees. */
+    public double verticalFieldOfViewDegrees() {
+        return Math.toDegrees(2.0 * Math.atan((height / 2.0) / focalY));
+    }
+
     /**
      * The same lens at a different frame size.
      *
