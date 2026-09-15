@@ -1,8 +1,10 @@
 package org.ngicollective.testframework.dashboard;
 
 import org.ngicollective.camerastream.MjpegServer;
+import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.ngicollective.testframework.sim.SimConfigFiles;
 
 import java.nio.file.Paths;
 import java.util.List;
@@ -17,6 +19,7 @@ import java.util.List;
  * mise run dashboard --args "--camera-port 9100"
  * mise run dashboard --args "--host 192.168.1.50"   # reachable from another machine
  * mise run dashboard --args "--layouts ../shared-layouts"
+ * mise run dashboard --args "--scenario practice-balls"  # an arrangement from TeamCode/scenarios
  * </pre>
  */
 public final class DashboardMain {
@@ -64,6 +67,7 @@ public final class DashboardMain {
         LayoutStore layouts =
                 new LayoutStore(Paths.get(argument(args, "--layouts", DEFAULT_LAYOUT_DIRECTORY)));
         String robotName = argument(args, "--robot", null);
+        String scenarioName = argument(args, "--scenario", null);
 
         OpModeDiscovery discovery = new OpModeDiscovery(packagePrefix);
         List<OpModeEntry> opModes = discovery.discoverOpModes();
@@ -86,6 +90,16 @@ public final class DashboardMain {
         }
 
         LocalDashboardBackend backend = new LocalDashboardBackend(robot, opModes);
+
+        // Applied to the session rather than to the robot, so it survives an init: see
+        // LocalDashboardBackend.loadScene. A misspelled name throws here, naming both places it
+        // looked, rather than starting a dashboard that quietly shows the official field.
+        if (scenarioName != null) {
+            SimulatedScene scene = SimConfigFiles.scenario(scenarioName).scene();
+            backend.loadScene(scene);
+            System.out.println("[dashboard] scenario: " + scenarioName + "  ("
+                    + scene.elements().size() + " game element(s))");
+        }
 
         // Started before the socket, because the socket advertises where it landed. A robot with no
         // camera gets no stream and no advertisement, and the panel says so.

@@ -3,6 +3,7 @@ package org.ngicollective.testframework.dashboard;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.AfterEach;
@@ -222,6 +223,42 @@ class ScenePublicationTest {
         assertTrue(published.isEmpty(), "there is no scene to publish");
     }
 
+    /** The whole point of a scenario: the balls it describes are on the field the browser draws. */
+    @Test
+    void aLoadedArrangementReachesTheWire() {
+        backend = sessionOn(sceneRobot());
+
+        backend.loadScene(arrangement());
+
+        ScenePayload payload = backend.scene();
+        assertEquals(2, payload.elements.size());
+        assertEquals("POLLEN", payload.elements.get(0).name);
+        assertEquals("RED NECTAR", payload.elements.get(1).name);
+    }
+
+    /**
+     * An init builds a whole new robot, and therefore a whole new scene. The arrangement belongs
+     * to the session, so pressing INIT must not quietly put the robot's own empty field back.
+     */
+    @Test
+    void aLoadedArrangementSurvivesAnInit() {
+        backend = sessionOn(robotWithFreshFrames());
+        backend.loadScene(arrangement());
+
+        backend.initOpMode(TickingTeleOp.class.getName());
+
+        assertEquals(2, backend.scene().elements.size(),
+                "the session's arrangement, not the scene the rebuilt robot brought with it");
+    }
+
+    @Test
+    void aSessionWhoseCameraRendersNoSceneRefusesAnArrangement() {
+        backend = sessionOn(robotWith(() -> FakeHardwareMap.builder().addMotor("drive").build()));
+
+        assertThrows(IllegalStateException.class, () -> backend.loadScene(arrangement()),
+                "a blind session must say so, not accept an arrangement nothing will render");
+    }
+
     /**
      * A plate of two tags facing field -X, plus a ball.
      *
@@ -249,6 +286,31 @@ class ScenePublicationTest {
                 .addMotor("drive")
                 .addWebcam("Webcam 1", frames)
                 .build());
+    }
+
+    /** Two balls where {@code practice-balls.json} puts them, on the same plate of tags. */
+    private static SimulatedScene arrangement() {
+        return new SimulatedScene(scene().clusters(),
+                Arrays.asList(GameElement.pollen(-0.4, -0.9), GameElement.redNectar(-0.6, -1.15)));
+    }
+
+    /**
+     * A robot that builds a fresh {@code SceneFrameSource} on every {@code create()}, the way
+     * {@code VerityRobot} does.
+     *
+     * <p>{@link #sceneRobot()}'s shared source would carry a scene across an init by accident,
+     * and hide the bug {@code aLoadedArrangementSurvivesAnInit} exists to catch.</p>
+     */
+    private static SimulatedRobot robotWithFreshFrames() {
+        return robotWith(() -> {
+            SimulatedCamera camera = new SimulatedCamera("Webcam 1",
+                    CameraIntrinsics.approximate(320, 240),
+                    Pose3d.facingForward(new Vec3(0.0, 0.0, 0.3)));
+            return FakeHardwareMap.builder()
+                    .addMotor("drive")
+                    .addWebcam("Webcam 1", new SceneFrameSource(scene(), camera))
+                    .build();
+        });
     }
 
     /** A robot that builds genuinely fresh hardware per run, as {@code initOpMode} expects. */

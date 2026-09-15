@@ -159,6 +159,17 @@ public class LocalDashboardBackend implements DashboardBackend {
     private Alliance alliance = Alliance.RED;
 
     /**
+     * The arrangement of the field this session was asked for, or null to render whatever the
+     * robot builds for itself.
+     *
+     * <p>Kept by the session rather than handed to the robot once, because {@link #restLocked()}
+     * builds a fresh robot &mdash; and therefore a fresh scene &mdash; on every init and every
+     * stop. A scene applied only at startup would revert to the robot's default the first time a
+     * driver pressed INIT, which is the moment they would stop believing the view.</p>
+     */
+    private SimulatedScene sessionScene;
+
+    /**
      * The newest telemetry frame not yet broadcast. Only the latest matters &mdash; the UI shows one
      * composition &mdash; and draining it on the tick keeps outbound traffic bounded by the tick
      * rate no matter what the OpMode does with its transmission interval.
@@ -295,6 +306,47 @@ public class LocalDashboardBackend implements DashboardBackend {
     private void restLocked() {
         hardware = robot.create();
         applyAllianceLocked();
+        applySceneLocked();
+    }
+
+    /**
+     * Puts a chosen arrangement of the field in front of the camera: a HIVE tipped the other way,
+     * or the balls left where they broke autonomous last weekend.
+     *
+     * <p>The scene is conformed to the field the drive model is driving on, for the same reason
+     * the robot does it: a season's tag geometry is fixed by the game manual and knows nothing
+     * about which perimeter is in the room, and skipping this is how the camera comes to render a
+     * competition field beside a field view of a half one.</p>
+     *
+     * @throws IllegalStateException when this session's camera renders no scene, because an
+     *     arrangement then means nothing and accepting it quietly would leave whoever asked
+     *     believing there were balls on the field
+     */
+    public void loadScene(SimulatedScene scene) {
+        synchronized (lock) {
+            if (!(cameraFramesLocked() instanceof SceneFrameSource)) {
+                throw new IllegalStateException("robot \"" + robot.name() + "\" has no"
+                        + " scene-backed camera, so it has no field arrangement to change; a"
+                        + " scenario needs a webcam built on a SceneFrameSource");
+            }
+            sessionScene = scene;
+            applySceneLocked();
+            publishSceneLocked();
+        }
+    }
+
+    /** Hands {@link #sessionScene}, when there is one, to whatever camera the session now has. */
+    private void applySceneLocked() {
+        if (sessionScene == null) {
+            return;
+        }
+        FrameSource frames = cameraFramesLocked();
+        if (!(frames instanceof SceneFrameSource)) {
+            return;
+        }
+        DriveModel drive = driveLocked();
+        ((SceneFrameSource) frames)
+                .setScene(drive == null ? sessionScene : sessionScene.on(drive.field()));
     }
 
     /** The simulated robot configuration this session is driving. */
