@@ -2,6 +2,9 @@ package org.ngicollective.testframework.physics;
 
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Vec3;
+import org.ngicollective.testframework.sim.DriveModel;
+import org.ngicollective.testframework.sim.SensorConfig;
+import org.ngicollective.testframework.sim.VolumeConfig;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,8 +26,17 @@ final class StillFieldPhysics implements FieldPhysics {
     private final List<GameElement> arrangement;
     private final List<BodyState> bodies;
 
-    StillFieldPhysics(List<GameElement> arrangement) {
+    /**
+     * The drive model, or null when this robot has no drivetrain.
+     *
+     * <p>Held for the sensors alone: nothing here can move, but where the robot <em>is</em> decides
+     * what its intake and its sensors are looking at.</p>
+     */
+    private final DriveModel drive;
+
+    StillFieldPhysics(List<GameElement> arrangement, DriveModel drive) {
         this.arrangement = Collections.unmodifiableList(new ArrayList<>(arrangement));
+        this.drive = drive;
 
         List<BodyState> resting = new ArrayList<>(arrangement.size());
         for (int id = 0; id < arrangement.size(); id++) {
@@ -59,6 +71,46 @@ final class StillFieldPhysics implements FieldPhysics {
     @Override
     public boolean moving() {
         return false;
+    }
+
+    /**
+     * Still answered, and exactly, because a robot can drive up to a ball that cannot move.
+     *
+     * <p>Which makes a session without ode4j more useful than it sounds: an intake that cannot
+     * actually pick anything up still knows when a ball is in its mouth, so an OpMode's decisions
+     * can be tested even where its mechanism's effects cannot.</p>
+     */
+    @Override
+    public List<GameElement> touching(VolumeConfig volume) {
+        if (drive == null) {
+            return Collections.emptyList();
+        }
+        List<GameElement> found = new ArrayList<>(2);
+        for (GameElement element : arrangement) {
+            if (RobotFrame.touches(drive.pose(), volume, element.centre(),
+                    element.radiusMetres())) {
+                found.add(element);
+            }
+        }
+        return Collections.unmodifiableList(found);
+    }
+
+    /**
+     * Always out of range.
+     *
+     * <p>A beam needs something to cast against, and the collision world is the thing that is
+     * missing here. {@code NaN} is the honest answer and the one the SDK's own sensors give when
+     * they see nothing, so an OpMode meets a reading it already has to handle rather than a
+     * plausible distance to a wall that was never measured.</p>
+     */
+    @Override
+    public double rangeAlong(SensorConfig sensor) {
+        return Double.NaN;
+    }
+
+    /** Nothing to run: there is no surface here, only a list of places balls are. */
+    @Override
+    public void setSweepPower(String servoName, double power) {
     }
 
     /** Nothing to release: there is no solver behind this, only the list handed in. */

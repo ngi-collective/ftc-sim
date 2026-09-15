@@ -178,7 +178,7 @@ class FieldPhysicsTest {
         // wants no LGPL in the build at all gets a field whose balls do not move, which is what
         // this simulator did before physics existed and is still enough to test vision against.
         List<GameElement> arrangement = Collections.singletonList(GameElement.pollen(0.4, 0.4));
-        FieldPhysics still = new StillFieldPhysics(arrangement);
+        FieldPhysics still = new StillFieldPhysics(arrangement, null);
 
         still.advance(10.0);
 

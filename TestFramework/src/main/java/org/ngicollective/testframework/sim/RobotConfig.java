@@ -28,15 +28,20 @@ public final class RobotConfig {
     private final String imuName;
     private final CameraConfig camera;
     private final Map<String, MotorConfig> motors;
+    private final Map<String, ServoConfig> servos;
+    private final Map<String, SensorConfig> sensors;
 
     private RobotConfig(String name, ChassisConfig chassis, DrivetrainConfig drivetrain,
-                        String imuName, CameraConfig camera, Map<String, MotorConfig> motors) {
+                        String imuName, CameraConfig camera, Map<String, MotorConfig> motors,
+                        Map<String, ServoConfig> servos, Map<String, SensorConfig> sensors) {
         this.name = name;
         this.chassis = chassis;
         this.drivetrain = drivetrain;
         this.imuName = imuName;
         this.camera = camera;
         this.motors = Collections.unmodifiableMap(motors);
+        this.servos = Collections.unmodifiableMap(servos);
+        this.sensors = Collections.unmodifiableMap(sensors);
     }
 
     /** Reads a robot description, failing with the file and field name if anything is missing. */
@@ -63,6 +68,26 @@ public final class RobotConfig {
         if (motors.isEmpty()) {
             throw new IllegalArgumentException(json.source() + ": \"motors\" declares no motors");
         }
+        // Unlike "motors", these two blocks are optional, and absent means none. Every robot
+        // description written before mechanisms were simulated is still a correct version 1 file:
+        // requiring the blocks, or bumping the version to add them, would break configurations
+        // that describe a perfectly valid robot which happens to have no servos worth modelling.
+        Map<String, ServoConfig> servos = new LinkedHashMap<>();
+        if (json.names().contains("servos")) {
+            ConfigJson servosJson = json.child("servos");
+            for (String hardwareName : servosJson.names()) {
+                servos.put(hardwareName,
+                        ServoConfig.from(hardwareName, servosJson.child(hardwareName)));
+            }
+        }
+        Map<String, SensorConfig> sensors = new LinkedHashMap<>();
+        if (json.names().contains("sensors")) {
+            ConfigJson sensorsJson = json.child("sensors");
+            for (String hardwareName : sensorsJson.names()) {
+                sensors.put(hardwareName,
+                        SensorConfig.from(hardwareName, sensorsJson.child(hardwareName)));
+            }
+        }
         ChassisConfig chassis = ChassisConfig.from(json.child("chassis"));
         return new RobotConfig(
                 json.string("name"),
@@ -70,7 +95,9 @@ public final class RobotConfig {
                 DrivetrainConfig.from(json.child("drivetrain")),
                 json.child("imu").string("name"),
                 CameraConfig.from(json.child("camera"), chassis),
-                motors);
+                motors,
+                servos,
+                sensors);
     }
 
     /** The robot's name, as shown in the dashboard. */
@@ -99,5 +126,21 @@ public final class RobotConfig {
     /** Every motor, keyed by the name the OpMode looks it up under, in file order. */
     public Map<String, MotorConfig> motors() {
         return motors;
+    }
+
+    /**
+     * Every servo, keyed by the name the OpMode looks it up under, in file order. Empty when the
+     * robot declares none.
+     */
+    public Map<String, ServoConfig> servos() {
+        return servos;
+    }
+
+    /**
+     * Every simulated sensor, keyed by the name the OpMode looks it up under, in file order. Empty
+     * when the robot declares none.
+     */
+    public Map<String, SensorConfig> sensors() {
+        return sensors;
     }
 }

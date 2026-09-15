@@ -7,6 +7,10 @@ import org.ngicollective.testframework.sim.ChassisVelocity;
 import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
+import org.ngicollective.testframework.sim.RobotConfig;
+import org.ngicollective.testframework.sim.SensorConfig;
+import org.ngicollective.testframework.sim.ServoConfig;
+import org.ngicollective.testframework.sim.VolumeConfig;
 import org.ode4j.math.DQuaternion;
 import org.ode4j.math.DQuaternionC;
 import org.ode4j.math.DVector3C;
@@ -17,6 +21,7 @@ import org.ode4j.ode.DContactBuffer;
 import org.ode4j.ode.DGeom;
 import org.ode4j.ode.DJointGroup;
 import org.ode4j.ode.DMass;
+import org.ode4j.ode.DRay;
 import org.ode4j.ode.DSpace;
 import org.ode4j.ode.DSphere;
 import org.ode4j.ode.DWorld;
@@ -25,7 +30,10 @@ import org.ode4j.ode.OdeHelper;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Rigid-body physics for the field, on ode4j.
@@ -135,6 +143,17 @@ final class OdeFieldPhysics implements FieldPhysics {
     private static final int MAX_CONTACTS = 4;
 
     /**
+     * The hardest a sweep may pull on a ball.
+     *
+     * <p>Past this a real roller slips rather than pushing harder, and the cap is what makes that
+     * true here: without it, a ball dragged against the chassis would have the whole of whatever
+     * force it takes to reach surface speed applied into the chassis forever, and the solver would
+     * squeeze it through. Ten newtons is around forty times a POLLEN's own weight, which is plenty
+     * to snatch one off the floor and nowhere near enough to crush it through a robot.</p>
+     */
+    private static final double MAX_SWEEP_NEWTONS = 10.0;
+
+    /**
      * Speeds below which a body counts as still: a tenth of a millimetre a second, and a
      * thousandth of a radian a second.
      *
@@ -149,9 +168,11 @@ final class OdeFieldPhysics implements FieldPhysics {
     private final DSpace space;
     private final DJointGroup contactGroup;
     private final DContactBuffer contacts = new DContactBuffer(MAX_CONTACTS);
-
     private final List<Ball> balls;
     private final DriveModel drive;
+
+    /** The sweeping surfaces this robot carries, by the name their servo is configured under. */
+    private final Map<String, Roller> rollers = new LinkedHashMap<>();
 
     /** The robot's collision box, or null when the session's robot has no drivetrain. */
     private final DBody robot;
@@ -161,6 +182,12 @@ final class OdeFieldPhysics implements FieldPhysics {
 
     /** Reused across ticks so a stepping world allocates nothing per tick. */
     private final DQuaternion heading = new DQuaternion();
+
+    /**
+     * The beam every distance sensor is measured with, outside the space so the ordinary collision
+     * sweep never finds it. Its length and aim are set per reading; see {@link #rangeAlong}.
+     */
+    private final DRay beam = OdeHelper.createRay(null, 1.0);
 
     /**
      * ode4j's collider tables are process-wide, and so is their initialisation.
@@ -200,7 +227,74 @@ final class OdeFieldPhysics implements FieldPhysics {
 
         this.robot = drive == null ? null : buildRobot(drive.robot().chassis());
         if (robot != null) {
+            buildRollers(drive.robot());
             carryRobot();
+        }
+    }
+
+    /**
+     * A driven zone per sweeping servo: where the mechanism reaches, and how fast it runs.
+     *
+     * <p>Not a rigid surface, and that was the second attempt. The first put a box across the
+     * mouth with ODE's own moving-surface contacts, which is exactly what an intake roller is
+     * &mdash; and it threw balls away at speed. A box's front face gives the solver a contact whose
+     * normal is the direction the surface is supposed to run in, and there is no tangent left to
+     * run it along; the drag became a shove. A box also has to be solid, so the mouth it modelled
+     * was a wall a ball could never get into.</p>
+     *
+     * <p>So the roller is a region that pulls what is inside it, as a compliant wheel spinning
+     * faster than the ball does. Everything around it is still the world: the ball is stopped by
+     * the chassis it is dragged against, another ball can knock it out, reversing the servo spits
+     * it back out, and nothing anywhere is marked "held". What is given up is the roller as an
+     * obstacle &mdash; a ball cannot bounce off an idle intake &mdash; and that is the trade a
+     * jointed mechanism with real geometry would buy back.</p>
+     */
+    private void buildRollers(RobotConfig configured) {
+        for (ServoConfig servo : configured.servos().values()) {
+            if (servo.sweepsBalls()) {
+                rollers.put(servo.name(),
+                        new Roller(servo.sweep(), servo.surfaceMetresPerSecond()));
+            }
+        }
+    }
+
+    /**
+     * Drags whatever is inside a running sweep towards the robot, once per solver step.
+     *
+     * <p>A force rather than a velocity, so the ball is still something the rest of the world can
+     * argue with: it stops when it reaches the chassis, it is slowed by the floor, and it can be
+     * blocked by another ball. The force is whatever would reach the roller's surface speed in one
+     * step, capped &mdash; past the cap a real roller slips rather than pushing harder, and without
+     * one a ball pinned against the chassis would be crushed into it.</p>
+     */
+    private void driveSweeps() {
+        if (drive == null) {
+            return;
+        }
+        Pose2d pose = drive.pose();
+        double cos = Math.cos(pose.heading());
+        double sin = Math.sin(pose.heading());
+
+        for (Roller roller : rollers.values()) {
+            if (roller.power == 0.0) {
+                continue;
+            }
+            // Rearwards for a positive power: an intake pulls in.
+            double wanted = -roller.power * roller.surfaceMetresPerSecond;
+            for (Ball ball : balls) {
+                if (!ball.inside(pose, roller.sweep)) {
+                    continue;
+                }
+                DVector3C moving = ball.velocity();
+                double along = moving.get0() * cos + moving.get1() * sin;
+                double force = (wanted - along) * ball.mass / STEP_SECONDS;
+                if (force > MAX_SWEEP_NEWTONS) {
+                    force = MAX_SWEEP_NEWTONS;
+                } else if (force < -MAX_SWEEP_NEWTONS) {
+                    force = -MAX_SWEEP_NEWTONS;
+                }
+                ball.push(force * cos, force * sin);
+            }
         }
     }
 
@@ -273,6 +367,7 @@ final class OdeFieldPhysics implements FieldPhysics {
     }
 
     private void step() {
+        driveSweeps();
         space.collide(null, this::resolve);
         world.quickStep(STEP_SECONDS);
         contactGroup.empty();
@@ -286,6 +381,12 @@ final class OdeFieldPhysics implements FieldPhysics {
      * rather than a material table nobody could calibrate.</p>
      */
     private void resolve(Object data, DGeom first, DGeom second) {
+        // Two things bolted to the field, or both to the same kinematic robot, cannot move each
+        // other: the contact would be built, solved and thrown away every step for nothing.
+        if (isImmovable(first) && isImmovable(second)) {
+            return;
+        }
+
         int found = OdeHelper.collide(first, second, MAX_CONTACTS, contacts.getGeomBuffer());
         for (int i = 0; i < found; i++) {
             DContact contact = contacts.get(i);
@@ -301,9 +402,16 @@ final class OdeFieldPhysics implements FieldPhysics {
             contact.surface.rho2 = ROLLING_RESISTANCE;
             // Spinning friction, which is what stops a ball pirouetting on one point forever.
             contact.surface.rhoN = ROLLING_RESISTANCE;
+
             OdeHelper.createContactJoint(world, contactGroup, contact)
                     .attach(first.getBody(), second.getBody());
         }
+    }
+
+    /** Whether a geom has nothing the solver can push: static field geometry, or the robot. */
+    private static boolean isImmovable(DGeom geom) {
+        DBody body = geom.getBody();
+        return body == null || body.isKinematic();
     }
 
     /**
@@ -361,6 +469,141 @@ final class OdeFieldPhysics implements FieldPhysics {
         return false;
     }
 
+    @Override
+    public List<GameElement> touching(VolumeConfig volume) {
+        if (drive == null) {
+            // No drivetrain, so no robot, so nothing to bolt a volume to. An empty answer is the
+            // truth: a sensor on a robot that cannot be anywhere is looking at nothing.
+            return Collections.emptyList();
+        }
+        final Pose2d pose = drive.pose();
+        List<GameElement> found = new ArrayList<>(2);
+        for (Ball ball : balls) {
+            GameElement element = ball.element();
+            if (RobotFrame.touches(pose, volume, element.centre(), element.radiusMetres())) {
+                found.add(element);
+            }
+        }
+        // Nearest to the middle of the volume first, so a sensor with one reading to give reports
+        // the ball a real one would be looking at.
+        final double middleX = RobotFrame.fieldX(pose, volume.forwardMetres(), volume.leftMetres());
+        final double middleY = RobotFrame.fieldY(pose, volume.forwardMetres(), volume.leftMetres());
+        Collections.sort(found, new Comparator<GameElement>() {
+            @Override
+            public int compare(GameElement left, GameElement right) {
+                return Double.compare(distanceTo(left), distanceTo(right));
+            }
+
+            private double distanceTo(GameElement element) {
+                double awayX = element.centre().x() - middleX;
+                double awayY = element.centre().y() - middleY;
+                double awayZ = element.centre().z() - volume.heightMetres();
+                return awayX * awayX + awayY * awayY + awayZ * awayZ;
+            }
+        });
+        return Collections.unmodifiableList(found);
+    }
+
+    /**
+     * Casts the sensor's beam as an ODE ray and reports what it hits first.
+     *
+     * <p>A ray geom rather than sphere and plane arithmetic of this class's own, because the beam
+     * has to meet whatever is in the world: balls today, and the field's real CAD geometry once
+     * that lands. Hand-rolled intersections would have to grow a case per shape, and the cases it
+     * did not have would read as a sensor that sees through things.</p>
+     *
+     * <p>The ray is created outside the space and collided against it by hand. A ray living in the
+     * space would be found by the ordinary collision sweep every step, and a measurement would
+     * start pushing the things it measures.</p>
+     */
+    @Override
+    public double rangeAlong(SensorConfig sensor) {
+        if (drive == null) {
+            return Double.NaN;
+        }
+        Pose2d pose = drive.pose();
+        double aim = pose.heading() + Math.toRadians(sensor.yawDegrees());
+        double pitch = Math.toRadians(sensor.pitchDegrees());
+
+        double originX = RobotFrame.fieldX(pose, sensor.forwardMetres(), sensor.leftMetres());
+        double originY = RobotFrame.fieldY(pose, sensor.forwardMetres(), sensor.leftMetres());
+
+        // One ray, reused: a sensor is read on every tick, and a geom per reading would be a few
+        // hundred allocations a second to answer a question that never changes shape. It lives
+        // outside the space on purpose -- a ray the ordinary collision sweep could find would
+        // start pushing the things it measures.
+        beam.setLength(sensor.maxRangeMetres());
+        beam.set(originX, originY, sensor.heightMetres(),
+                Math.cos(pitch) * Math.cos(aim), Math.cos(pitch) * Math.sin(aim), Math.sin(pitch));
+
+        Nearest nearest = new Nearest(originX, originY, sensor.heightMetres());
+        beam.collide2(space, nearest, this::measure);
+        return nearest.metres;
+    }
+
+    /** Keeps the closest thing a beam met, and where the beam started, to measure against. */
+    private static final class Nearest {
+
+        private final double x;
+        private final double y;
+        private final double z;
+        private double metres = Double.NaN;
+
+        Nearest(double x, double y, double z) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
+    }
+
+    private void measure(Object data, DGeom beam, DGeom hit) {
+        // Its own robot is not something a sensor can see: a beam that stopped on the bumper it is
+        // bolted to would read zero for the whole match.
+        if (robot != null && hit.getBody() == robot) {
+            return;
+        }
+        Nearest nearest = (Nearest) data;
+        int found = OdeHelper.collide(beam, hit, MAX_CONTACTS, contacts.getGeomBuffer());
+        for (int i = 0; i < found; i++) {
+            DVector3C where = contacts.get(i).getContactGeom().pos;
+            double metres = Math.sqrt(
+                    (where.get0() - nearest.x) * (where.get0() - nearest.x)
+                            + (where.get1() - nearest.y) * (where.get1() - nearest.y)
+                            + (where.get2() - nearest.z) * (where.get2() - nearest.z));
+            if (Double.isNaN(nearest.metres) || metres < nearest.metres) {
+                nearest.metres = metres;
+            }
+        }
+    }
+
+    @Override
+    public void setSweepPower(String servoName, double power) {
+        Roller roller = rollers.get(servoName);
+        if (roller == null) {
+            throw new IllegalArgumentException("no sweeping servo named \"" + servoName
+                    + "\"; the ones this robot declares are " + rollers.keySet());
+        }
+        roller.power = power;
+    }
+
+    /**
+     * One sweeping mechanism: where it reaches, how fast its surface runs, and what it is doing.
+     *
+     * <p>The power is written from outside on each tick and read inside the solver's loop, on the
+     * same thread in both cases &mdash; simulated time only passes on the thread advancing it.</p>
+     */
+    private static final class Roller {
+
+        private final VolumeConfig sweep;
+        private final double surfaceMetresPerSecond;
+        private double power;
+
+        Roller(VolumeConfig sweep, double surfaceMetresPerSecond) {
+            this.sweep = sweep;
+            this.surfaceMetresPerSecond = surfaceMetresPerSecond;
+        }
+    }
+
     /** Innermost first: joints belong to the world, geoms to the space. */
     @Override
     public void destroy() {
@@ -376,6 +619,9 @@ final class OdeFieldPhysics implements FieldPhysics {
         private final GameElement template;
         private final DBody body;
 
+        /** Kept because a sweep's force is worked out from it, once per ball per solver step. */
+        private final double mass;
+
         Ball(int id, GameElement template) {
             this.id = id;
             this.template = template;
@@ -383,10 +629,12 @@ final class OdeFieldPhysics implements FieldPhysics {
             double radius = template.radiusMetres();
             this.body = OdeHelper.createBody(world);
 
-            DMass mass = OdeHelper.createMass();
             double volume = 4.0 / 3.0 * Math.PI * radius * radius * radius;
-            mass.setSphereTotal(volume * BALL_DENSITY_KILOGRAMS_PER_CUBIC_METRE, radius);
-            body.setMass(mass);
+            this.mass = volume * BALL_DENSITY_KILOGRAMS_PER_CUBIC_METRE;
+
+            DMass inertia = OdeHelper.createMass();
+            inertia.setSphereTotal(mass, radius);
+            body.setMass(inertia);
 
             DSphere sphere = OdeHelper.createSphere(space, radius);
             sphere.setBody(body);
@@ -411,6 +659,22 @@ final class OdeFieldPhysics implements FieldPhysics {
         boolean moving() {
             return body.getLinearVel().length() > STILL_METRES_PER_SECOND
                     || body.getAngularVel().length() > STILL_RADIANS_PER_SECOND;
+        }
+
+        /** Whether this ball's surface reaches into a box bolted to the robot. */
+        boolean inside(Pose2d pose, VolumeConfig volume) {
+            DVector3C at = body.getPosition();
+            return RobotFrame.touches(pose, volume,
+                    at.get0(), at.get1(), at.get2(), template.radiusMetres());
+        }
+
+        DVector3C velocity() {
+            return body.getLinearVel();
+        }
+
+        /** Adds a horizontal force for this step, which is how a sweep pulls. */
+        void push(double newtonsX, double newtonsY) {
+            body.addForce(newtonsX, newtonsY, 0.0);
         }
     }
 }
