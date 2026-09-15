@@ -9,7 +9,10 @@ export default defineConfig({
   // accept: it binds a concrete 127.0.0.1 on purpose (see DashboardServer's constructor for what a
   // dual-stack bind does to Java-WebSocket on macOS). The page would load and never connect.
   // Browsers still resolve http://localhost:5183 here, falling back to IPv4 when ::1 refuses.
-  server: { host: '127.0.0.1', port: 5183 },
+  // strictPort because the alternative is worse than a failed start: Vite's default is to take the
+  // next free port and say so in one line of scrollback, so a stale server keeps 5183 and the URL
+  // everyone types quietly serves someone else's build.
+  server: { host: '127.0.0.1', port: 5183, strictPort: true },
   // Node by default: the logic worth testing is coordinate maths, wire parsing and axis mapping,
   // none of which wants a DOM. A file that does need one asks for it with
   // `// @vitest-environment happy-dom` at the top.
