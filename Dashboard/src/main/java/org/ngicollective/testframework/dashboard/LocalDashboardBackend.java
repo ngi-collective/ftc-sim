@@ -14,6 +14,7 @@ import org.ngicollective.testframework.camera.TagCluster;
 import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
+import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -33,6 +34,8 @@ import org.ngicollective.testframework.hardware.SimulatedRobot;
 import org.ngicollective.testframework.harness.IterativeOpModeHarness;
 import org.ngicollective.testframework.harness.LinearOpModeHarness;
 import org.ngicollective.testframework.harness.OpModeHarness;
+import org.ngicollective.testframework.physics.BodyState;
+import org.ngicollective.testframework.physics.FieldPhysics;
 import org.ngicollective.testframework.sim.ChassisConfig;
 import org.ngicollective.testframework.sim.ChassisVelocity;
 import org.ngicollective.testframework.sim.DriveModel;
@@ -126,6 +129,7 @@ public class LocalDashboardBackend implements DashboardBackend {
     private final List<Consumer<SimConfigPayload>> simConfigListeners =
             new CopyOnWriteArrayList<>();
     private final List<Consumer<ScenePayload>> sceneListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<BodiesPayload>> bodyListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new CopyOnWriteArrayList<>();
 
     private final Object lock = new Object();
@@ -168,6 +172,16 @@ public class LocalDashboardBackend implements DashboardBackend {
      * driver pressed INIT, which is the moment they would stop believing the view.</p>
      */
     private SimulatedScene sessionScene;
+
+    /**
+     * The physics world the balls on the field live in, or null when this session's robot has no
+     * camera rendering a scene and therefore no field contents to simulate.
+     *
+     * <p>Held beside {@link #sessionScene} and for the same reason: the world references the drive
+     * model whose pose the robot's collision box follows, and {@link #restLocked()} replaces that
+     * on every init and every stop.</p>
+     */
+    private FieldPhysics physics;
 
     /**
      * The newest telemetry frame not yet broadcast. Only the latest matters &mdash; the UI shows one
@@ -307,6 +321,7 @@ public class LocalDashboardBackend implements DashboardBackend {
         hardware = robot.create();
         applyAllianceLocked();
         applySceneLocked();
+        buildPhysicsLocked();
     }
 
     /**
@@ -331,6 +346,7 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
             sessionScene = scene;
             applySceneLocked();
+            buildPhysicsLocked();
             publishSceneLocked();
         }
     }
@@ -347,6 +363,35 @@ public class LocalDashboardBackend implements DashboardBackend {
         DriveModel drive = driveLocked();
         ((SceneFrameSource) frames)
                 .setScene(drive == null ? sessionScene : sessionScene.on(drive.field()));
+    }
+
+    /**
+     * Builds the physics world for whatever is now on the field, and attaches it to the hardware
+     * map, which is what will step it.
+     *
+     * <p>Built from the camera's scene rather than from {@link #sessionScene}, so it covers both
+     * cases with one path: a session that loaded a scenario, and one running the robot's own idea
+     * of the field. A robot whose camera renders no scene has no field contents at all and gets no
+     * world.</p>
+     *
+     * <p>Rebuilt on every init and every stop, because the world holds the drive model whose pose
+     * the robot's collision box follows and {@link #restLocked()} replaces that. The visible
+     * consequence is that INIT returns the balls to the arrangement, which is also what a driver
+     * pressing INIT means by it.</p>
+     */
+    private void buildPhysicsLocked() {
+        if (physics != null) {
+            physics.destroy();
+            physics = null;
+        }
+        FrameSource frames = cameraFramesLocked();
+        if (!(frames instanceof SceneFrameSource)) {
+            return;
+        }
+        DriveModel drive = driveLocked();
+        physics = FieldPhysics.of(((SceneFrameSource) frames).scene().elements(),
+                drive == null ? FieldConfig.standard() : drive.field(), drive);
+        hardware.setPhysics(physics);
     }
 
     /** The simulated robot configuration this session is driving. */
@@ -492,6 +537,11 @@ public class LocalDashboardBackend implements DashboardBackend {
     @Override
     public void subscribeScene(Consumer<ScenePayload> listener) {
         sceneListeners.add(listener);
+    }
+
+    @Override
+    public void subscribeBodies(Consumer<BodiesPayload> listener) {
+        bodyListeners.add(listener);
     }
 
     @Override
@@ -757,10 +807,14 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
         }
 
+        // The id is the element's index, which is also the id the physics world gives that ball:
+        // both lists come from the same arrangement in the same order, and sim/bodies is keyed on
+        // it. See BodiesPayload.
         List<ScenePayload.Element> elements = new ArrayList<>(scene.elements().size());
+        int id = 0;
         for (GameElement element : scene.elements()) {
             Vec3 centre = element.centre();
-            elements.add(new ScenePayload.Element(element.name(),
+            elements.add(new ScenePayload.Element(id++, element.name(),
                     centre.x(), centre.y(), centre.z(), element.radiusMetres(),
                     element.red(), element.green(), element.blue()));
         }
@@ -843,6 +897,9 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
             if (published.pose != null) {
                 publish("pose", simPoseListeners, published.pose);
+            }
+            if (published.bodies != null) {
+                publish("bodies", bodyListeners, published.bodies);
             }
             if (published.devices != null) {
                 publish("device state", deviceListeners, published.devices);
@@ -961,18 +1018,46 @@ public class LocalDashboardBackend implements DashboardBackend {
     private Publication publicationLocked() {
         return new Publication(
                 poseLocked(),
-                ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null);
+                ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null,
+                bodiesLocked());
     }
 
-    /** What one tick has to say: a pose on every tick, a device snapshot on every fifth. */
+    /**
+     * Where the balls are, on the ticks where that has changed.
+     *
+     * <p>Null while the field is at rest, which is most of the time: a scenario nobody has driven
+     * into publishes its arrangement once in {@code sim/scene} and then says nothing more, so an
+     * idle session costs no traffic and a socket log shows a rolling ball instead of burying it.</p>
+     */
+    private BodiesPayload bodiesLocked() {
+        if (physics == null || !physics.moving()) {
+            return null;
+        }
+        List<BodyState> moving = physics.bodies();
+        List<BodiesPayload.Body> bodies = new ArrayList<>(moving.size());
+        for (BodyState body : moving) {
+            bodies.add(new BodiesPayload.Body(body.id(),
+                    body.x(), body.y(), body.z(),
+                    body.quaternionX(), body.quaternionY(), body.quaternionZ(),
+                    body.quaternionW()));
+        }
+        return new BodiesPayload(time.nowMillis(), hardware.elapsedSeconds(), bodies);
+    }
+
+    /**
+     * What one tick has to say: a pose on every tick, a device snapshot on every fifth, and the
+     * bodies on the field whenever one of them moved.
+     */
     private static final class Publication {
 
         final SimPose pose;
         final List<DeviceState> devices;
+        final BodiesPayload bodies;
 
-        Publication(SimPose pose, List<DeviceState> devices) {
+        Publication(SimPose pose, List<DeviceState> devices, BodiesPayload bodies) {
             this.pose = pose;
             this.devices = devices;
+            this.bodies = bodies;
         }
     }
 

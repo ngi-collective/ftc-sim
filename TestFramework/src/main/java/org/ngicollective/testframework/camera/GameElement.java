@@ -63,6 +63,17 @@ public final class GameElement {
                 NECTAR_DIAMETER_METRES, 30, 70, 200);
     }
 
+    /**
+     * The same ball somewhere else &mdash; what a physics step produces.
+     *
+     * <p>A copy rather than a move, because a scene is immutable and a renderer half way through
+     * drawing one must not have the floor shift under it. The name, radius and colour come along
+     * unchanged: those are what the ball <em>is</em>, and only where it is has changed.</p>
+     */
+    public GameElement movedTo(Vec3 centre) {
+        return new GameElement(name, centre, radius * 2.0, red, green, blue);
+    }
+
     public String name() {
         return name;
     }

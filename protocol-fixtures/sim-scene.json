@@ -596,6 +596,73 @@
         ]
       }
     ],
-    "elements": []
+    "elements": [
+      {
+        "id": 0,
+        "name": "POLLEN",
+        "x": -0.55,
+        "y": -0.9,
+        "z": 0.0355,
+        "radiusMetres": 0.0355,
+        "red": 240,
+        "green": 200,
+        "blue": 30
+      },
+      {
+        "id": 1,
+        "name": "POLLEN",
+        "x": -0.25,
+        "y": -0.9,
+        "z": 0.0355,
+        "radiusMetres": 0.0355,
+        "red": 240,
+        "green": 200,
+        "blue": 30
+      },
+      {
+        "id": 2,
+        "name": "POLLEN",
+        "x": -0.4,
+        "y": -0.7,
+        "z": 0.0355,
+        "radiusMetres": 0.0355,
+        "red": 240,
+        "green": 200,
+        "blue": 30
+      },
+      {
+        "id": 3,
+        "name": "RED NECTAR",
+        "x": -0.6,
+        "y": -1.15,
+        "z": 0.0455,
+        "radiusMetres": 0.0455,
+        "red": 200,
+        "green": 30,
+        "blue": 40
+      },
+      {
+        "id": 4,
+        "name": "RED NECTAR",
+        "x": -0.2,
+        "y": -1.15,
+        "z": 0.0455,
+        "radiusMetres": 0.0455,
+        "red": 200,
+        "green": 30,
+        "blue": 40
+      },
+      {
+        "id": 5,
+        "name": "BLUE NECTAR",
+        "x": -0.4,
+        "y": -1.05,
+        "z": 0.0455,
+        "radiusMetres": 0.0455,
+        "red": 30,
+        "green": 70,
+        "blue": 200
+      }
+    ]
   }
 }

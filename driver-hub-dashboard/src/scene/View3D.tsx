@@ -69,6 +69,7 @@ export function View3D({
           pose={pose}
           simConfig={simConfig}
           simScene={dashboard.simScene}
+          bodies={dashboard.bodies}
           alliance={simStatus.alliance}
           subscribePose={dashboard.subscribePose}
           onSelect={setSelected}

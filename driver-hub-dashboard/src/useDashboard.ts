@@ -4,6 +4,7 @@ import {
   createThrottledPoseSink,
   type MessageSinks,
 } from './messages';
+import { createBodyBuffer, type BodyBuffer } from './scene/bodies';
 import {
   DEFAULT_SIM_STATUS,
   parseEnvelope,
@@ -63,6 +64,14 @@ export interface Dashboard {
    */
   simScene: ScenePayload | null;
   /**
+   * Where the moving balls are, sampled in a render loop rather than subscribed to.
+   *
+   * <p>A buffer rather than the newest frame, because bodies arrive on the server's 50 Hz control
+   * cycle and the display draws faster than that; see {@code scene/bodies.ts}. Nothing outside the
+   * 3D view has any use for it: no readout shows a ball's coordinates.</p>
+   */
+  bodies: BodyBuffer;
+  /**
    * Where the camera view is served, or null when this session has no camera.
    *
    * Sent once on connect. The panel points an `<img>` at it; no frame ever crosses this socket.
@@ -112,6 +121,9 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [pose, setPose] = useState<SimPose | null>(null);
   const poseRef = useRef<SimPose | null>(null);
   const poseListeners = useRef(new Set<(pose: SimPose) => void>());
+  // One per hook, not per connection: the 3D view holds on to it across a reconnect, and a fresh
+  // buffer would answer with an empty list until the field next moved.
+  const bodyBuffer = useRef(createBodyBuffer()).current;
 
   // Only when the server goes away: the robot itself outlives every OpMode, so a pose keeps
   // arriving between runs. With nobody on the other end there is no robot to draw at all, and the
@@ -140,7 +152,13 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       setLoadedLayout,
       setSavedLayout,
       setSimConfig,
-      setSimScene,
+      // A scene is the server saying the field has been rearranged — INIT rebuilds the world and
+      // puts every ball back where the scenario placed it. The scene carries those positions, so
+      // every body frame older than it is now a lie about where things are.
+      setSimScene: (scene) => {
+        bodyBuffer.reset();
+        setSimScene(scene);
+      },
       setCameraStream,
       setSimStatus,
       pose: createThrottledPoseSink({
@@ -153,6 +171,9 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
         commit: setPose,
         now: () => performance.now(),
       }),
+      // Straight into the buffer the 3D view samples in its render loop. No React state and no
+      // listener fan-out: the balls have exactly one consumer, and it reads rather than listens.
+      bodies: (frame) => bodyBuffer.accept(frame),
     };
 
     const connect = () => {
@@ -210,6 +231,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     telemetry,
     devices,
     error,
+    bodies: bodyBuffer,
     init,
     start: useCallback(() => send('opmode', 'start', {}), [send]),
     stop: useCallback(() => send('opmode', 'stop', {}), [send]),

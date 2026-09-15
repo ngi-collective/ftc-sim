@@ -3,6 +3,7 @@ package org.ngicollective.testframework.dashboard;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
+import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -101,6 +102,15 @@ public interface DashboardBackend {
 
     /** Fires on every OpMode init, because a re-init rebuilds the robot and so its scene. */
     void subscribeScene(Consumer<ScenePayload> listener);
+
+    /**
+     * Fires on every control cycle in which a body on the field moved, and on none of the others.
+     *
+     * <p>No accompanying getter, unlike {@link #scene()}: there is nothing for a newly connected
+     * browser to ask for. The scene it is greeted with already carries every element's current
+     * position, so this stream only has to say what changes after that.</p>
+     */
+    void subscribeBodies(Consumer<BodiesPayload> listener);
 
     /** How the simulation is being run; also pushed to {@link #subscribeSimStatus} on change. */
     SimStatus simStatus();

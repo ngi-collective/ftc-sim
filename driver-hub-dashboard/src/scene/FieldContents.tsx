@@ -1,7 +1,9 @@
 import { Html } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { SceneElement, ScenePayload, SceneTag } from '../protocol';
+import type { BodyBuffer } from './bodies';
 import { scenePoint } from './frame';
 
 /**
@@ -163,17 +165,25 @@ export function clusterLabels(tags: SceneTag[]): ClusterLabel[] {
 /** One ball, already paired with the material its colour resolved to. */
 interface Ball {
   key: string;
+  /** Its id on the wire, which is how a body frame finds this mesh again. */
+  id: number;
   position: [number, number, number];
   radius: number;
   material: THREE.MeshStandardMaterial;
 }
 
 /**
- * The game elements as spheres at the centres the server published, in their own colours — the same
- * colours the camera renders them in, so a driver matching a blob on the camera panel to a ball on
- * the field is matching like to like.
+ * The game elements as spheres, in their own colours — the same colours the camera renders them
+ * in, so a driver matching a blob on the camera panel to a ball on the field is matching like to
+ * like.
+ *
+ * <p>Positions come from {@code sim/scene} once and from {@code sim/bodies} thereafter, and the
+ * second path never touches React: a mesh's transform is written straight in the render loop, the
+ * same way the robot's chassis is. Committing fifty position updates a second to state would
+ * re-render the console log and the device rail along with the canvas, which is the trade
+ * {@code messages.ts} already made for the pose.</p>
  */
-function GameElements({ elements }: { elements: SceneElement[] }) {
+function GameElements({ elements, bodies }: { elements: SceneElement[]; bodies: BodyBuffer }) {
   // One unit sphere scaled per element, and one material per distinct colour: a floor covered in
   // identical pollen costs draw calls, not uploads.
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 16, 12), []);
@@ -182,7 +192,7 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
   const { balls, materials } = useMemo(() => {
     const byColour = new Map<number, THREE.MeshStandardMaterial>();
     const built: Ball[] = [];
-    elements.forEach((element, index) => {
+    for (const element of elements) {
       const packed = (element.red << 16) | (element.green << 8) | element.blue;
       let material = byColour.get(packed);
       if (!material) {
@@ -193,12 +203,13 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
         byColour.set(packed, material);
       }
       built.push({
-        key: `${element.name}:${index}`,
+        key: `${element.id}:${element.name}`,
+        id: element.id,
         position: scenePoint(element),
         radius: element.radiusMetres,
         material,
       });
-    });
+    }
     return { balls: built, materials: byColour };
   }, [elements]);
   useEffect(
@@ -208,11 +219,57 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
     [materials],
   );
 
+  // Keyed by id rather than by index, because the two payloads are joined on the id and a mesh
+  // holding the wrong one would be drawn in another ball's colour.
+  const meshes = useRef(new Map<number, THREE.Mesh>());
+
+  useFrame(() => {
+    // Date.now(), not performance.now(): the frames are stamped with the server's wall clock and
+    // both processes are on this machine. performance.now() counts from page load, so sampling
+    // with it asks where the balls were in 1970 and draws them stale forever.
+    const sampled = bodies.sample(Date.now());
+
+    if (sampled.length === 0) {
+      // No body frames to draw from: the scene is the only truth, and it may have just changed —
+      // INIT rebuilds the physics world and puts every ball back where the scenario placed it.
+      //
+      // These positions are also on the meshes as a prop, and that is not enough: R3F skips
+      // applying a prop whose numbers match what it applied last time, and a rearranged field
+      // usually *is* the same numbers as the arrangement before it. So the mesh keeps whatever
+      // this loop last wrote, and the balls stay drawn wherever they were shoved to — for as long
+      // as nothing moves, which is exactly when a driver is looking at a field they think is
+      // reset. Writing unconditionally makes this loop the only thing that positions a ball.
+      for (const ball of balls) {
+        const mesh = meshes.current.get(ball.id);
+        if (!mesh) continue;
+        mesh.position.set(ball.position[0], ball.position[1], ball.position[2]);
+        mesh.quaternion.set(0, 0, 0, 1);
+      }
+      return;
+    }
+
+    for (const body of sampled) {
+      const mesh = meshes.current.get(body.id);
+      if (!mesh) continue;
+      mesh.position.set(body.position[0], body.position[1], body.position[2]);
+      mesh.quaternion.set(
+        body.quaternion[0],
+        body.quaternion[1],
+        body.quaternion[2],
+        body.quaternion[3],
+      );
+    }
+  });
+
   return (
     <>
       {balls.map((ball) => (
         <mesh
           key={ball.key}
+          ref={(mesh) => {
+            if (mesh) meshes.current.set(ball.id, mesh);
+            else meshes.current.delete(ball.id);
+          }}
           geometry={geometry}
           material={ball.material}
           position={ball.position}
@@ -224,7 +281,13 @@ function GameElements({ elements }: { elements: SceneElement[] }) {
   );
 }
 
-export function FieldContents({ contents }: { contents: ScenePayload | null }) {
+export function FieldContents({
+  contents,
+  bodies,
+}: {
+  contents: ScenePayload | null;
+  bodies: BodyBuffer;
+}) {
   const tags = contents ? contents.tags : NO_TAGS;
   const elements = contents ? contents.elements : NO_ELEMENTS;
   const textures = useTagTextures(tags);
@@ -237,7 +300,7 @@ export function FieldContents({ contents }: { contents: ScenePayload | null }) {
         return texture ? <TagQuad key={tag.id} tag={tag} texture={texture} /> : null;
       })}
 
-      <GameElements elements={elements} />
+      <GameElements elements={elements} bodies={bodies} />
 
       {labels.map((label) => (
         <Html

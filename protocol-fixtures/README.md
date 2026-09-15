@@ -4,6 +4,13 @@ Frames captured verbatim off a live dashboard session — `mise run dashboard` s
 `VerityRobot` and `org.firstinspires.ftc.teamcode.iamyou`, with a motor stalled and the robot
 driving, so the divergence and non-default-behavior paths are real rather than constructed.
 
+`sim-scene.json` and `sim-bodies.json` come from a second session, `--scenario practice-balls`,
+with `BasicMecanumTeleOp` driven into the balls. Both need a field that has something on it:
+before scenarios could be loaded the scene's `elements` array was always empty, so the capture
+pinned the key's presence and nothing about an element, and a body frame had nothing to describe.
+`sim-bodies.json` is taken mid-shove — every ball moving, every orientation off the identity — so
+a resting field could not be mistaken for it.
+
 These files are the **only** shared vocabulary between
 `Dashboard/src/main/java/org/ngicollective/testframework/dashboard/protocol/` and
 `driver-hub-dashboard/src/protocol.ts`. Both sides pin them:

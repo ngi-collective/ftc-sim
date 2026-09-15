@@ -3,6 +3,7 @@ package org.ngicollective.testframework.dashboard;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
 import org.ngicollective.testframework.dashboard.protocol.BehaviorSpec;
+import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
@@ -68,6 +69,7 @@ final class FakeDashboardBackend implements DashboardBackend {
     private final List<Consumer<SimPose>> poseListeners = new ArrayList<>();
     private final List<Consumer<SimConfigPayload>> simConfigListeners = new ArrayList<>();
     private final List<Consumer<ScenePayload>> sceneListeners = new ArrayList<>();
+    private final List<Consumer<BodiesPayload>> bodyListeners = new ArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new ArrayList<>();
 
     @Override
@@ -138,6 +140,11 @@ final class FakeDashboardBackend implements DashboardBackend {
     @Override
     public void subscribeScene(Consumer<ScenePayload> listener) {
         sceneListeners.add(listener);
+    }
+
+    @Override
+    public void subscribeBodies(Consumer<BodiesPayload> listener) {
+        bodyListeners.add(listener);
     }
 
     @Override
@@ -219,6 +226,10 @@ final class FakeDashboardBackend implements DashboardBackend {
 
     void emitScene(ScenePayload pushed) {
         sceneListeners.forEach(listener -> listener.accept(pushed));
+    }
+
+    void emitBodies(BodiesPayload pushed) {
+        bodyListeners.forEach(listener -> listener.accept(pushed));
     }
 
     void emitSimStatus(SimStatus pushed) {

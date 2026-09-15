@@ -9,6 +9,7 @@ import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.dashboard.protocol.Alliance;
+import org.ngicollective.testframework.dashboard.protocol.BodiesPayload;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
@@ -260,6 +261,34 @@ class WireFormatTest {
     }
 
     /**
+     * The bodies frame, rebuilt from the capture body by body.
+     *
+     * <p>Positions and orientations are read back out of the fixture rather than written as
+     * literals, for the reason the scene test gives: six balls of eight numbers each would be
+     * unreadable, and it is the field <i>names</i> the comparison pins. What the capture itself
+     * pins is that they are not all zero &mdash; it was taken mid-shove, with every ball rolling
+     * &mdash; so a frame of resting identity quaternions could not pass as one of these.</p>
+     */
+    @Test
+    void simBodiesFrameMatchesTheCapturedFixture() {
+        JsonObject captured = ProtocolFixtures.payload("sim-bodies");
+
+        List<BodiesPayload.Body> bodies = new ArrayList<>();
+        for (JsonElement each : captured.getAsJsonArray("bodies")) {
+            JsonObject body = each.getAsJsonObject();
+            bodies.add(new BodiesPayload.Body(body.get("id").getAsInt(),
+                    body.get("x").getAsDouble(), body.get("y").getAsDouble(),
+                    body.get("z").getAsDouble(),
+                    body.get("qx").getAsDouble(), body.get("qy").getAsDouble(),
+                    body.get("qz").getAsDouble(), body.get("qw").getAsDouble()));
+        }
+
+        assertMatchesFixture("sim-bodies", protocol().envelope("sim", "bodies",
+                new BodiesPayload(captured.get("timestampMillis").getAsLong(),
+                        captured.get("elapsedSeconds").getAsDouble(), bodies)));
+    }
+
+    /**
      * One tag written out by hand, against the first tag in the capture. Corner order and cell
      * orientation are the contract {@link ScenePayload} spends a section on, and they are the pair a
      * reader has to be able to check by eye: a mirrored tag36h11 pattern is mostly not a valid
@@ -308,12 +337,12 @@ class WireFormatTest {
     @Test
     void gameElementCrossesTheWireAsANamedColouredSphere() {
         ScenePayload.Element pollen =
-                new ScenePayload.Element("POLLEN", 0.3, -0.45, 0.0381, 0.0381, 255, 214, 0);
+                new ScenePayload.Element(2, "POLLEN", 0.3, -0.45, 0.0381, 0.0381, 255, 214, 0);
 
         Envelope frame = protocol().envelope("sim", "scene", new ScenePayload(
                 Collections.<ScenePayload.Tag>emptyList(), Collections.singletonList(pollen)));
 
-        assertEquals(new JsonParser().parse("{\"name\":\"POLLEN\",\"x\":0.3,\"y\":-0.45,"
+        assertEquals(new JsonParser().parse("{\"id\":2,\"name\":\"POLLEN\",\"x\":0.3,\"y\":-0.45,"
                         + "\"z\":0.0381,\"radiusMetres\":0.0381,"
                         + "\"red\":255,\"green\":214,\"blue\":0}"),
                 onTheWire(frame).getAsJsonObject("payload").getAsJsonArray("elements").get(0));
@@ -392,7 +421,8 @@ class WireFormatTest {
         JsonArray capturedElements = captured.getAsJsonArray("elements");
         for (JsonElement each : capturedElements) {
             JsonObject element = each.getAsJsonObject();
-            elements.add(new ScenePayload.Element(element.get("name").getAsString(),
+            elements.add(new ScenePayload.Element(element.get("id").getAsInt(),
+                    element.get("name").getAsString(),
                     element.get("x").getAsDouble(), element.get("y").getAsDouble(),
                     element.get("z").getAsDouble(), element.get("radiusMetres").getAsDouble(),
                     element.get("red").getAsInt(), element.get("green").getAsInt(),

@@ -11,6 +11,7 @@ import type {
   SimPose,
 } from '../protocol';
 import { Field, STANDARD_FIELD } from './Field';
+import type { BodyBuffer } from './bodies';
 import { FieldContents } from './FieldContents';
 import { fieldGround, sceneGround, sceneYaw } from './frame';
 import { CHASSIS, type DeviceLayout } from './layout';
@@ -357,6 +358,7 @@ function Scene({
   pose,
   simConfig,
   simScene,
+  bodies,
   alliance,
   subscribePose,
   onSelect,
@@ -371,6 +373,7 @@ function Scene({
   pose: SimPose | null;
   simConfig: SimConfig | null;
   simScene: ScenePayload | null;
+  bodies: BodyBuffer;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;
@@ -528,7 +531,7 @@ function Scene({
           if (event.button === 0) onSelect(null);
         }}
       />
-      {options.showTags && <FieldContents contents={simScene} />}
+      {options.showTags && <FieldContents contents={simScene} bodies={bodies} />}
 
       <group ref={robot}>
         <group
@@ -587,6 +590,7 @@ export function RobotScene(props: {
   pose: SimPose | null;
   simConfig: SimConfig | null;
   simScene: ScenePayload | null;
+  bodies: BodyBuffer;
   alliance: Alliance;
   subscribePose: (listener: (pose: SimPose) => void) => () => void;
   onSelect: (name: string | null) => void;

@@ -20,6 +20,7 @@ import {
   type OpModeInfo,
   type OpModeStatus,
   type ScenePayload,
+  type SimBodies,
   type SimConfig,
   type SimPose,
   type SimStatus,
@@ -61,6 +62,13 @@ export interface MessageSinks {
   setCameraStream: (stream: CameraStreamInfo) => void;
   setSimStatus: (status: SimStatus) => void;
   pose: PoseSink;
+  /**
+   * Bodies never reach React at all, unlike the pose, which commits a throttled copy for the
+   * readouts. Nothing on the page displays a ball's coordinates — they are only ever drawn — so a
+   * commit would re-render the console log and the device rail fifty times a second to change
+   * nothing a person is reading.
+   */
+  bodies: (frame: SimBodies) => void;
 }
 
 /**
@@ -161,6 +169,9 @@ export function applyMessage(envelope: Envelope, sinks: MessageSinks): void {
       sinks.pose.commit(next);
       break;
     }
+    case 'sim/bodies':
+      sinks.bodies(payload as SimBodies);
+      break;
     case 'sim/config':
       sinks.setSimConfig(payload as SimConfig);
       break;

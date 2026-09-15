@@ -40,6 +40,19 @@ android {
 apply from: '../build.dependencies.gradle'
 
 dependencies {
+    // Rigid-body physics for the balls on the field, and eventually for the robot pushing them.
+    //
+    // ode4j is LGPL-2.1, which is why it is declared here and not in build.dependencies.gradle:
+    // that file is applied to four modules, and this one is reachable only from the simulated
+    // flavour and the test source sets. The competition APK is built from the `robot` flavour,
+    // which does not depend on TestFramework at all, so no LGPL class can reach a competition
+    // robot by construction rather than by remembering.
+    //
+    // Pure Java, so it runs in a plain-JVM unit test as readily as on the Control Hub; Java 8
+    // bytecode, matching this module's VERSION_1_8; and no native library, which is what rules out
+    // every JNI binding to Bullet or PhysX for a build that has to work on an ARM Android device.
+    implementation 'org.ode4j:core:0.5.4'
+
     // Working android.util.Log / android.opengl.Matrix / android.os.SystemClock for unit tests,
     // replacing the android.jar stubs that throw. Test scope so they can never reach an APK.
     testImplementation project(':AndroidShims')

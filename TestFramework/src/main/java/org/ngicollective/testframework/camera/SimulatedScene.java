@@ -133,6 +133,18 @@ public final class SimulatedScene {
     }
 
     /**
+     * This scene with its game elements somewhere else &mdash; what a physics step produces.
+     *
+     * <p>The surfaces are handed straight through rather than rebuilt. A field's tiles, walls and
+     * surroundings are a hundred-odd polygons that cannot move, and rebuilding them fifty times a
+     * second to carry six balls three millimetres would make a rolling ball more expensive than
+     * the field it rolls on.</p>
+     */
+    public SimulatedScene withElements(List<GameElement> moved) {
+        return new SimulatedScene(clusters, moved, surfaces, background);
+    }
+
+    /**
      * Renders what the camera sees into a frame the caller owns.
      *
      * <p>The caller's frame, so a camera streaming at thirty frames a second is not allocating a

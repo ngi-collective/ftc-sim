@@ -10,12 +10,16 @@ import org.ngicollective.testframework.behavior.MotorState;
 import org.ngicollective.testframework.behavior.ServoBehaviors;
 import org.ngicollective.testframework.behavior.ServoState;
 import org.ngicollective.testframework.camera.FrameSource;
+import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.SceneFrameSource;
+import org.ngicollective.testframework.physics.FieldPhysics;
 import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.RobotConfig;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,6 +43,7 @@ public class FakeHardwareMap extends HardwareMap {
     private final Map<String, FakeDevice<?>> fakes = new LinkedHashMap<>();
     private double elapsedSeconds;
     private DriveModel drive;
+    private FieldPhysics physics;
 
     private FakeHardwareMap() {
         // A null notifier is the SDK's own supported way of building a HardwareMap that no
@@ -98,7 +103,24 @@ public class FakeHardwareMap extends HardwareMap {
     }
 
     /**
-     * Advances every simulated device by {@code seconds} of simulated time.
+     * The world the robot is driving in, or null when nothing is simulating one.
+     *
+     * <p>Set from outside rather than built here, because what is on the field is a property of the
+     * session &mdash; a dashboard scenario, a test's arrangement &mdash; while what advances it has
+     * to be this class, which is the one place simulated time passes.</p>
+     */
+    public void setPhysics(FieldPhysics physics) {
+        this.physics = physics;
+    }
+
+    /** The world this robot is driving in, or null when nothing is simulating one. */
+    public FieldPhysics physics() {
+        return physics;
+    }
+
+    /**
+     * Advances every simulated device, and the world they are in, by {@code seconds} of simulated
+     * time.
      *
      * <p>This clock is the framework's own: it drives device behaviors only. It has no effect on
      * {@code LinearOpMode.sleep()} or {@code ElapsedTime}, which read real wall-clock time.</p>
@@ -116,8 +138,43 @@ public class FakeHardwareMap extends HardwareMap {
             // heading-holding routine would then be tuned against and fail on the real robot.
             drive.advance(seconds);
         }
+        if (physics != null) {
+            // After the drive and before the devices, for the same reason and one more: the robot's
+            // collision box follows the pose the drive model just produced, and the camera is a
+            // device. Stepping the world after the camera had rendered would stream frames of where
+            // the balls were a tick ago, while the field view showed where they are -- two pictures
+            // of one field that disagree, which ADR-0002 exists to prevent.
+            physics.advance(seconds);
+            if (physics.moving()) {
+                showMovedElements();
+            }
+        }
         for (FakeDevice<?> device : fakes.values()) {
             device.advance(seconds);
+        }
+    }
+
+    /**
+     * Puts the balls' new positions in front of any camera rendering a scene.
+     *
+     * <p>Only while something is moving. A field at rest is the common case &mdash; a scenario
+     * nobody has driven into yet, an OpMode being written &mdash; and it costs nothing at all.</p>
+     */
+    private void showMovedElements() {
+        List<GameElement> moved = null;
+        for (FakeDevice<?> device : fakes.values()) {
+            if (!(device instanceof FakeWebcam)) {
+                continue;
+            }
+            FrameSource frames = ((FakeWebcam) device).frameSource();
+            if (!(frames instanceof SceneFrameSource)) {
+                continue;
+            }
+            if (moved == null) {
+                moved = physics.elements();
+            }
+            SceneFrameSource scene = (SceneFrameSource) frames;
+            scene.setScene(scene.scene().withElements(moved));
         }
     }
 

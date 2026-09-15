@@ -93,6 +93,9 @@ final class DashboardProtocol {
         backend.subscribeSimPose(pose -> broadcasts.accept(envelope("sim", "pose", pose)));
         backend.subscribeSimConfig(config -> broadcasts.accept(envelope("sim", "config", config)));
         backend.subscribeScene(scene -> broadcasts.accept(envelope("sim", "scene", scene)));
+        // Not in the greeting: sim/scene already carries every element's current position, so a
+        // browser that has just connected is up to date until the next thing moves.
+        backend.subscribeBodies(bodies -> broadcasts.accept(envelope("sim", "bodies", bodies)));
         backend.subscribeSimStatus(status -> broadcasts.accept(envelope("sim", "status", status)));
     }
 

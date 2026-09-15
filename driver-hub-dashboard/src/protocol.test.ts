@@ -7,6 +7,7 @@ import layoutListFrame from '../../protocol-fixtures/layout-list.json';
 import opModeErrorFrame from '../../protocol-fixtures/opmode-error.json';
 import opModeListFrame from '../../protocol-fixtures/opmode-list.json';
 import opModeStatusFrame from '../../protocol-fixtures/opmode-status.json';
+import simBodiesFrame from '../../protocol-fixtures/sim-bodies.json';
 import simConfigFrame from '../../protocol-fixtures/sim-config.json';
 import simPoseFrame from '../../protocol-fixtures/sim-pose.json';
 import simSceneFrame from '../../protocol-fixtures/sim-scene.json';
@@ -28,6 +29,8 @@ import {
   type SceneCorner,
   type SceneElement,
   type SceneTag,
+  type SimBodies,
+  type SimBody,
   type SimChassis,
   type SimConfig,
   type SimDrivetrain,
@@ -323,8 +326,9 @@ describe('sim frames', () => {
     }
   });
 
-  it('name every field of a game element when the field holds any', () => {
+  it('name every field of a game element, ids included', () => {
     const named = [
+      'id',
       'name',
       'x',
       'y',
@@ -334,11 +338,57 @@ describe('sim frames', () => {
       'green',
       'blue',
     ] satisfies (keyof SceneElement)[];
-    // The capture's season has no loose elements on the floor, so this asserts the shape of any
-    // that appear rather than that some do.
+    // The capture is a `--scenario practice-balls` session, so there are six of them: three POLLEN
+    // and three NECTAR. Before the scenario loader existed this array was empty and the fixture
+    // pinned nothing about an element at all.
+    expect(simSceneFrame.payload.elements.length).toBeGreaterThan(0);
     for (const element of simSceneFrame.payload.elements as SceneElement[]) {
       expectFields(element, named);
     }
+  });
+
+  it('carry each moving body as a position and an orientation, keyed by the scene element id', () => {
+    const named = [
+      'id',
+      'x',
+      'y',
+      'z',
+      'qx',
+      'qy',
+      'qz',
+      'qw',
+    ] satisfies (keyof SimBody)[];
+    expectFields(simBodiesFrame.payload, [
+      'timestampMillis',
+      'elapsedSeconds',
+      'bodies',
+    ] satisfies (keyof SimBodies)[]);
+    for (const body of simBodiesFrame.payload.bodies as SimBody[]) {
+      expectFields(body, named);
+    }
+
+    // The join between the two payloads: a body whose id is in no scene element would be drawn
+    // with no colour and no radius, which is to say not drawn at all.
+    const ids = new Set(simSceneFrame.payload.elements.map((element) => element.id));
+    for (const body of simBodiesFrame.payload.bodies) {
+      expect(ids).toContain(body.id);
+    }
+  });
+
+  it('capture bodies that are actually in motion, orientation and all', () => {
+    // A fixture of resting balls would pin the field names and nothing about their meaning: every
+    // quaternion would be the identity and every position would equal the scene's. This capture is
+    // mid-shove, so a ball that stopped rolling in the simulation would change it.
+    const atRest = simSceneFrame.payload.elements;
+    const moved = simBodiesFrame.payload.bodies.filter((body) => {
+      const start = atRest.find((element) => element.id === body.id);
+      return start && Math.hypot(body.x - start.x, body.y - start.y) > 0.01;
+    });
+    expect(moved.length).toBe(simBodiesFrame.payload.bodies.length);
+    const spinning = simBodiesFrame.payload.bodies.filter(
+      (body) => Math.hypot(body.qx, body.qy, body.qz) > 0.01,
+    );
+    expect(spinning.length).toBe(simBodiesFrame.payload.bodies.length);
   });
 
   it('report the clock and the alliance as the browser spells them', () => {

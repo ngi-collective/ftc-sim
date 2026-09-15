@@ -51,6 +51,7 @@ function recorder() {
     setCameraStream: record('setCameraStream'),
     setSimStatus: record('setSimStatus'),
     pose: { publish: record('publish'), commit: record('commit') },
+    bodies: record('bodies'),
   };
   return { sinks, calls };
 }

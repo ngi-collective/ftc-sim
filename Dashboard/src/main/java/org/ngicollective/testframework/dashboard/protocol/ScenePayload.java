@@ -92,6 +92,17 @@ public final class ScenePayload {
     /** A game element: a coloured sphere at a field-frame centre. */
     public static final class Element {
 
+        /**
+         * This element's place in {@link ScenePayload#elements}, and its identity in
+         * {@link BodiesPayload}.
+         *
+         * <p>Sent explicitly rather than left as the array index it currently equals, because the
+         * two payloads arrive on different cadences: a browser that keyed balls by array position
+         * would silently repaint one ball with another's colour the first time an element is added
+         * or removed mid-session.</p>
+         */
+        public final int id;
+
         public final String name;
 
         public final double x;
@@ -104,8 +115,9 @@ public final class ScenePayload {
         public final int green;
         public final int blue;
 
-        public Element(String name, double x, double y, double z, double radiusMetres,
+        public Element(int id, String name, double x, double y, double z, double radiusMetres,
                        int red, int green, int blue) {
+            this.id = id;
             this.name = name;
             this.x = x;
             this.y = y;

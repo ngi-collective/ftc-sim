@@ -351,6 +351,12 @@ export interface SceneTag {
 
 /** A game element: a coloured sphere at a field-frame centre. Java {@code ScenePayload.Element}. */
 export interface SceneElement {
+  /**
+   * Which ball this is, for as long as the session lasts. The same number identifies it in
+   * {@link SimBodies}, which is how a position arriving fifty times a second is matched to the
+   * colour and radius that arrived once.
+   */
+  id: number;
   name: string;
   x: number;
   y: number;
@@ -364,6 +370,35 @@ export interface SceneElement {
 export interface ScenePayload {
   tags: SceneTag[];
   elements: SceneElement[];
+}
+
+/**
+ * One body's position and orientation. Java {@code BodiesPayload.Body}.
+ *
+ * <p>Field frame, metres, {@code +Z} up, and a unit quaternion in {@code (x, y, z, w)} order —
+ * three.js' order, so the browser hands it to a mesh without reshuffling.</p>
+ */
+export interface SimBody {
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  qx: number;
+  qy: number;
+  qz: number;
+  qw: number;
+}
+
+/**
+ * Where the moving bodies on the field are. Java {@code BodiesPayload}.
+ *
+ * <p>Arrives only on the control cycles that moved something, so silence means a field at rest
+ * rather than a lost connection — the pose stream is what says the server is alive.</p>
+ */
+export interface SimBodies {
+  timestampMillis: number;
+  elapsedSeconds: number;
+  bodies: SimBody[];
 }
 
 /** What the clock is doing before the server has said otherwise: real time, running, red alliance. */
