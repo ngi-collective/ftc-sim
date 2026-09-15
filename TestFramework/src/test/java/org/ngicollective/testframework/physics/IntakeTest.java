@@ -183,6 +183,62 @@ class IntakeTest {
                 "the sensor should still see the ball it is carrying");
     }
 
+    /**
+     * The bug a dashboard session showed and no test did: a ball held in a running intake has a
+     * velocity forever and goes nowhere, so a world that called that "moving" published fifty
+     * identical body frames a second for as long as a driver held the trigger &mdash; and had the
+     * browser interpolating and redrawing a field that was not changing.
+     */
+    @Test
+    void aBallHeldInARunningIntakeStopsBeingReportedAsMoving() {
+        FakeHardwareMap hardware = hardware();
+        hardware.drive().setPose(Pose2d.ORIGIN);
+        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.30, 0.0));
+
+        hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
+        run(hardware, 2.0);
+
+        // The trigger is still held, and the ball is still in the mouth: what has stopped is the
+        // ball going anywhere.
+        assertTrue(hardware.touchSensor.get("intakeTouch").isPressed(),
+                "the ball should still be held, or this asserts nothing");
+        int reported = 0;
+        for (int tick = 0; tick < 50; tick++) {
+            hardware.advance(TICK);
+            if (world.moving()) {
+                reported++;
+            }
+        }
+        assertTrue(reported <= 2,
+                "a held ball that is going nowhere was reported as moving on " + reported
+                        + " of 50 ticks");
+    }
+
+    /**
+     * A roller reaches a ball through friction, so it can only pull as hard as it can grip. The
+     * first version pulled with whatever it took to reach surface speed in one solver step, which
+     * a seated ball resists forever: balls ended up two centimetres into the floor, and one was
+     * forced inside the robot's own footprint.
+     */
+    @Test
+    void aBallHeldAgainstTheChassisIsNotCrushedIntoTheFloorOrTheRobot() {
+        FakeHardwareMap hardware = hardware();
+        hardware.drive().setPose(Pose2d.ORIGIN);
+        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
+        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.30, 0.0));
+
+        hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
+        run(hardware, 5.0);
+
+        BodyState ball = world.bodies().get(0);
+        assertEquals(radius, ball.z(), 2e-3,
+                "a held ball should still be resting on the floor, not pressed into it");
+        assertTrue(ball.x() > robot.chassis().lengthMetres() / 2.0,
+                "a held ball should be in front of the bumper, not inside the robot: it is at "
+                        + ball.x() + " and the bumper is at "
+                        + robot.chassis().lengthMetres() / 2.0);
+    }
+
     @Test
     void aReversedIntakeSpitsTheBallBackOut() {
         FakeHardwareMap hardware = hardware();

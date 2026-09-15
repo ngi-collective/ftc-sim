@@ -34,17 +34,22 @@ mise run verify-toolchain  # assert CLI and IDE toolchains can both still build 
 mise tasks           # list the above with descriptions
 ```
 
+If you use supervised processes, ensure you are reusing them or shutting them down properly. Do not spin new processes up without killing old ones.
+
 ## Workflow
 
-- Make changes to TeamCode only.
+- Avoid making changes in `FtcRobotController` - that is managed upstream and will make conflicts more painful as the official SDK gets updated.
 - Run `mise run test` for tests and `mise run lint` before considering any work done.
--
 
 ## OpMode model
 
 OpModes are discovered by annotation (`@TeleOp` / `@Autonomous`, optionally `@Disabled`).
 
 ## Simulation
+
+There is a side-project occurring in this same directory. It is a simulation and test framework for OpModes.
+
+Use Chrome for Testing to test browser work.
 
 The headless sim drives a real pose, not just spinning motors. `TestFramework`'s
 `org.ngicollective.testframework.sim` package reads each wheel's simulated physical velocity,
@@ -110,7 +115,7 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
 - **The renderer is pure Java** (`camera` package): no OpenCV, no Android, so projection and
   pixels are unit-tested on a plain JVM in milliseconds. `Tag36h11` holds all 587 committed
   codewords; regenerate with `tools/generate-tag36h11.py`.
-- **Tag +X points leftward as seen**, so `+Z` faces *into* the mounting surface and the visible
+- **Tag +X points leftward as seen**, so `+Z` faces _into_ the mounting surface and the visible
   normal is `−Z`. Get it backwards and tags render mirrored, which reads as zero detections
   because mirrored 36h11 patterns are mostly not valid codewords. See `FieldTag`.
 - **BioBuzz tags face the floor**, 35–50 in up and tilted 30°, so a camera **must aim up**; the

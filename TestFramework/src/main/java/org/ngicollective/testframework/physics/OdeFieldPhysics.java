@@ -126,43 +126,57 @@ final class OdeFieldPhysics implements FieldPhysics {
     private static final double CONTACT_SOFTNESS = 1e-4;
 
     /**
-     * Depth of the perimeter wall boxes, measured outwards from the field edge.
+     * Depth of the perimeter wall boxes, measured outwards from the field edge, and of the floor
+     * slab below it.
      *
      * <p>Half a metre for one reason: a box collider pushes a body out of whichever face it is
      * nearest, so a ball squeezed past the middle of a thin wall is ejected through the outside of
      * it. A robot pinning a ball against the perimeter is an ordinary thing to do &mdash; the drive
      * model lets the bumper reach the wall exactly &mdash; and with a 50&nbsp;mm wall that pinch
-     * put the ball in the gym. Nothing is drawn from this number, so depth is free.</p>
+     * put the ball in the gym, while an infinitely thin floor let the same pinch put one under the
+     * field. Nothing is drawn from these numbers, so depth is free.</p>
      */
     private static final double WALL_THICKNESS_METRES = 0.5;
 
+    private static final double FLOOR_DEPTH_METRES = 0.5;
+
     /**
-     * Contacts kept per geom pair. A sphere against a plane produces one, against a box at most a
-     * few; four leaves room without inviting the solver to spend time on a pair that cannot need it.
+     * Contacts kept per geom pair. A sphere against a box produces at most a few; four leaves room
+     * without inviting the solver to spend time on a pair that cannot need it.
      */
     private static final int MAX_CONTACTS = 4;
 
     /**
-     * The hardest a sweep may pull on a ball.
+     * How hard a sweep may pull, as a multiple of the ball's own weight.
      *
-     * <p>Past this a real roller slips rather than pushing harder, and the cap is what makes that
-     * true here: without it, a ball dragged against the chassis would have the whole of whatever
-     * force it takes to reach surface speed applied into the chassis forever, and the solver would
-     * squeeze it through. Ten newtons is around forty times a POLLEN's own weight, which is plenty
-     * to snatch one off the floor and nowhere near enough to crush it through a robot.</p>
+     * <p>A roller reaches a ball through friction, so what it can apply is bounded by what it
+     * presses with &mdash; past that it slips, and a slipping roller is the normal state of an
+     * intake with a ball already seated in it. Twice the ball's weight snatches a POLLEN off the
+     * floor in seventy milliseconds and holds it against the chassis without arguing.</p>
+     *
+     * <p>This started at a flat ten newtons, chosen to reach surface speed in a single solver
+     * step, which is about forty-six times a POLLEN's weight. A held ball has nowhere to go, so
+     * that force went on being applied into the chassis forever: balls ended up crushed two
+     * centimetres into the floor and one was forced inside the robot's own footprint. A roller
+     * that cannot slip is not a roller, it is a hydraulic ram.</p>
      */
-    private static final double MAX_SWEEP_NEWTONS = 10.0;
+    private static final double SWEEP_TRACTION = 2.0;
 
     /**
-     * Speeds below which a body counts as still: a tenth of a millimetre a second, and a
-     * thousandth of a radian a second.
+     * How far a body has to move before this world calls itself moving.
      *
-     * <p>Not zero, because a constraint solver resolving gravity against a contact leaves a
-     * residue in the last few digits forever. Treating that as motion would publish a body frame
-     * on every tick of a field nobody is touching.</p>
+     * <p>A fifth of a millimetre. This is a <em>displacement</em> test and not a velocity one for a
+     * reason worth writing down: a ball held in a running intake has a velocity forever &mdash; the
+     * roller pushes, the chassis pushes back, and the solver leaves a residue in the last digits
+     * &mdash; while going precisely nowhere. Reporting that as motion published fifty identical
+     * body frames a second for as long as a driver held the trigger, rebuilt the camera's scene
+     * just as often, and had the browser interpolating and redrawing a field that was not
+     * changing.</p>
      */
-    private static final double STILL_METRES_PER_SECOND = 1e-4;
-    private static final double STILL_RADIANS_PER_SECOND = 1e-3;
+    private static final double MOVED_METRES = 2e-4;
+
+    /** The same, for spin: a thousandth of a radian between reports. */
+    private static final double TURNED_RADIANS = 1e-3;
 
     private final DWorld world;
     private final DSpace space;
@@ -179,6 +193,9 @@ final class OdeFieldPhysics implements FieldPhysics {
 
     /** Simulated time handed over but not yet stepped, in whole nanoseconds; see {@link #STEP_NANOS}. */
     private long pendingNanos;
+
+    /** Whether the last {@link #advance} left anything somewhere new; see {@link #moving()}. */
+    private boolean movedLastTick;
 
     /** Reused across ticks so a stepping world allocates nothing per tick. */
     private final DQuaternion heading = new DQuaternion();
@@ -217,7 +234,7 @@ final class OdeFieldPhysics implements FieldPhysics {
         world.setContactMaxCorrectingVel(2.0);
         world.setQuickStepNumIterations(20);
 
-        OdeHelper.createPlane(space, 0.0, 0.0, 1.0, 0.0);
+        buildFloor(field);
         buildPerimeter(field);
 
         this.balls = new ArrayList<>(arrangement.size());
@@ -288,14 +305,39 @@ final class OdeFieldPhysics implements FieldPhysics {
                 DVector3C moving = ball.velocity();
                 double along = moving.get0() * cos + moving.get1() * sin;
                 double force = (wanted - along) * ball.mass / STEP_SECONDS;
-                if (force > MAX_SWEEP_NEWTONS) {
-                    force = MAX_SWEEP_NEWTONS;
-                } else if (force < -MAX_SWEEP_NEWTONS) {
-                    force = -MAX_SWEEP_NEWTONS;
+
+                // Whatever it would take to reach surface speed, or whatever the roller can
+                // actually grip with -- whichever is less. A ball already seated has nowhere to go,
+                // so this is the limit that applies for as long as it is held.
+                double traction = SWEEP_TRACTION * ball.mass
+                        * Math.abs(GRAVITY_METRES_PER_SECOND_SQUARED);
+                if (force > traction) {
+                    force = traction;
+                } else if (force < -traction) {
+                    force = -traction;
                 }
                 ball.push(force * cos, force * sin);
             }
         }
+    }
+
+    /**
+     * The floor, as a slab rather than the infinite plane it used to be.
+     *
+     * <p>A plane is the obvious answer and it cannot recover a mistake. Planes are one-sided and
+     * thin: a ball pushed through one is simply on the wrong side of it, and there is nothing to
+     * push it back. That happened &mdash; a ball pinched between the perimeter and a chassis that
+     * pushes with unbounded force was ejected downwards and ended up under the field. A slab
+     * pushes a body out through its nearest face, and for anything that has just been squeezed
+     * into the top of it, that is the top.</p>
+     *
+     * <p>Deep and wide for the same reason the walls are: this only works while the body is nearer
+     * the face it came in through than any other.</p>
+     */
+    private void buildFloor(FieldConfig field) {
+        double span = field.sizeMetres() + 4.0 * WALL_THICKNESS_METRES;
+        DBox slab = OdeHelper.createBox(space, span, span, FLOOR_DEPTH_METRES);
+        slab.setPosition(0.0, 0.0, -FLOOR_DEPTH_METRES / 2.0);
     }
 
     /**
@@ -350,6 +392,74 @@ final class OdeFieldPhysics implements FieldPhysics {
         return body;
     }
 
+    /**
+     * Puts back any ball that has ended up somewhere no ball can be: inside the robot, or below
+     * the floor.
+     *
+     * <p>This is a repair, not physics, and it is here because the solver has no legal answer to
+     * give. The chassis is kinematic: it presses with unbounded force and cannot be slowed by what
+     * it presses on. A ball caught between it and the perimeter is an over-constrained problem, so
+     * something has to yield, and every way it yields is wrong &mdash; the ball squeezed through
+     * the wall and into the gym, or under the floor, or into the footprint, where the chassis then
+     * held it down against a floor pushing back and neither won. That last one oscillated at about
+     * three metres a second while going nowhere, for the rest of the session: a body frame
+     * published fifty times a second, the camera's scene rebuilt as often, and a browser burning
+     * six cores redrawing a field that was not changing. It was found as hot fans.</p>
+     *
+     * <p>Two other fixes were tried first and are worth knowing about. Dropping the downward
+     * contacts left the ball with no contacts at all, so the robot drove straight through it.
+     * Thickening the floor into a slab, which does fix a ball pushed <em>through</em> a plane,
+     * cannot fix this one: the chassis is still above the ball and still infinitely strong.</p>
+     *
+     * <p>So the world restores the invariant the solver cannot: a ball is never inside the robot
+     * and never below the floor. Out through the nearest side, because that is where a ball under
+     * a robot goes, and stopped dead rather than flung, because it is being moved out of the way
+     * rather than hit. The threshold is a quarter of a radius so that a ball merely touching the
+     * bumper is left entirely to the contact solver.</p>
+     *
+     * <p>This should be deleted when the chassis becomes dynamic. A robot that can be slowed by a
+     * ball cannot crush one, and then the solver has an answer again.</p>
+     */
+    private void repairImpossiblePlaces() {
+        Pose2d pose = drive.pose();
+        double cos = Math.cos(pose.heading());
+        double sin = Math.sin(pose.heading());
+        ChassisConfig chassis = drive.robot().chassis();
+
+        for (Ball ball : balls) {
+            double radius = ball.radius();
+            double margin = radius * 0.25;
+            DVector3C at = ball.position();
+
+            double awayX = at.get0() - pose.x();
+            double awayY = at.get1() - pose.y();
+            double forward = awayX * cos + awayY * sin;
+            double left = -awayX * sin + awayY * cos;
+
+            double outForward = chassis.lengthMetres() / 2.0 + radius - Math.abs(forward);
+            double outLeft = chassis.widthMetres() / 2.0 + radius - Math.abs(left);
+            boolean insideTheRobot = outForward > margin && outLeft > margin
+                    && at.get2() - radius < chassis.deckHeightMetres();
+            boolean belowTheFloor = at.get2() < radius / 2.0;
+            if (!insideTheRobot && !belowTheFloor) {
+                continue;
+            }
+
+            if (insideTheRobot) {
+                // Whichever way out is shorter, and straight out along that axis.
+                if (outForward < outLeft) {
+                    forward += Math.signum(forward == 0.0 ? 1.0 : forward) * outForward;
+                } else {
+                    left += Math.signum(left == 0.0 ? 1.0 : left) * outLeft;
+                }
+            }
+            ball.placeAt(
+                    pose.x() + forward * cos - left * sin,
+                    pose.y() + forward * sin + left * cos,
+                    radius);
+        }
+    }
+
     @Override
     public void advance(double seconds) {
         if (seconds < 0.0) {
@@ -357,6 +467,7 @@ final class OdeFieldPhysics implements FieldPhysics {
         }
         if (robot != null) {
             carryRobot();
+            repairImpossiblePlaces();
         }
 
         pendingNanos += Math.round(seconds * NANOS_PER_SECOND);
@@ -364,6 +475,24 @@ final class OdeFieldPhysics implements FieldPhysics {
             step();
             pendingNanos -= STEP_NANOS;
         }
+
+        // Asked once per tick, here, rather than recomputed by each of the two callers that want
+        // to know. The baseline only moves when something actually did, so a ball creeping by less
+        // than the threshold per tick still gets reported once its creep adds up -- rebasing every
+        // tick would let a slow drift go unpublished forever.
+        boolean moved = false;
+        for (Ball ball : balls) {
+            if (ball.movedFromBaseline()) {
+                moved = true;
+                break;
+            }
+        }
+        if (moved) {
+            for (Ball ball : balls) {
+                ball.rebase();
+            }
+        }
+        movedLastTick = moved;
     }
 
     private void step() {
@@ -459,14 +588,10 @@ final class OdeFieldPhysics implements FieldPhysics {
         return Collections.unmodifiableList(states);
     }
 
+    /** Whether anything has moved since the last tick that said so; see {@link #advance}. */
     @Override
     public boolean moving() {
-        for (Ball ball : balls) {
-            if (ball.moving()) {
-                return true;
-            }
-        }
-        return false;
+        return movedLastTick;
     }
 
     @Override
@@ -622,6 +747,15 @@ final class OdeFieldPhysics implements FieldPhysics {
         /** Kept because a sweep's force is worked out from it, once per ball per solver step. */
         private final double mass;
 
+        /** Where this ball was the last time the world said something had moved. */
+        private double baseX;
+        private double baseY;
+        private double baseZ;
+        private double baseQx;
+        private double baseQy;
+        private double baseQz;
+        private double baseQw = 1.0;
+
         Ball(int id, GameElement template) {
             this.id = id;
             this.template = template;
@@ -641,6 +775,9 @@ final class OdeFieldPhysics implements FieldPhysics {
 
             Vec3 centre = template.centre();
             body.setPosition(centre.x(), centre.y(), centre.z());
+            // Where it starts is where its first movement is measured from, so the arrangement
+            // itself never reads as motion.
+            rebase();
         }
 
         GameElement element() {
@@ -656,9 +793,38 @@ final class OdeFieldPhysics implements FieldPhysics {
                     rotation.get1(), rotation.get2(), rotation.get3(), rotation.get0());
         }
 
-        boolean moving() {
-            return body.getLinearVel().length() > STILL_METRES_PER_SECOND
-                    || body.getAngularVel().length() > STILL_RADIANS_PER_SECOND;
+        /**
+         * Whether this ball has been somewhere else since the last time the world reported it.
+         *
+         * <p>Not whether it has a velocity. A ball held in a running intake has one of those
+         * forever and goes nowhere.</p>
+         */
+        boolean movedFromBaseline() {
+            DVector3C at = body.getPosition();
+            if (Math.abs(at.get0() - baseX) > MOVED_METRES
+                    || Math.abs(at.get1() - baseY) > MOVED_METRES
+                    || Math.abs(at.get2() - baseZ) > MOVED_METRES) {
+                return true;
+            }
+            // Two unit quaternions an angle apart have a dot product of cos(angle/2), so a small
+            // turn shows up as a dot product a hair under one.
+            DQuaternionC turned = body.getQuaternion();
+            double dot = Math.abs(turned.get0() * baseQw + turned.get1() * baseQx
+                    + turned.get2() * baseQy + turned.get3() * baseQz);
+            return dot < Math.cos(TURNED_RADIANS / 2.0);
+        }
+
+        /** Takes where it is now as the place its next movement will be measured from. */
+        void rebase() {
+            DVector3C at = body.getPosition();
+            baseX = at.get0();
+            baseY = at.get1();
+            baseZ = at.get2();
+            DQuaternionC turned = body.getQuaternion();
+            baseQw = turned.get0();
+            baseQx = turned.get1();
+            baseQy = turned.get2();
+            baseQz = turned.get3();
         }
 
         /** Whether this ball's surface reaches into a box bolted to the robot. */
@@ -666,6 +832,28 @@ final class OdeFieldPhysics implements FieldPhysics {
             DVector3C at = body.getPosition();
             return RobotFrame.touches(pose, volume,
                     at.get0(), at.get1(), at.get2(), template.radiusMetres());
+        }
+
+        double radius() {
+            return template.radiusMetres();
+        }
+
+        DVector3C position() {
+            return body.getPosition();
+        }
+
+        /**
+         * Puts this ball somewhere and stops it dead, for the one caller that has the right to:
+         * whatever a teleport landed on is being moved out of the way, not hit.
+         */
+        void placeAt(double x, double y, double z) {
+            body.setPosition(x, y, z);
+            body.setLinearVel(0.0, 0.0, 0.0);
+            body.setAngularVel(0.0, 0.0, 0.0);
+            // Deliberately not rebased. Being moved out from under a robot is the largest single
+            // jump a ball ever makes, and it is the one a watching browser most needs to hear
+            // about: rebasing here hid the correction from the movement check, so the ball was
+            // teleported on the server and left drawn where it had been.
         }
 
         DVector3C velocity() {
