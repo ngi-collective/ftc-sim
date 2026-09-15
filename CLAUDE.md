@@ -34,7 +34,7 @@ mise run verify-toolchain  # assert CLI and IDE toolchains can both still build 
 mise tasks           # list the above with descriptions
 ```
 
-If you use supervised processes, ensure you are reusing them or shutting them down properly. Do not spin new processes up without killing old ones.
+Supervised processes: `hub ps` before starting anything, one name per service, and reuse a live one with `hub restart <name>`. Stop a process in the turn its work finishes. The pair worth keeping between turns is `mise run dashboard` plus `mise run dashboard-ui`, which idle at 0% CPU once no browser is attached.
 
 ## Workflow
 
@@ -49,7 +49,7 @@ OpModes are discovered by annotation (`@TeleOp` / `@Autonomous`, optionally `@Di
 
 There is a side-project occurring in this same directory. It is a simulation and test framework for OpModes.
 
-Use Chrome for Testing to test browser work.
+Use Chrome for Testing for browser work, through `browser.open`: those tabs freeze when the turn settles. A Chromium launched as a supervised process never freezes — the dashboard's 3D view and camera stream keep rendering through software GL, which is a runaway GPU process an hour later. Launch one only when a check needs raw CDP, and stop it in the same turn.
 
 The headless sim drives a real pose, not just spinning motors. `TestFramework`'s
 `org.ngicollective.testframework.sim` package reads each wheel's simulated physical velocity,
