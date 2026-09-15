@@ -84,6 +84,11 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   track width, strafe efficiency, encoder resolution, chassis dimensions, per-motor mounting
   mirror. `VerityRobot` reads it; do not hardcode these numbers anywhere else. The files are also
   packaged as APK resources, so the simulated app works on a device with no checkout.
+  Read again on every `create()`, so **editing a config file takes effect at the next INIT** — no
+  dashboard restart. The camera mount is six-DOF (`forwardMetres`, `leftMetres`, `heightMetres`,
+  `yawDegrees`, `pitchDegrees`, `rollDegrees`); a session keeps its alliance, its field
+  arrangement and where the robot is standing across that rebuild, and a file that will not parse
+  costs an INIT rather than the session.
 - **`TeamCode/robot-layouts/*.json` is cosmetic** — mesh choice, scale, label offsets. It never
   affects how the robot moves.
 - Poses are stored in the **FTC field frame**: origin at field centre, metres, heading radians

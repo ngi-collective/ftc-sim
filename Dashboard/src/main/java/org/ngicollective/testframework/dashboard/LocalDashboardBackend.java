@@ -316,9 +316,28 @@ public class LocalDashboardBackend implements DashboardBackend {
      * <p>Also what a run ends into, so a stalled motor or a spun IMU from the last session cannot
      * carry into the next one, and so the camera view and the field view keep working after STOP
      * instead of going blank.</p>
+     *
+     * <p>The configuration files are read again here, because {@link SimulatedRobot#create()}
+     * reads them: the numbers a robot is built from are data, and the whole point of data in a
+     * file is that editing it changes what happens next. Three things are deliberately carried
+     * across the rebuild instead of being rebuilt with it &mdash; the alliance, the arrangement of
+     * the field, and where the robot is standing. All three are choices made by whoever is sitting
+     * in front of the dashboard rather than properties of the robot, and someone checking a moved
+     * camera drags the chassis somewhere worth looking at and presses INIT: teleporting it back to
+     * the middle of the field on every INIT and every STOP would make that impossible to do
+     * twice.</p>
+     *
+     * <p>A configuration file that will not parse throws out of {@code create()} before anything
+     * here is replaced, which leaves the session running on the last robot that did parse.</p>
      */
     private void restLocked() {
+        Pose2d standing = hardware == null || hardware.drive() == null
+                ? null
+                : hardware.drive().pose();
         hardware = robot.create();
+        if (standing != null && hardware.drive() != null) {
+            hardware.drive().setPose(standing);
+        }
         applyAllianceLocked();
         applySceneLocked();
         buildPhysicsLocked();
@@ -439,9 +458,10 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
             running = entry;
             setStatusLocked(new OpModeStatus(entry.info.name, OpModeStatus.State.INIT, null));
-            // Re-init re-reads the configuration files, so the browser's geometry may be stale even
-            // though the robot has not changed identity. The same rebuild gives the camera a new
-            // scene, which can have moved a HIVE or removed a ball.
+            // The rebuild in restLocked() read the configuration files again, so the browser's
+            // geometry may be stale even though the robot has not changed identity: a camera moved
+            // on the robot, a wider chassis. The same rebuild gives the camera a new scene, which
+            // can have moved a HIVE or removed a ball.
             publishSimConfigLocked();
             publishSceneLocked();
         }

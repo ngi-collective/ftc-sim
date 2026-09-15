@@ -118,6 +118,36 @@ public final class SimConfigFiles {
     }
 
     /**
+     * The robot described by {@code <directory>/<name>.json}, with no packaged fallback.
+     *
+     * <p>For a caller that has a particular directory in mind &mdash; a test that writes a
+     * configuration file, edits it, and expects the next read to see the edit, without writing
+     * into the one the team drives. A caller that named a place meant that place, so a missing
+     * file is an error here rather than a quiet fall back to whatever this build happens to have
+     * packaged.</p>
+     */
+    public static RobotConfig robot(Path directory, String name) {
+        Path file = directory.resolve(name + EXTENSION);
+        if (!Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("no configuration for robot \"" + name
+                    + "\": there is no file at " + file);
+        }
+        return RobotConfig.load(file);
+    }
+
+    /**
+     * The field described by {@code <directory>/field.json}, or the competition field when that
+     * directory describes none.
+     *
+     * <p>The default is as honest here as in {@link #field()}, and it is what lets a test write
+     * only the robot file it cares about.</p>
+     */
+    public static FieldConfig field(Path directory) {
+        Path file = directory.resolve(FIELD_FILE);
+        return Files.isRegularFile(file) ? FieldConfig.load(file) : FieldConfig.standard();
+    }
+
+    /**
      * The packaged copy of a configuration file, or null when this build has none.
      *
      * <p>Loaded through this class's own loader rather than the thread's context loader: under an

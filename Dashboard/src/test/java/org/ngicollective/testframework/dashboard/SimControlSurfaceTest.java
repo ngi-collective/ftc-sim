@@ -237,6 +237,56 @@ class SimControlSurfaceTest {
                 "a teleport is not a motion; the robot arrives stopped");
     }
 
+    /**
+     * Where the robot is standing is a choice made by whoever is sitting in front of the
+     * dashboard, like the alliance and the arrangement of the field, so it survives the rebuild
+     * that INIT and STOP both do.
+     *
+     * <p>Without this, checking a moved camera mount or a repositioned sensor means dragging the
+     * chassis back to where it was worth looking at after every single INIT, and driving somewhere
+     * and pressing STOP teleports the robot to the middle of the field.</p>
+     */
+    @Test
+    void theRobotStaysWhereItWasPutThroughAnInitAndAStop() {
+        backend.placeRobot(1.0, -0.5, 90.0);
+        ticks.pump();
+
+        backend.initOpMode(MecanumIterativeTeleOp.class.getName());
+        ticks.pump();
+
+        SimPose afterInit = lastPose();
+        assertEquals(1.0, afterInit.x, 1e-9, "INIT put the robot back at the field origin");
+        assertEquals(-0.5, afterInit.y, 1e-9);
+        assertEquals(90.0, afterInit.headingDegrees, 1e-9);
+
+        backend.start();
+        backend.stop();
+        ticks.pump();
+
+        SimPose afterStop = lastPose();
+        assertEquals(1.0, afterStop.x, 1e-9, "STOP put the robot back at the field origin");
+        assertEquals(-0.5, afterStop.y, 1e-9);
+        assertEquals(90.0, afterStop.headingDegrees, 1e-9);
+    }
+
+    /**
+     * The alliance survives the same rebuild, and has to reach the IMU of the robot the rebuild
+     * produced: the offset is applied to hardware, and INIT replaces the hardware.
+     */
+    @Test
+    void theAllianceSurvivesAnInitAndReachesTheRebuiltRobotsImu() {
+        backend.setAlliance(Alliance.BLUE);
+
+        backend.initOpMode(MecanumIterativeTeleOp.class.getName());
+        backend.start();
+        deviceSnapshots.clear();
+        ticks.pumpUntil(() -> latestDevice("imu") != null, "no device snapshot arrived");
+
+        assertEquals(180.0, Math.abs(latestDevice("imu").yawDegrees), 1e-9,
+                "the rebuilt robot forgot which wall the session is played from");
+        assertEquals(Alliance.BLUE, backend.simStatus().alliance);
+    }
+
     @Test
     void placingARobotThatHasNoDrivetrainIsRejected() {
         openSession(ARM_ONLY);
