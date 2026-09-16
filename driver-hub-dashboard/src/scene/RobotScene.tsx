@@ -623,7 +623,15 @@ export function RobotScene(props: {
 }) {
   return (
     // Opens on the red drive team's view of the whole field, which is where the toggle starts too.
-    <Canvas shadows camera={{ position: [0, 1.97, 3.76], fov: 45, near: 0.05, far: 40 }}>
+    //
+    // "percentage" rather than a bare `shadows`, which asks for PCFSoftShadowMap: three removed
+    // that in 0.186 and answers it by warning and substituting PCFShadowMap. R3F re-applies this
+    // prop on every render of the Canvas and this dashboard commits React state at 20 Hz, so the
+    // substitution never settled: 350 identical warnings per 15 seconds, measured, which is enough
+    // to bury anything else anyone is trying to read in the console. The drawing is unaffected
+    // either way -- PCFShadowMap is what three was substituting, and both spellings end up at
+    // `shadowMap.type === PCFShadowMap` with the same 165 draw calls.
+    <Canvas shadows="percentage" camera={{ position: [0, 1.97, 3.76], fov: 45, near: 0.05, far: 40 }}>
       <Scene {...props} />
     </Canvas>
   );
