@@ -9,6 +9,7 @@ java = "temurin-21"
 # build-tools installed underneath it live in the versioned install directory.
 # Bumping this version yields an empty SDK until `mise run setup-sdk` reruns.
 android-sdk = "22.0"
+bun = "latest"
 
 # Tasks run inside the mise env, so JAVA_HOME and ANDROID_HOME are already set and
 # no `mise exec --` prefix is needed. Extra flags pass through: `mise run build --info`.
