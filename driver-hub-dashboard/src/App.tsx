@@ -4,6 +4,8 @@ import {
   type Alliance,
   type DeviceState,
   type GamepadState,
+  type SimScenarios,
+  type SimScore,
   type TelemetryFrame,
 } from './protocol';
 import { CameraView } from './camera/CameraView';
@@ -193,6 +195,8 @@ export function App() {
         >
           step
         </button>
+        <SimScoreReadout score={dashboard.simScore} />
+        <ScenarioPicker scenarios={dashboard.simScenarios} onChoose={dashboard.loadScenario} />
         {dashboard.simConfig && (
           <span style={{ color: '#5f7a5f' }}>
             {dashboard.simConfig.robot.name} on a{' '}
@@ -228,6 +232,128 @@ export function App() {
       )}
       {view === 'camera' && <CameraView stream={dashboard.cameraStream} pose={dashboard.pose} />}
     </div>
+  );
+}
+
+/**
+ * The live CELL score, in the strip every view already shows.
+ *
+ * <p>Null renders nothing at all, which is the point of taking a nullable prop rather than being
+ * guarded at the call site: a session whose robot has no scene-backed HIVE never receives a
+ * {@code sim/score}, and a disconnect throws the last one away, so "RED 0 – BLUE 0" there would be
+ * a claim that the CELLs are empty rather than an admission that nobody has said. An empty strip
+ * is the difference between a zero and a silence, and only one of those is knowledge.</p>
+ *
+ * <p>The per-CELL breakdown goes in the tooltip rather than the bar. Mid-match the driver wants
+ * two numbers at a glance; "which CELL is that 6 sitting in" is a question asked between matches,
+ * and a {@code title} answers it for no pixels. A panel for it was the alternative and would cost
+ * the 3D view height in every session, scoring or not.</p>
+ *
+ * <p>TIPs are the exception, and they earn their pixels: the totals include 20 for each one, and a
+ * tip empties the CELL that earned it, so the moment a driver most wants to read this strip is the
+ * moment the totals alone are least legible — 12 points of POLLEN becoming a 20-point TIP is a
+ * total that rose by 8 and a CELL that went to zero. They appear only once one has happened, since
+ * a permanent "0 TIPS" is noise on the field's most common state.</p>
+ */
+export function SimScoreReadout({ score }: { score: SimScore | null }) {
+  if (!score) return null;
+  // Only upward-facing CELLs are on the wire, so this names exactly the CELLs that can score right
+  // now; a HIVE turned the other way simply drops out of the list rather than appearing as a zero.
+  const breakdown = score.cells
+    .map((cell) => `${cell.cell}: ${cell.holding} holding, ${cell.points} points`)
+    .join('\n');
+  const redTips = score.redTips ?? 0;
+  const blueTips = score.blueTips ?? 0;
+  const tips = redTips + blueTips > 0;
+  return (
+    <span
+      style={scoreReadout}
+      title={
+        'What the HIVE is holding right now: 2 points for every POLLEN or NECTAR left in an ' +
+        'upward-facing CELL at the end of the match, plus 20 for every HIVE TIP. Live — this is ' +
+        'what would score if the match ended now.' +
+        (tips ? `\n\nTIPS: red ${redTips}, blue ${blueTips}` : '') +
+        (breakdown ? `\n\n${breakdown}` : '')
+      }
+    >
+      <span style={controlLabel}>CELLS</span>
+      <span style={redPoints}>
+        RED {score.redPoints}
+        {redTips > 0 ? ` (${redTips} TIP${redTips > 1 ? 'S' : ''})` : ''}
+      </span>
+      <span style={controlLabel}>–</span>
+      <span style={bluePoints}>
+        BLUE {score.bluePoints}
+        {blueTips > 0 ? ` (${blueTips} TIP${blueTips > 1 ? 'S' : ''})` : ''}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The robot's own field, as an option value.
+ *
+ * <p>A position rather than a name, and that is the whole point of it: every scenario option
+ * carries its index in the list instead of its name, so the values this select can produce are
+ * decimal positions and no filename can enter that space. A name-shaped sentinel is the trap — the
+ * empty string, {@code none}, {@code (robot)} — because a scenario is a file someone puts on disk,
+ * and the day somebody saves {@code none.json} the picker offers two entries that mean different
+ * things and send the same value. -1 is not a position any list has.</p>
+ */
+const OWN_FIELD = '-1';
+
+/**
+ * Which staged field the simulation is running, and the menu to change it.
+ *
+ * <p>Null renders nothing, for {@link SimScoreReadout}'s reason: a session with no server, and one
+ * whose robot simulates no field at all, both have nothing to pick from, and an empty select there
+ * would be a control that does nothing rather than an absence.</p>
+ *
+ * <p>The active scenario is read off the server's frame rather than kept here. The server owns
+ * which field is loaded — it also loads one from the command line, and it rebuilds the world on
+ * INIT — so a local copy would be a second answer that disagrees the moment anything but this
+ * select changes it.</p>
+ */
+export function ScenarioPicker({
+  scenarios,
+  onChoose,
+}: {
+  scenarios: SimScenarios | null;
+  onChoose: (name: string | null) => void;
+}) {
+  if (!scenarios) return null;
+  const { active, directory } = scenarios;
+  // The loaded one first if the server no longer lists it, which happens when its file is renamed
+  // or deleted under a running session. Without this, indexOf answers -1 and the select lands on
+  // the own-field entry: the picker would claim nothing is staged while a field full of balls is
+  // on the table. Showing the name the server reports is the honest reading, and choosing it again
+  // is a request the server will refuse loudly rather than a silent no-op.
+  const available =
+    active !== null && !scenarios.scenarios.includes(active)
+      ? [active, ...scenarios.scenarios]
+      : scenarios.scenarios;
+  return (
+    <select
+      value={active === null ? OWN_FIELD : String(available.indexOf(active))}
+      onChange={(event) => {
+        const index = Number(event.target.value);
+        onChoose(index < 0 ? null : available[index]);
+      }}
+      style={smallSelect}
+      title={
+        'What is staged on the field: which way each HIVE is tipped and where the balls lie. ' +
+        'Picking one restages the field, and the scene and the CELL score follow from the server. ' +
+        '"the robot\'s own field" is the official BioBuzz field with nothing placed on it, which ' +
+        `is what a session started with no scenario shows.\n\nScenario files live in ${directory}`
+      }
+    >
+      <option value={OWN_FIELD}>the robot&apos;s own field</option>
+      {available.map((name, index) => (
+        <option key={name} value={index}>
+          {name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -362,6 +488,17 @@ const simBar: React.CSSProperties = {
   borderBottom: '1px solid #1e2a1e',
   fontSize: 12,
 };
+
+// Hoisted beside the bar it sits in, like every other style here, rather than inlined in the JSX:
+// the strip re-renders on every committed pose, twenty times a second, and an object literal in
+// the tree is a new style prop each time.
+const scoreReadout: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
+
+// The alliance chips' own colours, so a total reads as red or blue at the same glance the chip
+// does. Borrowed rather than respelled: two definitions of "red" drift, and the one that drifts is
+// always the copy.
+const redPoints: React.CSSProperties = { color: redChip.color };
+const bluePoints: React.CSSProperties = { color: blueChip.color };
 
 const errorBar: React.CSSProperties = {
   background: '#2a1313',

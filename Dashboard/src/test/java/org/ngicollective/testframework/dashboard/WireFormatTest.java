@@ -16,7 +16,9 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -30,6 +32,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The bytes on the wire, pinned against frames captured off a live session.
@@ -284,9 +287,75 @@ class WireFormatTest {
                     body.get("qz").getAsDouble(), body.get("qw").getAsDouble()));
         }
 
+        // Empty in this capture and present in the type: the balls were rolling and neither HIVE
+        // had been touched. A tip and a scatter of balls arrive in the same frame, which is why
+        // they share one message.
+        List<BodiesPayload.Tip> pivots = new ArrayList<>();
+        for (JsonElement each : captured.getAsJsonArray("pivots")) {
+            JsonObject pivot = each.getAsJsonObject();
+            pivots.add(new BodiesPayload.Tip(pivot.get("structureName").getAsString(),
+                    pivot.get("angleRadians").getAsDouble()));
+        }
+
         assertMatchesFixture("sim-bodies", protocol().envelope("sim", "bodies",
                 new BodiesPayload(captured.get("timestampMillis").getAsLong(),
-                        captured.get("elapsedSeconds").getAsDouble(), bodies)));
+                        captured.get("elapsedSeconds").getAsDouble(), bodies, pivots)));
+    }
+
+    /**
+     * The score frame, written out by hand because it is small enough to read.
+     *
+     * <p>Two CELLs and not four: only an upward-facing CELL can score, so a downward-facing one is
+     * absent rather than present with a zero, and that is a shape the browser is built around. The
+     * numbers are the capture's, which is the manual's own match setup &mdash; three NECTAR staged
+     * in each upward-facing CELL, six points each before anyone has driven.</p>
+     */
+    @Test
+    void simScoreFrameMatchesTheCapturedFixture() {
+        ScorePayload score = new ScorePayload(6, 6, Arrays.asList(
+                new ScorePayload.Cell("RED AUDIENCE", Alliance.RED, 3, 6),
+                new ScorePayload.Cell("BLUE SCORING", Alliance.BLUE, 3, 6)), 0, 0);
+
+        assertMatchesFixture("sim-score", protocol().envelope("sim", "score", score));
+    }
+
+    /**
+     * The scenarios frame, whose interesting field is the one that is allowed to be null.
+     *
+     * <p>{@code active} names the arrangement in force, and Gson omits a null field by default
+     * &mdash; which would leave the browser unable to tell "showing the robot's own field" from
+     * "an older server that does not know about scenarios". This asserts the capture's shape, and
+     * the capture has a scenario loaded; the null case is
+     * {@link #aSessionOnTheRobotsOwnFieldSaysSoRatherThanOmittingTheField}.</p>
+     */
+    @Test
+    void simScenariosFrameMatchesTheCapturedFixture() {
+        JsonObject captured = ProtocolFixtures.payload("sim-scenarios");
+        ScenariosPayload scenarios = new ScenariosPayload(
+                Arrays.asList("hives-tipped-back", "match-staging", "practice-balls"),
+                captured.get("directory").getAsString(), "match-staging");
+
+        assertMatchesFixture("sim-scenarios", protocol().envelope("sim", "scenarios", scenarios));
+    }
+
+    /**
+     * And the null case, which is a statement rather than an omission.
+     *
+     * <p>A browser has to be able to show "no scenario" as the selected entry, so the field must
+     * be present and null. Gson drops nulls unless it is told not to, and a dropped {@code active}
+     * reads as a missing field: the picker would show nothing selected while a field was on the
+     * table.</p>
+     */
+    @Test
+    void aSessionOnTheRobotsOwnFieldSaysSoRatherThanOmittingTheField() {
+        ScenariosPayload scenarios = new ScenariosPayload(
+                Collections.singletonList("practice-balls"), "/tmp/scenarios", null);
+
+        JsonObject payload = protocol().envelope("sim", "scenarios", scenarios)
+                .payload.getAsJsonObject();
+
+        assertTrue(payload.has("active"), "active must be sent even when it is null: " + payload);
+        assertTrue(payload.get("active").isJsonNull(), "and it must be null, not a placeholder");
     }
 
     /**
@@ -316,10 +385,12 @@ class WireFormatTest {
                         "BBWWWBWB",
                         "BBWBWBBB",
                         "BWBBWWWB",
-                        "BBBBBBBB"));
+                        "BBBBBBBB"),
+                "HIVE RED");
 
         Envelope frame = protocol().envelope("sim", "scene", new ScenePayload(
-                Collections.singletonList(tag), Collections.<ScenePayload.Element>emptyList()));
+                Collections.singletonList(tag), Collections.<ScenePayload.Element>emptyList(),
+                Collections.<ScenePayload.Structure>emptyList()));
 
         assertEquals(ProtocolFixtures.payload("sim-scene").getAsJsonArray("tags").get(0),
                 onTheWire(frame).getAsJsonObject("payload").getAsJsonArray("tags").get(0));
@@ -328,12 +399,11 @@ class WireFormatTest {
     /**
      * A game element, against the shape the browser's {@code SceneElement} declares.
      *
-     * <p>Written out here rather than read from a fixture because the captured scene's
-     * {@code elements} array is empty &mdash; the session's camera published tags and no game
-     * elements &mdash; so the capture pins the key's presence and nothing about its contents. This
-     * is the one payload on the wire with no captured example, and until a scene with elements in
-     * it is captured, this is what keeps a rename of {@code radiusMetres} or of the colour channels
-     * from reaching the browser silently.</p>
+     * <p>Written out here rather than read from the fixture, even though the captured scene does
+     * carry six balls: this pins the exact numbers a reader can check against the payload class,
+     * where the fixture's are whatever the solver had settled them to a tick into the session. A
+     * rename of {@code radiusMetres} or of the colour channels fails in both places, which is the
+     * point; only this one says what the JSON is supposed to look like.</p>
      */
     @Test
     void gameElementCrossesTheWireAsANamedColouredSphere() {
@@ -341,7 +411,8 @@ class WireFormatTest {
                 new ScenePayload.Element(2, "POLLEN", 0.3, -0.45, 0.0381, 0.0381, 255, 214, 0);
 
         Envelope frame = protocol().envelope("sim", "scene", new ScenePayload(
-                Collections.<ScenePayload.Tag>emptyList(), Collections.singletonList(pollen)));
+                Collections.<ScenePayload.Tag>emptyList(), Collections.singletonList(pollen),
+                Collections.<ScenePayload.Structure>emptyList()));
 
         assertEquals(new JsonParser().parse("{\"id\":2,\"name\":\"POLLEN\",\"x\":0.3,\"y\":-0.45,"
                         + "\"z\":0.0381,\"radiusMetres\":0.0381,"
@@ -443,7 +514,7 @@ class WireFormatTest {
             }
             tags.add(new ScenePayload.Tag(tag.get("id").getAsInt(),
                     tag.get("cluster").getAsString(), tag.get("sizeMetres").getAsDouble(),
-                    corners, cells));
+                    corners, cells, string(tag, "attachedTo")));
         }
 
         List<ScenePayload.Element> elements = new ArrayList<>();
@@ -457,6 +528,59 @@ class WireFormatTest {
                     element.get("red").getAsInt(), element.get("green").getAsInt(),
                     element.get("blue").getAsInt()));
         }
-        return new ScenePayload(tags, elements);
+        List<ScenePayload.Structure> structures = new ArrayList<>();
+        for (JsonElement each : captured.getAsJsonArray("structures")) {
+            JsonObject structure = each.getAsJsonObject();
+            List<ScenePayload.Solid> solids = new ArrayList<>();
+            for (JsonElement drawn : structure.getAsJsonArray("solids")) {
+                JsonObject solid = drawn.getAsJsonObject();
+                solids.add(new ScenePayload.Solid(
+                        solid.get("shape").getAsString(),
+                        solid.get("x").getAsDouble(), solid.get("y").getAsDouble(),
+                        solid.get("z").getAsDouble(),
+                        solid.get("yawDegrees").getAsDouble(),
+                        solid.get("pitchDegrees").getAsDouble(),
+                        solid.get("rollDegrees").getAsDouble(),
+                        solid.get("lengthX").getAsDouble(),
+                        solid.get("lengthY").getAsDouble(),
+                        solid.get("lengthZ").getAsDouble(),
+                        solid.get("radiusMetres").getAsDouble(),
+                        solid.get("lengthMetres").getAsDouble(),
+                        solid.get("red").getAsInt(), solid.get("green").getAsInt(),
+                        solid.get("blue").getAsInt()));
+            }
+            structures.add(new ScenePayload.Structure(
+                    structure.get("name").getAsString(), solids,
+                    pivotIn(structure)));
+        }
+        return new ScenePayload(tags, elements, structures);
+    }
+
+    /**
+     * A captured structure's pivot, or null for the FLOWERs and the A-frame.
+     *
+     * <p>Present and null on the wire rather than absent: this protocol serialises nulls on
+     * purpose &mdash; see {@code sim/scenarios}' {@code active}, where a missing key and a null one
+     * mean different things &mdash; so a reader has to tell {@code JsonNull} from a value, and so
+     * does this.</p>
+     */
+    private static ScenePayload.Pivot pivotIn(JsonObject structure) {
+        if (!structure.has("pivot") || structure.get("pivot").isJsonNull()) {
+            return null;
+        }
+        JsonObject pivot = structure.getAsJsonObject("pivot");
+        return new ScenePayload.Pivot(
+                pivot.get("x").getAsDouble(),
+                pivot.get("y").getAsDouble(),
+                pivot.get("z").getAsDouble(),
+                pivot.get("axisX").getAsDouble(),
+                pivot.get("axisY").getAsDouble(),
+                pivot.get("axisZ").getAsDouble(),
+                pivot.get("angleRadians").getAsDouble());
+    }
+
+    private static String string(JsonObject object, String field) {
+        return object.has(field) && !object.get(field).isJsonNull()
+                ? object.get(field).getAsString() : null;
     }
 }

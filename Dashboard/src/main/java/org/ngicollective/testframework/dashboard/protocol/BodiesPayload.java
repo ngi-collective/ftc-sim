@@ -30,10 +30,44 @@ public final class BodiesPayload {
 
     public final List<Body> bodies;
 
-    public BodiesPayload(long timestampMillis, double elapsedSeconds, List<Body> bodies) {
+    /**
+     * Every pivoting structure that has turned: a HIVE mid-tip, and otherwise empty.
+     *
+     * <p>Beside the balls rather than in a message of its own because they move for the same
+     * reason at the same moment &mdash; the shot that tips a HIVE is also the shot that scatters
+     * what was in it &mdash; and a browser receiving them separately would interpolate the basket
+     * and its contents against two different timestamps.</p>
+     *
+     * <p>{@link Tip#structureName} keys into the scene's {@code structures} by name and not by
+     * index: there are two of these on a field, their names are the manual's, and list order is
+     * not something the scene promises.</p>
+     */
+    public final List<Tip> pivots;
+
+    public BodiesPayload(long timestampMillis, double elapsedSeconds, List<Body> bodies,
+                         List<Tip> pivots) {
         this.timestampMillis = timestampMillis;
         this.elapsedSeconds = elapsedSeconds;
         this.bodies = bodies;
+        this.pivots = pivots;
+    }
+
+    /**
+     * How far round one pivoting structure is now, in its pivot's own absolute measure.
+     *
+     * <p>One number, because a pivot has one degree of freedom. A quaternion would let a browser
+     * draw a HIVE at an angle its own axis cannot reach, and would need the axis repeated on every
+     * frame to be interpretable at all.</p>
+     */
+    public static final class Tip {
+
+        public final String structureName;
+        public final double angleRadians;
+
+        public Tip(String structureName, double angleRadians) {
+            this.structureName = structureName;
+            this.angleRadians = angleRadians;
+        }
     }
 
     /**

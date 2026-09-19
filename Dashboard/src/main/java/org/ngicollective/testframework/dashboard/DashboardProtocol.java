@@ -12,7 +12,9 @@ import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
 
@@ -97,6 +99,9 @@ final class DashboardProtocol {
         // Not in the greeting: sim/scene already carries every element's current position, so a
         // browser that has just connected is up to date until the next thing moves.
         backend.subscribeBodies(bodies -> broadcasts.accept(envelope("sim", "bodies", bodies)));
+        // In the greeting, unlike the bodies: a browser cannot derive the score from anything else
+        // on this socket. See ScorePayload.
+        backend.subscribeScore(score -> broadcasts.accept(envelope("sim", "score", score)));
         backend.subscribeSimStatus(status -> broadcasts.accept(envelope("sim", "status", status)));
         // The camera's mount, because a slider that aims it has to move on every browser watching:
         // two people looking at one view must not disagree about where the camera is.
@@ -120,6 +125,16 @@ final class DashboardProtocol {
         ScenePayload scene = backend.scene();
         if (scene != null) {
             greeting.add(envelope("sim", "scene", scene));
+        }
+        ScorePayload score = backend.score();
+        if (score != null) {
+            greeting.add(envelope("sim", "score", score));
+        }
+        // Beside the score and for the same reason: the alternatives are files on this machine's
+        // disk, which a browser has no other way of hearing about.
+        ScenariosPayload scenarios = backend.scenarios();
+        if (scenarios != null) {
+            greeting.add(envelope("sim", "scenarios", scenarios));
         }
         if (cameraStream != null) {
             greeting.add(envelope("camera", "stream", cameraStream));
@@ -260,6 +275,21 @@ final class DashboardProtocol {
             case "sim/alliance":
                 backend.setAlliance(Alliance.fromWire(requireString(payload, "alliance")));
                 break;
+            case "sim/scenarios":
+                replies.reply(scenariosEnvelope());
+                break;
+            case "sim/scenario": {
+                // Null is a value here, not an omission: it is how the browser asks for the field
+                // without a scenario on it, so this is the one sim request that does not require
+                // its field.
+                backend.loadScenario(optionalString(payload, "name", null));
+                // Broadcast rather than replied to, and not through a subscription: an arrangement
+                // only ever changes because somebody asked for this, so there is nothing for the
+                // backend to notify anyone about -- but two browsers watching one field must not
+                // disagree about which arrangement they are looking at.
+                replies.broadcast(scenariosEnvelope());
+                break;
+            }
             case "sim/camera":
                 // Every number required: a mount with a missing angle is not a camera aimed
                 // somewhere sensible, it is five numbers and a guess.
@@ -307,6 +337,17 @@ final class DashboardProtocol {
     }
 
     /**
+     * What the field can be arranged as, and what it is arranged as now.
+     *
+     * <p>One frame for both, because they are one answer: a picker needs the options and the
+     * selection together, and splitting them across two messages would let a browser draw a list
+     * with nothing selected in the window between them.</p>
+     */
+    Envelope scenariosEnvelope() {
+        return envelope("sim", "scenarios", backend.scenarios());
+    }
+
+    /**
      * The device snapshot, wrapped.
      *
      * <p>A bare array would leave the browser no place to put anything it later learns about the
@@ -345,6 +386,12 @@ final class DashboardProtocol {
     private static boolean optionalBoolean(JsonObject payload, String field, boolean fallback) {
         return payload.has(field) && !payload.get(field).isJsonNull()
                 ? payload.get(field).getAsBoolean()
+                : fallback;
+    }
+
+    private static String optionalString(JsonObject payload, String field, String fallback) {
+        return payload.has(field) && !payload.get(field).isJsonNull()
+                ? payload.get(field).getAsString()
                 : fallback;
     }
 }

@@ -1,0 +1,13 @@
+{
+  "namespace": "sim",
+  "type": "scenarios",
+  "payload": {
+    "scenarios": [
+      "hives-tipped-back",
+      "match-staging",
+      "practice-balls"
+    ],
+    "directory": "/Users/jsoverson/development/src/FtcRobotController2026-2027/TeamCode/scenarios",
+    "active": "match-staging"
+  }
+}

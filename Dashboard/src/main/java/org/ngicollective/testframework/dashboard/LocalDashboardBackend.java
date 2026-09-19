@@ -8,9 +8,14 @@ import org.ngicollective.testframework.camera.CameraIntrinsics;
 import org.ngicollective.testframework.camera.FieldTag;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.Pivot;
+import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.SceneFrameSource;
+import org.ngicollective.testframework.camera.ScoringVolume;
 import org.ngicollective.testframework.camera.SimulatedCamera;
 import org.ngicollective.testframework.camera.SimulatedScene;
+import org.ngicollective.testframework.camera.Solid;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.camera.Tag36h11;
 import org.ngicollective.testframework.camera.TagCluster;
 import org.ngicollective.testframework.camera.Vec3;
@@ -22,7 +27,9 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -39,6 +46,8 @@ import org.ngicollective.testframework.harness.LinearOpModeHarness;
 import org.ngicollective.testframework.harness.OpModeHarness;
 import org.ngicollective.testframework.physics.BodyState;
 import org.ngicollective.testframework.physics.FieldPhysics;
+import org.ngicollective.testframework.physics.PivotState;
+import org.ngicollective.testframework.season.BioBuzzScore;
 import org.ngicollective.testframework.sim.CameraMount;
 import org.ngicollective.testframework.sim.ChassisConfig;
 import org.ngicollective.testframework.sim.ChassisVelocity;
@@ -48,6 +57,7 @@ import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
 import org.ngicollective.testframework.sim.RobotConfig;
 import org.ngicollective.testframework.sim.RobotConfigFile;
+import org.ngicollective.testframework.sim.SimConfigFiles;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -136,6 +146,7 @@ public class LocalDashboardBackend implements DashboardBackend {
             new CopyOnWriteArrayList<>();
     private final List<Consumer<ScenePayload>> sceneListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<BodiesPayload>> bodyListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<ScorePayload>> scoreListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new CopyOnWriteArrayList<>();
     private final List<Consumer<CameraMountPayload>> cameraMountListeners =
             new CopyOnWriteArrayList<>();
@@ -182,6 +193,27 @@ public class LocalDashboardBackend implements DashboardBackend {
     private SimulatedScene sessionScene;
 
     /**
+     * What the robot built for itself the last time this session made one, or null for a robot
+     * with no scene-backed camera.
+     *
+     * <p>The thing {@link #sessionScene} is laid over, kept so that it can be lifted off again.
+     * Loading a scenario overwrites the camera's scene, so without this the robot's own
+     * arrangement was gone for the life of the process and "no scenario" was a state a session
+     * could leave but never return to.</p>
+     */
+    private SimulatedScene robotScene;
+
+    /**
+     * The name {@link #sessionScene} was loaded under, or null when the field is the robot's own.
+     *
+     * <p>Only a label &mdash; nothing reads it back to rebuild anything &mdash; but it is the
+     * label the browser shows as selected, and the one thing a {@link SimulatedScene} cannot be
+     * asked for. Cleared by {@link #loadScene}, because a scene handed over directly has no name
+     * and claiming the last one would be a lie about what is on the table.</p>
+     */
+    private String activeScenario;
+
+    /**
      * Where the robot's configuration put the camera when the session last built one, or null for
      * a robot with no scene-backed camera.
      *
@@ -212,6 +244,16 @@ public class LocalDashboardBackend implements DashboardBackend {
      * on every init and every stop.</p>
      */
     private FieldPhysics physics;
+
+    /**
+     * The score as the browser last heard it, so an unchanged one is not said again.
+     *
+     * <p>A score changes when a ball crosses a CELL's mouth, which happens a handful of times in
+     * a match; the alternative is fifty identical messages a second for two and a half minutes.
+     * Null before the first publication, which is also what a session with no field to score
+     * stays at.</p>
+     */
+    private ScorePayload publishedScore;
 
     /**
      * The newest telemetry frame not yet broadcast. Only the latest matters &mdash; the UI shows one
@@ -373,6 +415,15 @@ public class LocalDashboardBackend implements DashboardBackend {
         // against, and reading it afterwards would measure the override against itself.
         SimulatedCamera camera = sceneCameraLocked();
         fileMount = camera == null ? null : CameraMount.of(camera.mount());
+        // And the arrangement the robot itself came with, before a scenario is laid over it.
+        // Without this, "no scenario" could only be reached by restarting the process: a session
+        // that had loaded one had overwritten the camera's scene, and the robot's own was gone.
+        // Read here rather than remembered once, because create() reads its files afresh and the
+        // official field is not the only thing a robot's scene can be.
+        FrameSource ownFrames = cameraFramesLocked();
+        robotScene = ownFrames instanceof SceneFrameSource
+                ? ((SceneFrameSource) ownFrames).scene()
+                : null;
         if (sessionMount != null) {
             aimLocked(sessionMount);
         }
@@ -396,21 +447,67 @@ public class LocalDashboardBackend implements DashboardBackend {
      */
     public void loadScene(SimulatedScene scene) {
         synchronized (lock) {
-            if (!(cameraFramesLocked() instanceof SceneFrameSource)) {
-                throw new IllegalStateException("robot \"" + robot.name() + "\" has no"
-                        + " scene-backed camera, so it has no field arrangement to change; a"
-                        + " scenario needs a webcam built on a SceneFrameSource");
-            }
-            sessionScene = scene;
-            applySceneLocked();
-            buildPhysicsLocked();
-            publishSceneLocked();
+            // A scene handed straight over is nameless; see activeScenario.
+            activeScenario = null;
+            applyLoadedSceneLocked(scene);
         }
     }
 
-    /** Hands {@link #sessionScene}, when there is one, to whatever camera the session now has. */
+    @Override
+    public void loadScenario(String name) {
+        // Read outside the lock: parsing a file is the slow part, and a bad name must fail without
+        // having touched the session at all. A misspelling here leaves the field as it was.
+        SimulatedScene loaded = name == null ? null : SimConfigFiles.scenario(name).scene();
+        synchronized (lock) {
+            activeScenario = name;
+            applyLoadedSceneLocked(loaded);
+        }
+    }
+
+    /**
+     * What can be loaded and what is loaded, or null for a session with no field to arrange.
+     *
+     * <p>The directory is listed on every call rather than once at startup, so a scenario file
+     * written while the dashboard is running is offered on the next connect. That is the same rule
+     * the robot's own configuration follows &mdash; the point of keeping these in files is that
+     * editing them changes what happens next.</p>
+     */
+    @Override
+    public ScenariosPayload scenarios() {
+        synchronized (lock) {
+            if (!(cameraFramesLocked() instanceof SceneFrameSource)) {
+                return null;
+            }
+            return new ScenariosPayload(SimConfigFiles.scenarios(),
+                    SimConfigFiles.scenarioDirectory().toString(), activeScenario);
+        }
+    }
+
+    /** The half both of those share: install an arrangement and tell everyone what changed. */
+    private void applyLoadedSceneLocked(SimulatedScene scene) {
+        if (!(cameraFramesLocked() instanceof SceneFrameSource)) {
+            throw new IllegalStateException("robot \"" + robot.name() + "\" has no"
+                    + " scene-backed camera, so it has no field arrangement to change; a"
+                    + " scenario needs a webcam built on a SceneFrameSource");
+        }
+        sessionScene = scene;
+        applySceneLocked();
+        buildPhysicsLocked();
+        publishSceneLocked();
+        publishScoreLocked();
+    }
+
+    /**
+     * Hands the arrangement in force to whatever camera the session now has.
+     *
+     * <p>{@link #robotScene} when no scenario is loaded, rather than nothing at all: this runs
+     * after a rebuild, where leaving the camera alone is right because the fresh robot already
+     * carries its own scene &mdash; and after a scenario is unloaded, where it is the only thing
+     * that puts the robot's field back.</p>
+     */
     private void applySceneLocked() {
-        if (sessionScene == null) {
+        SimulatedScene wanted = sessionScene == null ? robotScene : sessionScene;
+        if (wanted == null) {
             return;
         }
         FrameSource frames = cameraFramesLocked();
@@ -418,8 +515,7 @@ public class LocalDashboardBackend implements DashboardBackend {
             return;
         }
         DriveModel drive = driveLocked();
-        ((SceneFrameSource) frames)
-                .setScene(drive == null ? sessionScene : sessionScene.on(drive.field()));
+        ((SceneFrameSource) frames).setScene(drive == null ? wanted : wanted.on(drive.field()));
     }
 
     /**
@@ -446,8 +542,10 @@ public class LocalDashboardBackend implements DashboardBackend {
             return;
         }
         DriveModel drive = driveLocked();
-        physics = FieldPhysics.of(((SceneFrameSource) frames).scene().elements(),
-                drive == null ? FieldConfig.standard() : drive.field(), drive);
+        SimulatedScene scene = ((SceneFrameSource) frames).scene();
+        physics = FieldPhysics.of(scene.elements(), scene.structures(),
+                drive == null ? FieldConfig.standard() : drive.field(),
+                drive == null ? null : drive.robot());
         hardware.setPhysics(physics);
     }
 
@@ -499,9 +597,11 @@ public class LocalDashboardBackend implements DashboardBackend {
             // The rebuild in restLocked() read the configuration files again, so the browser's
             // geometry may be stale even though the robot has not changed identity: a camera moved
             // on the robot, a wider chassis. The same rebuild gives the camera a new scene, which
-            // can have moved a HIVE or removed a ball.
+            // can have moved a HIVE or removed a ball, and either of those changes the score:
+            // a tipped HIVE swaps which CELL is the one that counts.
             publishSimConfigLocked();
             publishSceneLocked();
+            publishScoreLocked();
             publishCameraMountLocked();
         }
     }
@@ -721,6 +821,18 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     @Override
+    public ScorePayload score() {
+        synchronized (lock) {
+            return scoreLocked();
+        }
+    }
+
+    @Override
+    public void subscribeScore(Consumer<ScorePayload> listener) {
+        scoreListeners.add(listener);
+    }
+
+    @Override
     public SimStatus simStatus() {
         synchronized (lock) {
             return new SimStatus(multiplier, paused, alliance);
@@ -908,6 +1020,67 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     /**
+     * Publishes the score if it is not the one already sent.
+     *
+     * <p>Called from the rebuild paths as well as from the tick, and the change check is what
+     * makes that harmless: INIT puts every ball back where the scenario staged it, which usually
+     * means the same score as before a run that scored nothing.</p>
+     */
+    private void publishScoreLocked() {
+        ScorePayload score = changedScoreLocked();
+        if (score == null) {
+            return;
+        }
+        for (Consumer<ScorePayload> listener : scoreListeners) {
+            listener.accept(score);
+        }
+    }
+
+    /**
+     * The score if it differs from the one the browser already has, and null if it does not.
+     *
+     * <p>Marks it as sent on the way past, so the tick path and the rebuild paths cannot both
+     * announce the same score. Null also covers there being no score at all: whether a session has
+     * one is decided by the robot's camera and the field it renders, both settled before any of
+     * this runs, so there is no transition from having one to not having one to report.</p>
+     */
+    private ScorePayload changedScoreLocked() {
+        ScorePayload score = scoreLocked();
+        if (score == null || same(publishedScore, score)) {
+            return null;
+        }
+        publishedScore = score;
+        return score;
+    }
+
+    /**
+     * Whether two scores say the same thing.
+     *
+     * <p>Compared field by field rather than by {@code equals}, which a payload does not
+     * implement: these are wire shapes, built fresh each time they are asked for, and giving one
+     * value semantics purely so a de-duplication check could use it would put the reason for the
+     * method a long way from the method. The CELLs are compared in order because the order is
+     * fixed &mdash; red's raised CELL, then blue's.</p>
+     */
+    private static boolean same(ScorePayload published, ScorePayload next) {
+        if (published == null) {
+            return false;
+        }
+        if (published.redPoints != next.redPoints || published.bluePoints != next.bluePoints
+                || published.cells.size() != next.cells.size()) {
+            return false;
+        }
+        for (int cell = 0; cell < next.cells.size(); cell++) {
+            ScorePayload.Cell was = published.cells.get(cell);
+            ScorePayload.Cell is = next.cells.get(cell);
+            if (!was.cell.equals(is.cell) || was.holding != is.holding) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Puts the IMU's zero where this alliance's driver expects it: pointing away from their own
      * wall, which is what {@code resetYaw()} on a robot set down for a match would have captured.
      */
@@ -979,7 +1152,7 @@ public class LocalDashboardBackend implements DashboardBackend {
         List<ScenePayload.Tag> tags = new ArrayList<>();
         for (TagCluster cluster : scene.clusters()) {
             for (FieldTag tag : cluster.tags()) {
-                tags.add(tagPayload(tag, cluster.name()));
+                tags.add(tagPayload(tag, cluster.name(), cluster.attachedTo()));
             }
         }
 
@@ -994,7 +1167,95 @@ public class LocalDashboardBackend implements DashboardBackend {
                     centre.x(), centre.y(), centre.z(), element.radiusMetres(),
                     element.red(), element.green(), element.blue()));
         }
-        return new ScenePayload(tags, elements);
+        return new ScenePayload(tags, elements, structuresPayload(scene));
+    }
+
+    /**
+     * The CELL score for whatever is on the field now, or null when nothing on it can score.
+     *
+     * <p>Balls come from the physics world rather than from the scene, so what is scored is where
+     * the solver has the ball this instant &mdash; the scene's own copy is refreshed a step later
+     * and would have the browser see a score for a position it had already been told was
+     * stale.</p>
+     *
+     * <p>The volumes come from the scene, because a CELL swings with the HIVE it is cut in and the
+     * scene is what carries that. Which of them score is {@code BioBuzzScore}'s business: it reads
+     * the way each mouth faces, which is the only question with an answer while a HIVE is halfway
+     * through a tip.</p>
+     */
+    private ScorePayload scoreLocked() {
+        FrameSource frames = cameraFramesLocked();
+        if (physics == null || !(frames instanceof SceneFrameSource)) {
+            return null;
+        }
+        List<ScoringVolume> volumes = ((SceneFrameSource) frames).scene().scoringVolumes();
+        if (volumes.isEmpty()) {
+            // A field with no HIVE on it: a bare tag fixture, or a gym. Reporting 0-0 would put a
+            // score on a field that has nowhere to put a ball.
+            return null;
+        }
+        BioBuzzScore score = BioBuzzScore.of(volumes, physics.elements(),
+                PivotState.swingsOf(physics.pivots()));
+        List<ScorePayload.Cell> cells = new ArrayList<>(score.cells().size());
+        for (BioBuzzScore.Scored cell : score.cells()) {
+            cells.add(new ScorePayload.Cell(cell.cellName(),
+                    cell.isRed() ? Alliance.RED : Alliance.BLUE,
+                    cell.holding().size(), cell.points()));
+        }
+        return new ScorePayload(score.redPoints(), score.bluePoints(), cells,
+                score.redTips(), score.blueTips());
+    }
+
+    /**
+     * The field's furniture, as the primitives it is described by.
+     *
+     * <p>Only what each structure <em>draws</em>. Its collision geometry is deliberately a
+     * different shape &mdash; a FLOWER's rim is one open ring drawn and a dozen little boxes
+     * collided with &mdash; and publishing the colliders would have the browser drawing twelve
+     * boxes for a tube it can draw as one cylinder.</p>
+     */
+    private static List<ScenePayload.Structure> structuresPayload(SimulatedScene scene) {
+        List<ScenePayload.Structure> published = new ArrayList<>(scene.structures().size());
+        for (Structure structure : scene.structures()) {
+            List<ScenePayload.Solid> solids = new ArrayList<>(structure.drawn().size());
+            for (Solid solid : structure.drawn()) {
+                solids.add(solidPayload(solid));
+            }
+            published.add(new ScenePayload.Structure(structure.name(), solids,
+                    pivotPayload(structure.pivot())));
+        }
+        return published;
+    }
+
+    /**
+     * A structure's axis of rotation, or null for one bolted down.
+     *
+     * <p>The angle sent here is the angle the solids beside it are drawn at, which is what makes
+     * {@code sim/bodies} interpretable: the browser turns a structure by the difference between
+     * the two. Publishing the geometry without it would leave a HIVE staged tipped back looking
+     * upright until the first time it moved.</p>
+     */
+    private static ScenePayload.Pivot pivotPayload(Pivot pivot) {
+        if (pivot == null) {
+            return null;
+        }
+        return new ScenePayload.Pivot(
+                pivot.point().x(), pivot.point().y(), pivot.point().z(),
+                pivot.axis().x(), pivot.axis().y(), pivot.axis().z(),
+                pivot.angleRadians());
+    }
+
+    private static ScenePayload.Solid solidPayload(Solid solid) {
+        Pose3d pose = solid.pose();
+        Vec3 at = pose.position();
+        return new ScenePayload.Solid(
+                solid.shape() == Solid.Shape.BOX ? "box" : "cylinder",
+                at.x(), at.y(), at.z(),
+                Math.toDegrees(pose.yaw()), Math.toDegrees(pose.pitch()),
+                Math.toDegrees(pose.roll()),
+                solid.lengthX(), solid.lengthY(), solid.lengthZ(),
+                solid.radiusMetres(), solid.lengthMetres(),
+                solid.red(), solid.green(), solid.blue());
     }
 
     /**
@@ -1008,7 +1269,7 @@ public class LocalDashboardBackend implements DashboardBackend {
      * is ordered for the detector: its indices run top-right, top-left, bottom-left, bottom-right,
      * and quietly reusing them would put the browser's texture on mirrored.</p>
      */
-    private static ScenePayload.Tag tagPayload(FieldTag tag, String cluster) {
+    private static ScenePayload.Tag tagPayload(FieldTag tag, String cluster, String attachedTo) {
         double half = tag.sizeMetres() / 2.0;
         Vec3 towardsViewersLeft = tag.tagX().scaled(half);
         Vec3 towardsViewersUp = tag.tagY().scaled(half);
@@ -1021,7 +1282,7 @@ public class LocalDashboardBackend implements DashboardBackend {
         corners.add(corner(centre.plus(towardsViewersLeft).minus(towardsViewersUp)));
 
         return new ScenePayload.Tag(tag.id(), cluster, tag.sizeMetres(), corners,
-                cellsOf(tag.id()));
+                cellsOf(tag.id()), attachedTo);
     }
 
     private static ScenePayload.Corner corner(Vec3 point) {
@@ -1076,6 +1337,9 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
             if (published.bodies != null) {
                 publish("bodies", bodyListeners, published.bodies);
+            }
+            if (published.score != null) {
+                publish("score", scoreListeners, published.score);
             }
             if (published.devices != null) {
                 publish("device state", deviceListeners, published.devices);
@@ -1195,7 +1459,24 @@ public class LocalDashboardBackend implements DashboardBackend {
         return new Publication(
                 poseLocked(),
                 ++tickCount % TICKS_PER_DEVICE_BROADCAST == 0 ? snapshotLocked() : null,
-                bodiesLocked());
+                bodiesLocked(),
+                tickScoreLocked());
+    }
+
+    /**
+     * The score, on the ticks where it changed, and null on the ones where it cannot have.
+     *
+     * <p>Gated on the same {@code moving()} the bodies are, and for a stronger reason than
+     * traffic: a ball's two points are decided by which side of a CELL's mouth it is on, and
+     * nothing can cross that boundary without moving. So a field at rest is not merely
+     * uninteresting to republish, it is provably unchanged, and this skips a containment test
+     * against every ball on the field fifty times a second to prove it.</p>
+     */
+    private ScorePayload tickScoreLocked() {
+        if (physics == null || !physics.moving()) {
+            return null;
+        }
+        return changedScoreLocked();
     }
 
     /**
@@ -1217,23 +1498,30 @@ public class LocalDashboardBackend implements DashboardBackend {
                     body.quaternionX(), body.quaternionY(), body.quaternionZ(),
                     body.quaternionW()));
         }
-        return new BodiesPayload(time.nowMillis(), hardware.elapsedSeconds(), bodies);
+        List<BodiesPayload.Tip> tips = new ArrayList<>(2);
+        for (PivotState pivot : physics.pivots()) {
+            tips.add(new BodiesPayload.Tip(pivot.structureName(), pivot.angleRadians()));
+        }
+        return new BodiesPayload(time.nowMillis(), hardware.elapsedSeconds(), bodies, tips);
     }
 
     /**
      * What one tick has to say: a pose on every tick, a device snapshot on every fifth, and the
-     * bodies on the field whenever one of them moved.
+     * bodies and the score on the ticks where those changed.
      */
     private static final class Publication {
 
         final SimPose pose;
         final List<DeviceState> devices;
         final BodiesPayload bodies;
+        final ScorePayload score;
 
-        Publication(SimPose pose, List<DeviceState> devices, BodiesPayload bodies) {
+        Publication(SimPose pose, List<DeviceState> devices, BodiesPayload bodies,
+                    ScorePayload score) {
             this.pose = pose;
             this.devices = devices;
             this.bodies = bodies;
+            this.score = score;
         }
     }
 

@@ -1,6 +1,5 @@
 package org.ngicollective.testframework.sim;
 
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.ngicollective.testframework.behavior.ImuState;
 import org.ngicollective.testframework.hardware.FakeDcMotorEx;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
@@ -23,6 +22,11 @@ import java.util.Map;
  * wheels turned is a robot whose IMU says so. Pointing the IMU at a different behavior is then a
  * deliberate fault: an IMU that disagrees with the drivetrain, which is a real failure and one
  * worth being able to reproduce.</p>
+ *
+ * <p>Where the robot ends up is {@link Chassis}'s answer, not this class's. What stays here is
+ * everything to do with the devices: resolving the four drive motors, reading their shaft speeds,
+ * and publishing the chassis heading to the IMU. That split is what lets the same drivetrain be
+ * carried either by arithmetic or by a rigid-body solver without a motor knowing the difference.
  */
 public final class DriveModel {
 
@@ -36,12 +40,6 @@ public final class DriveModel {
     private static final List<String> DRIVE_ROLES =
             Arrays.asList(FRONT_LEFT, FRONT_RIGHT, BACK_LEFT, BACK_RIGHT);
 
-    /**
-     * Below this much turn in a tick the arc and the straight line differ by less than a nanometre,
-     * and the arc formulas divide by the yaw. Anything larger takes the exact integration.
-     */
-    private static final double STRAIGHT_LINE_RADIANS = 1e-9;
-
     private final RobotConfig robot;
     private final FieldConfig field;
 
@@ -50,24 +48,21 @@ public final class DriveModel {
     private final Wheel backLeft;
     private final Wheel backRight;
 
-    /** Half the sum of track width and wheel base: the lever a mecanum wheel turns the robot on. */
-    private final double yawLeverMetres;
-
-    private final double strafeEfficiency;
-    private final double halfLength;
-    private final double halfWidth;
+    /**
+     * What carries the robot: see {@link Chassis} for why this is not decided here.
+     *
+     * <p>Replaceable, because the world the robot is in is a property of the session rather than
+     * of the robot &mdash; a dashboard rebuilds it on every INIT. {@link #useChassis} is what
+     * makes that a supported move instead of a robot that quietly keeps driving in the world
+     * before last.</p>
+     */
+    private Chassis chassis;
 
     /** Where the chassis heading is published for the IMU behavior to pick up. */
     private final ImuState imu;
 
-    private double x;
-    private double y;
-    private double heading;
-    private Pose2d pose = Pose2d.ORIGIN;
-    private ChassisVelocity velocity = ChassisVelocity.ZERO;
-    private boolean wallContact;
-
-    public DriveModel(RobotConfig robot, FieldConfig field, FakeHardwareMap hardware) {
+    public DriveModel(RobotConfig robot, FieldConfig field, FakeHardwareMap hardware,
+                      Chassis chassis) {
         if (!MECANUM.equalsIgnoreCase(robot.drivetrain().type())) {
             throw new IllegalArgumentException("robot \"" + robot.name() + "\" has a \""
                     + robot.drivetrain().type() + "\" drivetrain; this model only drives \""
@@ -76,16 +71,11 @@ public final class DriveModel {
         this.robot = robot;
         this.field = field;
 
-        DrivetrainConfig drivetrain = robot.drivetrain();
         this.frontLeft = wheel(robot, hardware, FRONT_LEFT);
         this.frontRight = wheel(robot, hardware, FRONT_RIGHT);
         this.backLeft = wheel(robot, hardware, BACK_LEFT);
         this.backRight = wheel(robot, hardware, BACK_RIGHT);
-        this.yawLeverMetres =
-                (drivetrain.trackWidthMetres() + drivetrain.wheelBaseMetres()) / 2.0;
-        this.strafeEfficiency = drivetrain.strafeEfficiency();
-        this.halfLength = robot.chassis().lengthMetres() / 2.0;
-        this.halfWidth = robot.chassis().widthMetres() / 2.0;
+        this.chassis = chassis;
 
         FakeImu fakeImu = hardware.tryGet(FakeImu.class, robot.imuName());
         if (fakeImu == null) {
@@ -111,107 +101,42 @@ public final class DriveModel {
     }
 
     /**
-     * Integrates {@code seconds} of driving from the speed the wheels are turning right now.
+     * Hands this tick's wheel speeds to the chassis, before anything steps it.
      *
-     * <p>Wheel speeds are taken as constant across the tick and integrated as an arc, not as a
-     * straight line followed by a turn. At 50 Hz a fast pivot covers several degrees per tick, and
-     * Euler integration bends that arc visibly the wrong way &mdash; a drift this model must not
-     * have, because every heading-holding routine in TeamCode is validated against it.</p>
+     * <p>The shaft speed read here is the <em>physical</em> one a motor behavior produced, not the
+     * power the OpMode asked for, which is what makes a stalled motor veer the robot and a ramping
+     * one lag it.</p>
+     *
+     * <p>Split from {@link #publishHeading} because a rigid-body chassis is stepped by the world
+     * it is a body in, not by this class: the wheels have to be set before that step and the
+     * heading can only be read after it. Doing both in one call would publish the heading the
+     * robot had a tick ago.</p>
      */
-    public void advance(double seconds) {
-        if (seconds < 0.0) {
-            throw new IllegalArgumentException("cannot advance simulated time backwards");
-        }
+    public void commandWheels() {
+        chassis.setWheelSpeeds(
+                frontLeft.metresPerSecond(),
+                frontRight.metresPerSecond(),
+                backLeft.metresPerSecond(),
+                backRight.metresPerSecond());
+    }
 
-        double frontLeftSpeed = frontLeft.metresPerSecond();
-        double frontRightSpeed = frontRight.metresPerSecond();
-        double backLeftSpeed = backLeft.metresPerSecond();
-        double backRightSpeed = backRight.metresPerSecond();
-
-        // Mecanum forward kinematics, rollers at 45 degrees, nose along +X and lateral to the left.
-        // Strafing is the only component the wheels cannot deliver in full: the rollers scrub, so
-        // the measured sideways speed is a fraction of what the geometry alone predicts.
-        double forward =
-                (frontLeftSpeed + frontRightSpeed + backLeftSpeed + backRightSpeed) / 4.0;
-        double lateral =
-                (-frontLeftSpeed + frontRightSpeed + backLeftSpeed - backRightSpeed) / 4.0
-                        * strafeEfficiency;
-        double yawRate =
-                (-frontLeftSpeed + frontRightSpeed - backLeftSpeed + backRightSpeed)
-                        / (4.0 * yawLeverMetres);
-
-        double yaw = yawRate * seconds;
-        double forwardStep = forward * seconds;
-        double lateralStep = lateral * seconds;
-
-        // Pose exponential: the chassis travels an arc of constant curvature over the tick. The
-        // sin(yaw)/yaw and (1-cos(yaw))/yaw factors are what turn the straight-line step into the
-        // chord of that arc; both tend to the straight-line case as the yaw goes to zero.
-        double localForward;
-        double localLateral;
-        if (Math.abs(yaw) < STRAIGHT_LINE_RADIANS) {
-            localForward = forwardStep;
-            localLateral = lateralStep;
-        } else {
-            double sinYaw = Math.sin(yaw);
-            double cosYaw = Math.cos(yaw);
-            localForward = (forwardStep * sinYaw + lateralStep * (cosYaw - 1.0)) / yaw;
-            localLateral = (forwardStep * (1.0 - cosYaw) + lateralStep * sinYaw) / yaw;
-        }
-
-        // Rotated by the heading the tick started at: that is the frame the wheels pushed in.
-        double cosStart = Math.cos(heading);
-        double sinStart = Math.sin(heading);
-        double candidateX = x + localForward * cosStart - localLateral * sinStart;
-        double candidateY = y + localForward * sinStart + localLateral * cosStart;
-        double candidateHeading = AngleUnit.normalizeRadians(heading + yaw);
-
-        // The footprint is a rectangle that rotates with the robot, so how close its centre may get
-        // to a wall depends on which way it is pointing: a robot at 45 degrees has to stop sooner.
-        double cosEnd = Math.cos(candidateHeading);
-        double sinEnd = Math.sin(candidateHeading);
-        double limitX = limitX(cosEnd, sinEnd);
-        double limitY = limitY(cosEnd, sinEnd);
-        double clampedX = clamp(candidateX, limitX);
-        double clampedY = clamp(candidateY, limitY);
-        boolean againstXWall = clampedX != candidateX;
-        boolean againstYWall = clampedY != candidateY;
-
-        if (againstXWall || againstYWall) {
-            // Slide along the wall rather than stop dead against it: only the component pushing
-            // into the wall is lost, which is what a robot pinned on a wall and driven diagonally
-            // actually does.
-            //
-            // The motors are deliberately left alone here. The wheels keep spinning and the
-            // encoders keep counting while the robot goes nowhere, so dead reckoning drifts away
-            // from the truth exactly as it does on a real field -- that divergence between the
-            // encoders and where the robot really is, is the failure mode this simulator exists to
-            // expose, and silently stopping the wheels would hide it.
-            double fieldVelocityX = forward * cosEnd - lateral * sinEnd;
-            double fieldVelocityY = forward * sinEnd + lateral * cosEnd;
-            if (againstXWall) {
-                fieldVelocityX = 0.0;
-            }
-            if (againstYWall) {
-                fieldVelocityY = 0.0;
-            }
-            forward = fieldVelocityX * cosEnd + fieldVelocityY * sinEnd;
-            lateral = -fieldVelocityX * sinEnd + fieldVelocityY * cosEnd;
-        }
-
-        x = clampedX;
-        y = clampedY;
-        heading = candidateHeading;
-        wallContact = againstXWall || againstYWall;
-        pose = new Pose2d(x, y, heading);
-        velocity = new ChassisVelocity(forward, lateral, yawRate);
-
+    /**
+     * Moves the robot into a different world, keeping where it was standing.
+     *
+     * <p>Carrying the pose across is the whole point. A session rebuilds its world when a
+     * configuration file changes or an arrangement is loaded, and a robot that returned to the
+     * origin every time would make the dashboard's "place the robot here" useless the moment
+     * anything else was edited.</p>
+     */
+    public void useChassis(Chassis replacement) {
+        replacement.place(chassis.pose());
+        chassis = replacement;
         publishHeading();
     }
 
     /** Where the robot is, in metres from field centre. */
     public Pose2d pose() {
-        return pose;
+        return chassis.pose();
     }
 
     /**
@@ -227,59 +152,41 @@ public final class DriveModel {
      * through a wall has no legal way back.</p>
      */
     public void setPose(Pose2d pose) {
-        double cos = Math.cos(pose.heading());
-        double sin = Math.sin(pose.heading());
-        double clampedX = clamp(pose.x(), limitX(cos, sin));
-        double clampedY = clamp(pose.y(), limitY(cos, sin));
-
-        x = clampedX;
-        y = clampedY;
-        heading = pose.heading();
-        wallContact = clampedX != pose.x() || clampedY != pose.y();
-        this.pose = new Pose2d(x, y, heading);
-        velocity = ChassisVelocity.ZERO;
+        chassis.place(pose);
 
         publishHeading();
-        imu.setYaw(Math.toDegrees(heading));
+        imu.setYaw(Math.toDegrees(chassis.pose().heading()));
         imu.setYawRateDegreesPerSecond(0.0);
     }
 
     /** How the chassis is moving, in its own frame. */
     public ChassisVelocity velocity() {
-        return velocity;
+        return chassis.velocity();
     }
 
-    /** True while the footprint is pressed against a wall, with its normal motion being eaten. */
+    /**
+     * True while the robot is pressed against something eating the motion it is asking for.
+     *
+     * <p>The perimeter, today. Once the field's own structures are collision geometry this will
+     * answer for those too, which is why it is no longer named after walls at the chassis
+     * boundary.</p>
+     */
     public boolean inWallContact() {
-        return wallContact;
+        return chassis.inContact();
     }
 
     /**
      * Hands the chassis heading to the IMU, which is the only path by which an OpMode learns that
      * the robot turned. {@code ImuBehaviors.followingChassis()} is what copies it to the reported
      * yaw; any other behavior is a fault being injected on purpose.
+     *
+     * <p>Public because it is the second half of a tick: whatever steps the chassis has to call
+     * this afterwards, and at 50 Hz a fast pivot covers several degrees in a tick &mdash; exactly
+     * the lag a heading-holding routine would otherwise be tuned against and fail on the real
+     * robot.</p>
      */
-    private void publishHeading() {
-        imu.setChassisYawDegrees(Math.toDegrees(heading));
-    }
-
-    /** How far the centre may sit from field centre along X before the footprint hits a wall. */
-    private double limitX(double cosHeading, double sinHeading) {
-        return Math.max(0.0, field.halfExtentMetres()
-                - (halfLength * Math.abs(cosHeading) + halfWidth * Math.abs(sinHeading)));
-    }
-
-    /** The same along Y, where the robot's length and width swap roles. */
-    private double limitY(double cosHeading, double sinHeading) {
-        return Math.max(0.0, field.halfExtentMetres()
-                - (halfLength * Math.abs(sinHeading) + halfWidth * Math.abs(cosHeading)));
-    }
-
-    private static double clamp(double value, double limit) {
-        if (value < -limit) {
-            return -limit;
-        }
-        return value > limit ? limit : value;
+    public void publishHeading() {
+        imu.setChassisYawDegrees(Math.toDegrees(chassis.pose().heading()));
     }
 
     /** Resolves one drive role to the motor configured for it, and precomputes its tick scaling. */

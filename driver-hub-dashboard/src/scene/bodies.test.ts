@@ -5,7 +5,7 @@ import {
   createBodyBuffer,
   interpolateBody,
 } from './bodies';
-import type { SimBodies, SimBody } from '../protocol';
+import type { SimBodies, SimBody, SimPivot } from '../protocol';
 
 /**
  * The arithmetic behind the moving balls.
@@ -186,5 +186,109 @@ describe('the body buffer', () => {
     // where they had been shoved to: the render loop kept writing the last body frame over the
     // scene's own positions, and they stayed wrong until something moved them again.
     expect(buffer.sample(1040)).toEqual([]);
+  });
+});
+
+/**
+ * The tipping HIVEs travel the same path as the balls: same frames, same interpolation, same
+ * clock. What is different is the join — a name rather than an id — and the fact that a HIVE goes
+ * on swinging after the last ball has come to rest, which makes a frame with no bodies in it an
+ * ordinary frame rather than a broken one.
+ */
+describe('the pivot angles in the body buffer', () => {
+  const frame = (
+    timestampMillis: number,
+    bodies: SimBody[],
+    pivots: SimPivot[] = [],
+  ): SimBodies => ({
+    timestampMillis,
+    elapsedSeconds: timestampMillis / 1000,
+    bodies,
+    pivots,
+  });
+
+  it('draws a hinge between the two frames that straddle the sampled moment', () => {
+    const buffer = createBodyBuffer();
+    buffer.accept(frame(1000, [], [{ name: 'HIVE RED', angleRadians: 0 }]));
+    buffer.accept(frame(1020, [], [{ name: 'HIVE RED', angleRadians: 1 }]));
+
+    // The same interpolation the balls get, for the same reason: frames arrive at 50 Hz and the
+    // display refreshes faster, so a HIVE drawn from the newest frame alone visibly steps.
+    expect(buffer.samplePivots(1020 + INTERPOLATION_DELAY_MS / 2).get('HIVE RED')).toBeCloseTo(
+      0.5,
+      12,
+    );
+  });
+
+  it('keeps each HIVE its own angle however the frame lists them', () => {
+    const buffer = createBodyBuffer();
+    // Listed in opposite orders between the two frames, which the scene is free to do. Joined by
+    // position instead of by name, each HIVE would be interpolated towards the other's angle and
+    // both would be drawn swinging through states neither is in.
+    buffer.accept(
+      frame(1000, [], [
+        { name: 'HIVE BLUE', angleRadians: 1 },
+        { name: 'HIVE RED', angleRadians: 0 },
+      ]),
+    );
+    buffer.accept(
+      frame(1020, [], [
+        { name: 'HIVE RED', angleRadians: 0.2 },
+        { name: 'HIVE BLUE', angleRadians: 0.8 },
+      ]),
+    );
+
+    const angles = buffer.samplePivots(1020 + INTERPOLATION_DELAY_MS / 2);
+
+    expect(angles.get('HIVE RED')).toBeCloseTo(0.1, 12);
+    expect(angles.get('HIVE BLUE')).toBeCloseTo(0.9, 12);
+  });
+
+  it('reports a HIVE that has only just started tipping at the angle it actually has', () => {
+    const buffer = createBodyBuffer();
+    buffer.accept(frame(1000, [], [{ name: 'HIVE RED', angleRadians: 0.3 }]));
+    // The blue HIVE was still when the older frame was sent, so it appears in the newer one alone.
+    // Interpolated from an angle that does not exist, it is drawn at NaN — which is to say not
+    // drawn at all, along with every tag bolted to it.
+    buffer.accept(
+      frame(1020, [], [
+        { name: 'HIVE RED', angleRadians: 0.5 },
+        { name: 'HIVE BLUE', angleRadians: 0.05 },
+      ]),
+    );
+
+    expect(buffer.samplePivots(1020 + INTERPOLATION_DELAY_MS / 2).get('HIVE BLUE')).toBe(0.05);
+  });
+
+  it('counts a frame that carries only a swinging HIVE as the server having spoken', () => {
+    const buffer = createBodyBuffer();
+    buffer.accept(frame(1000, [], [{ name: 'HIVE RED', angleRadians: 0.4 }]));
+
+    // Every ball has come to rest and the HIVE is still moving, so the frame has no bodies in it.
+    // Read as silence — which is what an empty sample() used to mean — the render loop falls back
+    // to the scene's own positions and throws every ball back to where the scenario placed it,
+    // mid-match, for as long as the HIVE keeps swinging.
+    expect(buffer.hasFrame()).toBe(true);
+    expect(buffer.sample(1020)).toEqual([]);
+
+    buffer.reset();
+
+    // And a rearranged field is silence again: the scene carries both the ball positions and the
+    // angle its HIVEs were published at.
+    expect(buffer.hasFrame()).toBe(false);
+    expect(buffer.samplePivots(1020).size).toBe(0);
+  });
+
+  it('says nothing about a hinge on a server that does not send pivots at all', () => {
+    const buffer = createBodyBuffer();
+    // An older server: bodies and nothing else. Every HIVE must then be drawn at the angle
+    // sim/scene published, which is what an absent angle means downstream.
+    buffer.accept({
+      timestampMillis: 1000,
+      elapsedSeconds: 1,
+      bodies: [{ id: 0, x: 0.5, y: 0, z: 0.0355, qx: 0, qy: 0, qz: 0, qw: 1 }],
+    });
+
+    expect(buffer.samplePivots(1020).size).toBe(0);
   });
 });

@@ -22,11 +22,30 @@ import {
   type ScenePayload,
   type SimConfig,
   type SimPose,
+  type SimScenarios,
+  type SimScore,
   type SimStatus,
   type TelemetryFrame,
 } from './protocol';
 
-const DEFAULT_URL = `ws://${location.hostname}:8765`;
+/**
+ * Where the socket is: the page's own origin, on the path the dev server proxies.
+ *
+ * <p>Derived rather than configured, and that is the whole point. This used to be
+ * `ws://${location.hostname}:8765` — a port written down here and nowhere else, which a server
+ * started on any other port could not be reached on. Since nothing in the browser could override
+ * it, a session on `--port 8791` left the page connected to whatever was on 8765 instead: green
+ * indicator, wrong world, no error anywhere. Same-origin makes that unrepresentable, because the
+ * only address the page can use is the one it was served from.</p>
+ *
+ * <p>It also retires an IPv6 hazard. `location.hostname` is whatever was typed, so `localhost` on
+ * a machine that resolves `::1` first produced `ws://[::1]:8765`, which `DashboardServer` can
+ * never accept — it binds a concrete `127.0.0.1` on purpose. The proxy target is now that same
+ * concrete address, chosen by Vite rather than by a browser's resolver.</p>
+ */
+export function socketUrl(location: { protocol: string; host: string }): string {
+  return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+}
 
 export interface Dashboard {
   connected: boolean;
@@ -67,6 +86,18 @@ export interface Dashboard {
    */
   simScene: ScenePayload | null;
   /**
+   * What the HIVE is holding and what it scores, or null when nothing has said — before the
+   * greeting lands, in a session whose robot has no scene to hold a HIVE, and after the server
+   * goes away. Sent on connect and again whenever the count changes.
+   */
+  simScore: SimScore | null;
+  /**
+   * The staged fields the server has on disk, where they live, and which one is loaded — or null
+   * when nothing has said, which is a session with no server and one whose robot simulates no
+   * field. Arrives in the greeting, so the picker is populated without asking.
+   */
+  simScenarios: SimScenarios | null;
+  /**
    * Where the moving balls are, sampled in a render loop rather than subscribed to.
    *
    * <p>A buffer rather than the newest frame, because bodies arrive on the server's 50 Hz control
@@ -104,6 +135,15 @@ export interface Dashboard {
   saveLayout: (name: string, layout: unknown) => void;
   loadLayout: (name: string) => void;
   deleteLayout: (name: string) => void;
+  /**
+   * Stages one of the server's scenario files, or null for the robot's own field — the official
+   * BioBuzz field with nothing placed on it.
+   *
+   * <p>Answered by broadcast rather than by reply: the server sends a fresh {@code sim/scenarios}
+   * and the scene and score frames follow on their own, so the picker reads back what was actually
+   * loaded instead of what this page asked for.</p>
+   */
+  loadScenario: (name: string | null) => void;
   /** Sets the rate simulated time runs at, and whether it runs at all. */
   setSimTime: (multiplier: number, paused: boolean) => void;
   /** Advances exactly this many ticks while paused; ignored while running. */
@@ -125,7 +165,10 @@ export interface Dashboard {
   revertCameraMount: () => void;
 }
 
-export function useDashboard(url: string = DEFAULT_URL): Dashboard {
+export function useDashboard(url?: string): Dashboard {
+  // Read here rather than at module scope so that importing this file does not need a DOM, which
+  // is what lets socketUrl be tested without one.
+  const target = url ?? socketUrl(window.location);
   const socketRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [opModes, setOpModes] = useState<OpModeInfo[]>([]);
@@ -149,6 +192,8 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   const [cameraMount, adoptCameraMount] = useState<CameraMountPayload | null>(null);
   const [savedCameraMount, setSavedCameraMount] = useState<{ path: string } | null>(null);
   const [simStatus, setSimStatus] = useState<SimStatus>(DEFAULT_SIM_STATUS);
+  const [simScore, setSimScore] = useState<SimScore | null>(null);
+  const [simScenarios, setSimScenarios] = useState<SimScenarios | null>(null);
   const [pose, setPose] = useState<SimPose | null>(null);
   const poseRef = useRef<SimPose | null>(null);
   const poseListeners = useRef(new Set<(pose: SimPose) => void>());
@@ -156,12 +201,28 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
   // buffer would answer with an empty list until the field next moved.
   const bodyBuffer = useRef(createBodyBuffer()).current;
 
-  // Only when the server goes away: the robot itself outlives every OpMode, so a pose keeps
-  // arriving between runs. With nobody on the other end there is no robot to draw at all, and the
-  // last pose would claim one is still sitting there.
-  const clearPose = useCallback(() => {
+  // Only when the server goes away: the robot itself outlives every OpMode, so poses and scores
+  // both keep arriving between runs. With nobody on the other end there is no robot to draw at
+  // all, and the last pose would claim one is still sitting there.
+  //
+  // The score is cleared for the same reason and one worse: a pose at least looks stale once the
+  // status line says disconnected, while "RED 6" carries no timestamp and no hint of its age, so a
+  // score left up after the server died goes on claiming that three balls are sitting in a CELL
+  // that no longer exists. Keeping the last value so the number "does not flicker" was the
+  // tempting alternative and is the bug: the strip renders nothing at all when there is no score,
+  // which is the honest reading of nobody having told us.
+  //
+  // The scenario list deliberately stays. It is not a readout of a field that has gone away but a
+  // list of files on the server's machine, which a dead socket says nothing about, and the picker
+  // built from it is the control someone reaches for on reconnect — clearing it would empty the
+  // one menu still worth opening and then repopulate it identically from the next greeting. The
+  // active entry can go stale if the server is restarted onto another scenario, and that costs a
+  // wrong name in a picker for as long as the reconnect takes, against a picker with nothing in it
+  // for the same interval.
+  const clearLiveReadouts = useCallback(() => {
     poseRef.current = null;
     setPose(null);
+    setSimScore(null);
   }, []);
 
   useEffect(() => {
@@ -194,6 +255,8 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       setCameraMount: adoptCameraMount,
       setSavedCameraMount,
       setSimStatus,
+      setSimScore,
+      setSimScenarios,
       pose: createThrottledPoseSink({
         // Un-throttled on purpose: this is the 50 Hz path the 3D view reads, and it never touches
         // React.
@@ -210,7 +273,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     };
 
     const connect = () => {
-      socket = new WebSocket(url);
+      socket = new WebSocket(target);
       socketRef.current = socket;
 
       socket.onopen = () => {
@@ -220,7 +283,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       };
       socket.onclose = () => {
         setConnected(false);
-        clearPose();
+        clearLiveReadouts();
         // The server outlives page reloads and vice versa; keep trying rather than dead-ending.
         if (!closed) retry = setTimeout(connect, 1000);
       };
@@ -239,7 +302,7 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
       clearTimeout(retry);
       socket.close();
     };
-  }, [url, clearPose]);
+  }, [target, clearLiveReadouts]);
 
   const send = useCallback((namespace: string, type: string, payload: unknown) => {
     const socket = socketRef.current;
@@ -314,6 +377,9 @@ export function useDashboard(url: string = DEFAULT_URL): Dashboard {
     }, []),
     simConfig,
     simScene,
+    simScore,
+    simScenarios,
+    loadScenario: useCallback((name: string | null) => send('sim', 'scenario', { name }), [send]),
     cameraStream,
     cameraMount,
     savedCameraMount,

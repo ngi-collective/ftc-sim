@@ -113,27 +113,54 @@ class SimulatedSceneTest {
     }
 
     @Test
-    void tippingAHiveMovesAllOfItsTagsTogether() {
-        // BioBuzz's signature event. The cluster is the thing that moves, so its members cannot
-        // drift apart: two booleans of tip state can't describe a physically impossible field.
+    void tippingAStructureMovesEverythingAttachedToItTogether() {
+        // BioBuzz's signature event: a HIVE swings 60 degrees and carries two CELLs, their scoring
+        // volumes and their four AprilTags each. The whole reason it goes through the scene is
+        // that those cannot be allowed to drift apart, so this asserts the rigidity rather than
+        // any one of the three positions.
+        Vec3 pivotPoint = new Vec3(0.0, 0.0, 1.1163);
+        Structure hive = new Structure("HIVE RED",
+                Collections.singletonList(Solid.box(
+                        // Level with the pivot, half a metre out along +Y, so the arithmetic a
+                        // reader has to check is one sine and one cosine.
+                        Pose3d.facingForward(new Vec3(0.0, 0.5, 1.1163)),
+                        0.3, 0.3, 0.3, 200, 200, 200)),
+                Collections.<Solid>emptyList(),
+                Pivot.of(pivotPoint, new Vec3(1.0, 0.0, 0.0), 0.0, 0.0, Math.toRadians(60.0),
+                        0.18, 0.5, 0.08, 0.12));
         TagCluster cluster = new TagCluster("RED AUDIENCE",
                 Pose3d.ofDegrees(new Vec3(0.0, 0.5, 1.2), -90.0, -60.0, 0.0),
                 Arrays.asList(
                         new TagCluster.Member(34, -0.1651, 0.18256, -0.1428, 0.08255),
-                        new TagCluster.Member(35, -0.06985, 0.18256, -0.1428, 0.08255)));
-        SimulatedScene upright = SimulatedScene.of(cluster);
+                        new TagCluster.Member(35, -0.06985, 0.18256, -0.1428, 0.08255)))
+                .on("HIVE RED");
+        SimulatedScene upright = SimulatedScene.of(cluster)
+                .withStructures(Collections.singletonList(hive));
         double spacingBefore = spacingOf(upright);
 
-        SimulatedScene tipped = upright.withCluster("RED AUDIENCE",
-                Pose3d.ofDegrees(new Vec3(0.0, 0.35, 1.1), -90.0, -30.0, 0.0));
+        SimulatedScene tipped = upright.tipped(
+                Collections.singletonMap("HIVE RED", Math.toRadians(60.0)));
 
         assertEquals(spacingBefore, spacingOf(tipped), 1e-9,
                 "tipping must move the plate, not stretch it");
-        // What tipping means: the plate's face swings from 60 degrees below horizontal to 30,
-        // so every member tag now looks somewhere new. Its height is deliberately not asserted
-        // here, because a shallower plate can raise a tag even as the HIVE it hangs from drops.
+        // And what tipping does to the tags. The plate stays 60 degrees below the horizon in both
+        // stable states -- the manual says every CELL's tag face is 30 degrees off level, and a
+        // 60 degree rotation of a 60 degree slope lands on its mirror image -- so what flips is
+        // which way it leans, not how far. A camera has to be on the other side of the field to
+        // read the same cluster after a tip, and that is the season's whole vision problem.
         assertEquals(-0.866, normalZOf(upright), 1e-3);
-        assertEquals(-0.500, normalZOf(tipped), 1e-3);
+        assertEquals(-0.866, normalZOf(tipped), 1e-3,
+                "a rigid rotation between two mirrored states cannot change the slope");
+        assertEquals(-0.5, normalYOf(upright), 1e-3);
+        assertEquals(0.5, normalYOf(tipped), 1e-3, "it leans the other way now");
+        // And the panel went with them, about the same axis through the same point: half a metre
+        // out along +Y and level with the axis, so 60 degrees of tip lands it at y = 0.25 and
+        // 0.433 above the pivot.
+        Vec3 panel = tipped.structures().get(0).drawn().get(0).pose().position();
+        assertEquals(0.25, panel.y(), 1e-3);
+        assertEquals(0.433, panel.z() - pivotPoint.z(), 1e-3);
+        assertEquals(0.5, Math.hypot(panel.y(), panel.z() - pivotPoint.z()), 1e-9,
+                "a rigid rotation keeps the radius from the axis");
     }
 
     @Test
@@ -238,6 +265,50 @@ class SimulatedSceneTest {
     }
 
     /**
+     * A structure the camera is looking at ends up in the frame.
+     *
+     * <p>The camera and the Dashboard Field View are two pictures of one field, and ADR-0002's
+     * rule is that they must not be able to disagree. The browser draws a structure's primitives
+     * directly; this side has to flatten them into polygons first, and if that flattening were
+     * never called the field view would show a FLOWER standing in front of the robot while the
+     * camera saw straight through it. Nothing else fails when that happens.</p>
+     */
+    @Test
+    void aStructureInFrontOfTheCameraIsDrawn() {
+        Pose3d mouth = Pose3d.ofDegrees(new Vec3(0.6, 0.0, 0.05), 0.0, 0.0, 0.0);
+        Structure post = new Structure("POST",
+                Collections.singletonList(
+                        Solid.box(mouth, 0.06, 0.06, 0.10, 255, 0, 255)),
+                Collections.<Solid>emptyList());
+
+        SimulatedScene bare = new SimulatedScene(
+                Collections.<TagCluster>emptyList(), Collections.<GameElement>emptyList());
+        SimulatedScene withPost = bare.withStructures(Collections.singletonList(post));
+
+        CameraView view = CAMERA.viewFrom(Pose2d.ORIGIN);
+        int[] centre = pixelOf(view, mouth.position());
+
+        SyntheticFrame empty = new SyntheticFrame(LENS.width(), LENS.height());
+        bare.renderInto(empty, view);
+        SyntheticFrame drawn = new SyntheticFrame(LENS.width(), LENS.height());
+        withPost.renderInto(drawn, view);
+
+        // Magenta, which nothing else on this field is: a tile, a wall or a ball showing through
+        // could not pass for it.
+        assertTrue(drawn.redAt(centre[0], centre[1]) > 200
+                        && drawn.greenAt(centre[0], centre[1]) < 60
+                        && drawn.blueAt(centre[0], centre[1]) > 200,
+                "expected the structure's own colour at the pixel it projects to, got ("
+                        + drawn.redAt(centre[0], centre[1]) + ", "
+                        + drawn.greenAt(centre[0], centre[1]) + ", "
+                        + drawn.blueAt(centre[0], centre[1]) + ")");
+        assertTrue(empty.redAt(centre[0], centre[1]) < 200
+                        || empty.blueAt(centre[0], centre[1]) < 200,
+                "the same pixel was already that colour without the structure, so this test "
+                        + "proves nothing");
+    }
+
+    /**
      * The centre of one of the tag's inner black cells, in the field frame.
      *
      * <p>Inner, so the pixel it lands on is well away from the tag's antialiased edge.</p>
@@ -266,5 +337,10 @@ class SimulatedSceneTest {
     /** How far below horizontal a cluster's tags face, as the z of their visible normal. */
     private static double normalZOf(SimulatedScene scene) {
         return scene.clusters().get(0).tags().get(0).visibleNormal().z();
+    }
+
+    /** Which way a cluster's tags lean, as the y of their visible normal: the audience is at -Y. */
+    private static double normalYOf(SimulatedScene scene) {
+        return scene.clusters().get(0).tags().get(0).visibleNormal().y();
     }
 }

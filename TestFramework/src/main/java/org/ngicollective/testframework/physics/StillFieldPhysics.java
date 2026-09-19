@@ -2,7 +2,9 @@ package org.ngicollective.testframework.physics;
 
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Vec3;
-import org.ngicollective.testframework.sim.DriveModel;
+import org.ngicollective.testframework.sim.Chassis;
+import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.RobotConfig;
 import org.ngicollective.testframework.sim.SensorConfig;
 import org.ngicollective.testframework.sim.VolumeConfig;
 
@@ -27,16 +29,19 @@ final class StillFieldPhysics implements FieldPhysics {
     private final List<BodyState> bodies;
 
     /**
-     * The drive model, or null when this robot has no drivetrain.
+     * The robot, or null when this hardware map declares no drivetrain.
      *
-     * <p>Held for the sensors alone: nothing here can move, but where the robot <em>is</em> decides
-     * what its intake and its sensors are looking at.</p>
+     * <p>A kinematic chassis: it goes exactly where its wheels say and cannot be shoved by
+     * anything, which is the behaviour this simulator had before a solver existed. Held here
+     * rather than built by the drive model so that the rule "the world owns the robot's pose"
+     * holds on both implementations &mdash; the difference between them is how the robot moves,
+     * not who is allowed to say where it is.</p>
      */
-    private final DriveModel drive;
+    private final Chassis chassis;
 
-    StillFieldPhysics(List<GameElement> arrangement, DriveModel drive) {
+    StillFieldPhysics(List<GameElement> arrangement, FieldConfig field, RobotConfig robot) {
         this.arrangement = Collections.unmodifiableList(new ArrayList<>(arrangement));
-        this.drive = drive;
+        this.chassis = robot == null ? null : Chassis.kinematic(robot, field);
 
         List<BodyState> resting = new ArrayList<>(arrangement.size());
         for (int id = 0; id < arrangement.size(); id++) {
@@ -46,11 +51,25 @@ final class StillFieldPhysics implements FieldPhysics {
         this.bodies = Collections.unmodifiableList(resting);
     }
 
+    /**
+     * Steps the robot, and nothing else: there is nothing here that can move on its own.
+     *
+     * <p>The chassis is stepped from here rather than from the drive model because the world is
+     * what owns the clock, and one world stepped from two places is two clocks.</p>
+     */
     @Override
     public void advance(double seconds) {
         if (seconds < 0.0) {
             throw new IllegalArgumentException("cannot advance physics backwards");
         }
+        if (chassis != null) {
+            chassis.step(seconds);
+        }
+    }
+
+    @Override
+    public Chassis chassis() {
+        return chassis;
     }
 
     @Override
@@ -61,6 +80,15 @@ final class StillFieldPhysics implements FieldPhysics {
     @Override
     public List<BodyState> bodies() {
         return bodies;
+    }
+
+    /**
+     * Nothing, because nothing here can turn: a HIVE without a solver holds whatever state its
+     * scenario staged it in, which is the same deal the balls get.
+     */
+    @Override
+    public List<PivotState> pivots() {
+        return Collections.emptyList();
     }
 
     /**
@@ -82,12 +110,12 @@ final class StillFieldPhysics implements FieldPhysics {
      */
     @Override
     public List<GameElement> touching(VolumeConfig volume) {
-        if (drive == null) {
+        if (chassis == null) {
             return Collections.emptyList();
         }
         List<GameElement> found = new ArrayList<>(2);
         for (GameElement element : arrangement) {
-            if (RobotFrame.touches(drive.pose(), volume, element.centre(),
+            if (RobotFrame.touches(chassis.pose(), volume, element.centre(),
                     element.radiusMetres())) {
                 found.add(element);
             }
@@ -111,6 +139,14 @@ final class StillFieldPhysics implements FieldPhysics {
     /** Nothing to run: there is no surface here, only a list of places balls are. */
     @Override
     public void setSweepPower(String servoName, double power) {
+    }
+
+    /**
+     * Nothing to throw. A ball here cannot be moved by anything, and a launcher that quietly did
+     * nothing is the honest answer for a build with no solver behind it.
+     */
+    @Override
+    public void setLauncherSpeed(String motorName, double surfaceMetresPerSecond) {
     }
 
     /** Nothing to release: there is no solver behind this, only the list handed in. */

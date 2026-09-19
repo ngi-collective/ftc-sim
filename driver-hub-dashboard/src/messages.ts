@@ -15,6 +15,8 @@ import {
   parseOpModeList,
   parseSavedCameraMount,
   parseSavedLayout,
+  parseSimScenarios,
+  parseSimScore,
   type CameraMountPayload,
   type CameraStreamInfo,
   type DeviceState,
@@ -26,6 +28,8 @@ import {
   type SimBodies,
   type SimConfig,
   type SimPose,
+  type SimScenarios,
+  type SimScore,
   type SimStatus,
   type TelemetryFrame,
 } from './protocol';
@@ -67,6 +71,19 @@ export interface MessageSinks {
   /** Where {@code sim/camera-save} wrote, so the rail can name the file worth committing. */
   setSavedCameraMount: (saved: { path: string }) => void;
   setSimStatus: (status: SimStatus) => void;
+  /**
+   * What the HIVE is holding, as of the last control cycle that changed it. Plain React state
+   * rather than a buffer or a listener fan-out like the pose and the bodies: this one is a pair of
+   * numbers a person reads, and it arrives on the greeting and then only when it moves, so there
+   * is no stream here to ration.
+   */
+  setSimScore: (score: SimScore) => void;
+  /**
+   * The staged fields on the server's disk and the one that is loaded, for the picker in the sim
+   * strip. Arrives in the greeting and again whenever the active one changes, so the picker is
+   * populated before anyone opens it and never shows a scenario the server has since moved off.
+   */
+  setSimScenarios: (scenarios: SimScenarios) => void;
   pose: PoseSink;
   /**
    * Bodies never reach React at all, unlike the pose, which commits a throttled copy for the
@@ -117,10 +134,12 @@ export function createThrottledPoseSink(options: {
  * separately from the browser, so meeting a frame from a newer or older one is ordinary, and the
  * dashboard's job in that moment is to keep showing the frames it does understand.</p>
  *
- * <p>Layout payloads are validated, everything else is asserted. That asymmetry is deliberate:
- * layouts come off disk, where a hand edit or a file from an older schema is an ordinary thing to
- * meet, while the rest are composed by the same tick that builds the Java record, so a shape
- * mismatch there is a bug to fix on both sides rather than a file to survive.</p>
+ * <p>Layout payloads are validated, and so is anything whose absence would take a render down
+ * rather than leave it stale — the list wrappers, the camera mount, the score. Everything else is
+ * asserted. That asymmetry is deliberate: layouts come off disk, where a hand edit or a file from
+ * an older schema is an ordinary thing to meet, while the rest are composed by the same tick that
+ * builds the Java record, so a shape mismatch there is a bug to fix on both sides rather than a
+ * file to survive.</p>
  */
 export function applyMessage(envelope: Envelope, sinks: MessageSinks): void {
   const payload = envelope.payload as never;
@@ -187,6 +206,16 @@ export function applyMessage(envelope: Envelope, sinks: MessageSinks): void {
     case 'sim/status':
       sinks.setSimStatus(payload as SimStatus);
       break;
+    case 'sim/score': {
+      const score = parseSimScore(envelope.payload);
+      if (score) sinks.setSimScore(score);
+      break;
+    }
+    case 'sim/scenarios': {
+      const scenarios = parseSimScenarios(envelope.payload);
+      if (scenarios) sinks.setSimScenarios(scenarios);
+      break;
+    }
     case 'sim/camera': {
       const mount = parseCameraMount(envelope.payload);
       if (mount) sinks.setCameraMount(mount);

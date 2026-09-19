@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "Auto sweep: two rows of POLLEN on red's AUTO line, in front of a staged CELL",
+
+  "elements": {
+    "red-nectar-1": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-2": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-3": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+
+    "pollen-near-left": { "kind": "POLLEN", "xMetres": -0.3948, "yMetres": -1.161 },
+    "pollen-near-mid": { "kind": "POLLEN", "xMetres": -0.3238, "yMetres": -1.161 },
+    "pollen-near-right": { "kind": "POLLEN", "xMetres": -0.2528, "yMetres": -1.161 },
+
+    "pollen-far-left": { "kind": "POLLEN", "xMetres": -0.3948, "yMetres": -1.086 },
+    "pollen-far-mid": { "kind": "POLLEN", "xMetres": -0.3238, "yMetres": -1.086 },
+    "pollen-far-right": { "kind": "POLLEN", "xMetres": -0.2528, "yMetres": -1.086 }
+  }
+}

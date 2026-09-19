@@ -2,8 +2,10 @@ package org.ngicollective.testframework.season;
 
 import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.camera.FieldTag;
+import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.camera.TagCluster;
+import org.ngicollective.testframework.camera.Vec3;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,6 +61,55 @@ class BioBuzzFieldTest {
         }
     }
 
+    /**
+     * The one fact the whole vision loop rests on: a cluster detection <em>is</em> an aim point.
+     *
+     * <p>Three sources that never mention each other have to agree for this to hold &mdash; the
+     * SDK's member offsets, FIRST's CAD for the plate, and the manual's CELL dimensions &mdash; so
+     * it is not a restatement of the construction. Break the plate roll and the origin lands two
+     * feet away, behind the closed end of the basket, on exactly two of the four CELLs.</p>
+     */
+    @Test
+    void everyClusterOriginSitsAtItsCellsOpening() {
+        for (BioBuzzField.HiveTip tip : BioBuzzField.HiveTip.values()) {
+            for (TagCluster cluster : BioBuzzField.clusters(tip, tip)) {
+                Pose3d cell = BioBuzzHive.cell(cluster.name(), tip, tip);
+                Vec3 mouth = cell.position()
+                        .plus(cell.forward().scaled(BioBuzzHive.CELL_DEPTH_METRES / 2.0));
+
+                double missInches = cluster.pose().position().minus(mouth).length() / INCH;
+                assertTrue(missInches < 1.5,
+                        cluster.name() + " tipped " + tip + ": the SDK's cluster origin lands "
+                                + missInches + " in from the centre of the opening it is under,"
+                                + " so an OpMode cannot aim at what it detects");
+            }
+        }
+    }
+
+    /**
+     * And that the plate under a CELL is turned the way the CELL is, not merely placed there.
+     *
+     * <p>The position above is the assertion with teeth; this one says which axis was wrong when
+     * it fails. A cluster's {@code forward} is the way the tags face, which is out through the
+     * bottom of the basket, and its {@code up} runs from the opening toward the closed end.</p>
+     */
+    @Test
+    void aPlatesAxesAreItsCellsAxes() {
+        for (TagCluster cluster : BioBuzzField.clusters(
+                BioBuzzField.HiveTip.AUDIENCE_UP, BioBuzzField.HiveTip.AUDIENCE_DOWN)) {
+            Pose3d cell = BioBuzzHive.cell(cluster.name(), BioBuzzField.HiveTip.AUDIENCE_UP,
+                    BioBuzzField.HiveTip.AUDIENCE_DOWN);
+
+            assertEquals(0.0, cluster.pose().forward().plus(cell.up()).length(), 1e-6,
+                    cluster.name() + ": the tags face out of the CELL's floor, so the plate's"
+                            + " normal is the CELL's own up, negated");
+            assertEquals(0.0, cluster.pose().up().plus(cell.forward()).length(), 1e-6,
+                    cluster.name() + ": the plate's up runs back from the opening, so it is the"
+                            + " CELL's forward, negated -- this is the 180 degrees of roll that"
+                            + " the two CELLs of one HIVE differ by");
+        }
+    }
+
     @Test
     void theHivesSitWhereTheManualSaysAndMirrorEachOther() {
         // The manual gives 25.5 in between HIVE centres; the CAD agrees to a hundredth of an inch.
@@ -90,6 +141,35 @@ class BioBuzzFieldTest {
         // The heights are the two the CAD measured, whichever CELL is in them.
         assertEquals(49.666, audienceUp, 0.02);
         assertEquals(35.647, audienceDown, 0.02);
+    }
+
+    @Test
+    void aTipDoesNotMirrorTheTagRowItCarries() {
+        // The pivot axis is field X and so is the tag row, so a tip cannot change which way the
+        // ids run: 34 stays on the same side of the CELL it is stuck to. This is the one thing a
+        // hand-built "tipped" plate pose gets wrong. A plate starts 60 degrees below the horizon
+        // and 60 degrees of tip takes it off the end of the yaw-pitch-roll chart, so the state on
+        // the other side needs 180 degrees of roll; leave it at zero, as the pose reads more
+        // naturally, and the four tags come out reversed along the plate with every pattern turned
+        // upside down. Nothing about that looks wrong in a field view, and a detector reports zero
+        // detections, because a rotated 36h11 codeword is usually not a codeword.
+        List<FieldTag> upright = clusterNamed(BioBuzzField.RED_AUDIENCE,
+                BioBuzzField.HiveTip.AUDIENCE_UP).tags();
+        List<FieldTag> tipped = clusterNamed(BioBuzzField.RED_AUDIENCE,
+                BioBuzzField.HiveTip.AUDIENCE_DOWN).tags();
+
+        assertEquals(34, upright.get(0).id());
+        assertEquals(34, tipped.get(0).id());
+        double alongRowUpright = upright.get(3).pose().position().x()
+                - upright.get(0).pose().position().x();
+        double alongRowTipped = tipped.get(3).pose().position().x()
+                - tipped.get(0).pose().position().x();
+        assertEquals(alongRowUpright, alongRowTipped, 1e-9,
+                "the row runs along the pivot's own axis, which a rotation about it cannot flip");
+
+        // And each tag's own up is still the plate's up rather than its negative, which is what a
+        // 180 degree error in roll would leave: the two differ by a sign nothing else reveals.
+        assertEquals(upright.get(0).tagX().x(), tipped.get(0).tagX().x(), 1e-9);
     }
 
     @Test

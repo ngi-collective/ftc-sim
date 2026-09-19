@@ -19,6 +19,8 @@ import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.ngicollective.testframework.season.BioBuzzField;
+import org.ngicollective.testframework.season.BioBuzzHive;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -146,6 +148,58 @@ class BodyPublicationTest {
                 "the camera is still rendering the ball where the arrangement put it");
         assertEquals(published.get(published.size() - 1).bodies.get(0).z, after.z(), 1e-9,
                 "the camera and the wire disagree about where the ball is");
+    }
+
+    /**
+     * And a HIVE mid-tip rides the same message, because it moves for the same reason at the same
+     * moment: the shot that tips a basket is the shot that scatters what was in it.
+     *
+     * <p>The angle is what the browser needs and all it needs: one number against the pivot the
+     * scene already described. A quaternion here would let it draw a HIVE at an angle its own axis
+     * cannot reach.</p>
+     */
+    @Test
+    void aTippingHiveIsPublishedBesideTheBallsItIsSpilling() {
+        session(BioBuzzField.scene(BioBuzzField.HiveTip.AUDIENCE_UP,
+                BioBuzzField.HiveTip.AUDIENCE_DOWN).withElements(tippingLoad()));
+
+        for (int tick = 0; tick < 150; tick++) {
+            ticks.pump();
+        }
+
+        BodiesPayload last = published.get(published.size() - 1);
+        assertEquals(2, last.pivots.size(), "both HIVEs, whether or not they moved");
+        assertEquals(BioBuzzHive.RED, last.pivots.get(0).structureName);
+        assertEquals(2.0 * BioBuzzHive.TIP_DEGREES,
+                Math.toDegrees(last.pivots.get(0).angleRadians), 1.0,
+                "red's HIVE should have gone over to its other stop");
+        assertEquals(2.0 * BioBuzzHive.TIP_DEGREES,
+                Math.toDegrees(last.pivots.get(1).angleRadians), 1.0,
+                "and blue's should be where its scenario staged it: " + last.pivots.get(1));
+
+        // Mid-swing, which is the frame that matters: an angle only ever published at a stop would
+        // animate as a jump and would make the manual's "LAUNCHING at a tipping HIVE" untestable.
+        boolean caughtInTheAct = false;
+        for (BodiesPayload frame : published) {
+            double degrees = Math.toDegrees(frame.pivots.get(0).angleRadians);
+            caughtInTheAct |= degrees > 5.0 && degrees < 55.0;
+        }
+        assertTrue(caughtInTheAct, "no frame caught the HIVE part way round");
+    }
+
+    /** Six POLLEN dropped into red's raised CELL, which is enough to tip it. */
+    private static List<GameElement> tippingLoad() {
+        Pose3d cell = BioBuzzHive.cell(BioBuzzField.RED_AUDIENCE,
+                BioBuzzField.HiveTip.AUDIENCE_UP, BioBuzzField.HiveTip.AUDIENCE_DOWN);
+        Vec3 mouth = cell.position()
+                .plus(cell.forward().scaled(BioBuzzHive.CELL_DEPTH_METRES / 2.0));
+        List<GameElement> balls = new ArrayList<>(6);
+        for (int ball = 0; ball < 6; ball++) {
+            Vec3 at = mouth.plus(cell.left().scaled(((ball % 3) - 1) * 0.12))
+                    .plus(new Vec3(0.0, 0.0, 0.10 + 0.09 * (ball / 3)));
+            balls.add(GameElement.pollenAt(at.x(), at.y(), at.z()));
+        }
+        return balls;
     }
 
     private void session(SimulatedScene scene) {

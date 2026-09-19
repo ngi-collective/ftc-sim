@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.sim.FieldConfig;
 
@@ -32,7 +33,8 @@ class FieldPhysicsTest {
     private static final double GRAVITY = 9.806;
 
     private FieldPhysics world(GameElement... arrangement) {
-        return FieldPhysics.of(Arrays.asList(arrangement), FieldConfig.standard(), null);
+        return FieldPhysics.of(Arrays.asList(arrangement),
+                Collections.<Structure>emptyList(), FieldConfig.standard(), null);
     }
 
     private void run(FieldPhysics world, double seconds) {
@@ -178,7 +180,7 @@ class FieldPhysicsTest {
         // wants no LGPL in the build at all gets a field whose balls do not move, which is what
         // this simulator did before physics existed and is still enough to test vision against.
         List<GameElement> arrangement = Collections.singletonList(GameElement.pollen(0.4, 0.4));
-        FieldPhysics still = new StillFieldPhysics(arrangement, null);
+        FieldPhysics still = new StillFieldPhysics(arrangement, FieldConfig.standard(), null);
 
         still.advance(10.0);
 

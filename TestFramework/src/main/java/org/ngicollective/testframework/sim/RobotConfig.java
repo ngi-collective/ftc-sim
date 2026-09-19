@@ -28,18 +28,21 @@ public final class RobotConfig {
     private final String imuName;
     private final CameraConfig camera;
     private final Map<String, MotorConfig> motors;
+    private final Map<String, LauncherConfig> launchers;
     private final Map<String, ServoConfig> servos;
     private final Map<String, SensorConfig> sensors;
 
     private RobotConfig(String name, ChassisConfig chassis, DrivetrainConfig drivetrain,
                         String imuName, CameraConfig camera, Map<String, MotorConfig> motors,
-                        Map<String, ServoConfig> servos, Map<String, SensorConfig> sensors) {
+                        Map<String, LauncherConfig> launchers, Map<String, ServoConfig> servos,
+                        Map<String, SensorConfig> sensors) {
         this.name = name;
         this.chassis = chassis;
         this.drivetrain = drivetrain;
         this.imuName = imuName;
         this.camera = camera;
         this.motors = Collections.unmodifiableMap(motors);
+        this.launchers = Collections.unmodifiableMap(launchers);
         this.servos = Collections.unmodifiableMap(servos);
         this.sensors = Collections.unmodifiableMap(sensors);
     }
@@ -68,10 +71,27 @@ public final class RobotConfig {
         if (motors.isEmpty()) {
             throw new IllegalArgumentException(json.source() + ": \"motors\" declares no motors");
         }
-        // Unlike "motors", these two blocks are optional, and absent means none. Every robot
+        // Unlike "motors", these blocks are optional, and absent means none. Every robot
         // description written before mechanisms were simulated is still a correct version 1 file:
         // requiring the blocks, or bumping the version to add them, would break configurations
         // that describe a perfectly valid robot which happens to have no servos worth modelling.
+        Map<String, LauncherConfig> launchers = new LinkedHashMap<>();
+        if (json.names().contains("launchers")) {
+            ConfigJson launchersJson = json.child("launchers");
+            for (String motorName : launchersJson.names()) {
+                // A launcher is keyed by the motor that spins it, so a key that is not a motor has
+                // nothing to turn it. Caught here, where both maps are in hand: left alone it
+                // would produce a flywheel that never comes up to speed, which looks like broken
+                // physics rather than the misspelt device name it is.
+                if (!motors.containsKey(motorName)) {
+                    throw new IllegalArgumentException(json.source() + ": \"launchers\" declares \""
+                            + motorName + "\", which is not one of this robot's motors "
+                            + motors.keySet());
+                }
+                launchers.put(motorName,
+                        LauncherConfig.from(motorName, launchersJson.child(motorName)));
+            }
+        }
         Map<String, ServoConfig> servos = new LinkedHashMap<>();
         if (json.names().contains("servos")) {
             ConfigJson servosJson = json.child("servos");
@@ -96,6 +116,7 @@ public final class RobotConfig {
                 json.child("imu").string("name"),
                 CameraConfig.from(json.child("camera"), chassis),
                 motors,
+                launchers,
                 servos,
                 sensors);
     }
@@ -126,6 +147,17 @@ public final class RobotConfig {
     /** Every motor, keyed by the name the OpMode looks it up under, in file order. */
     public Map<String, MotorConfig> motors() {
         return motors;
+    }
+
+    /**
+     * Every flywheel launcher, keyed by the motor that spins it, in file order. Empty when the
+     * robot throws nothing.
+     *
+     * <p>Keyed by motor rather than by a launcher name of its own so that there is nothing to keep
+     * in step: the key is guaranteed to be in {@link #motors()}, checked while loading.</p>
+     */
+    public Map<String, LauncherConfig> launchers() {
+        return launchers;
     }
 
     /**

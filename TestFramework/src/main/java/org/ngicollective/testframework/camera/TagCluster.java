@@ -30,8 +30,13 @@ public final class TagCluster {
     private final String name;
     private final Pose3d pose;
     private final List<Member> members;
+    private final String attachedTo;
 
     public TagCluster(String name, Pose3d pose, List<Member> members) {
+        this(name, pose, members, null);
+    }
+
+    private TagCluster(String name, Pose3d pose, List<Member> members, String attachedTo) {
         if (name == null || name.isEmpty()) {
             throw new IllegalArgumentException("a cluster needs a name to report detections under");
         }
@@ -41,6 +46,7 @@ public final class TagCluster {
         this.name = name;
         this.pose = pose;
         this.members = Collections.unmodifiableList(new ArrayList<>(members));
+        this.attachedTo = attachedTo;
     }
 
     /** The cluster's name, matching the SDK's library so detections read the same in telemetry. */
@@ -57,9 +63,28 @@ public final class TagCluster {
         return members;
     }
 
+    /**
+     * The same cluster, declared to ride on a {@link Structure}'s pivot.
+     *
+     * <p>Manual &sect;9.6: "On the bottom face of each CELL is a unique AprilTag Cluster". The
+     * sticker is on the basket, so it goes where the basket goes, and naming the structure it is
+     * stuck to lets the scene swing the tags and the panels as one rigid thing. Re-deriving the
+     * plates from a tip angle instead leaves them a degree or two out of agreement with the
+     * geometry they are printed on, and the range error that follows looks exactly like a bad
+     * camera calibration.</p>
+     */
+    public TagCluster on(String structureName) {
+        return new TagCluster(name, pose, members, structureName);
+    }
+
+    /** The structure whose pivot carries these tags, or null for a plate bolted to the field. */
+    public String attachedTo() {
+        return attachedTo;
+    }
+
     /** The same cluster, moved: what a CELL tipping does to all four tags at once. */
     public TagCluster movedTo(Pose3d newPose) {
-        return new TagCluster(name, newPose, members);
+        return new TagCluster(name, newPose, members, attachedTo);
     }
 
     /** Every member tag, resolved into the field frame. */

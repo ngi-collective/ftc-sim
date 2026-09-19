@@ -68,6 +68,7 @@ public final class MechanismModel {
     private static final double AMPS_AT_FULL_POWER = 4.5;
 
     private final List<Sweep> sweeps = new ArrayList<>();
+    private final List<Launch> launches = new ArrayList<>();
     private final List<Sense> senses = new ArrayList<>();
     private final List<MotorState> motors = new ArrayList<>();
 
@@ -87,6 +88,17 @@ public final class MechanismModel {
             FakeCRServo device = require(hardware, entry.getKey(), FakeCRServo.class,
                     "sweeps balls, so it must be a continuous-rotation servo");
             sweeps.add(new Sweep(entry.getKey(), device));
+        }
+
+        for (LauncherConfig launcher : robot.launchers().values()) {
+            String motorName = launcher.motorName();
+            FakeDcMotorEx device = require(hardware, motorName, FakeDcMotorEx.class,
+                    "spins a launcher's flywheel, so it must be a motor");
+            // The encoder resolution comes from the configuration rather than from the device,
+            // which is what makes the shaft speed readable whether or not anyone remembered to
+            // call setMaxSpeed on the fake: an unset resolution is zero, and dividing by it would
+            // turn a forgotten line into an infinite ball speed.
+            launches.add(new Launch(launcher, robot.motors().get(motorName), device.state()));
         }
 
         for (Map.Entry<String, SensorConfig> entry : robot.sensors().entrySet()) {
@@ -129,10 +141,21 @@ public final class MechanismModel {
         }
     }
 
-    /** Hands each sweeping servo's current shaft power to the world, before it is stepped. */
+    /**
+     * Hands each mechanism's current shaft state to the world, before it is stepped.
+     *
+     * <p>A servo gives up its power and a launcher its surface speed, and the difference is the
+     * point: an intake either runs or does not, while what a flywheel <em>is</em> doing is the
+     * whole question. Reading {@code getVelocity()} and not {@code demandedVelocity()} is what
+     * makes a shot fired during spin-up fall short, the same rule {@link DriveModel} follows for
+     * the wheels.</p>
+     */
     public void applyMechanisms(FieldPhysics physics) {
         for (Sweep sweep : sweeps) {
             physics.setSweepPower(sweep.name, sweep.servo.state().getPhysicalPower());
+        }
+        for (Launch launch : launches) {
+            physics.setLauncherSpeed(launch.motorName, launch.surfaceMetresPerSecond());
         }
     }
 
@@ -150,7 +173,7 @@ public final class MechanismModel {
 
     /** Whether this robot has anything for either direction to do. */
     public boolean isEmpty() {
-        return sweeps.isEmpty() && senses.isEmpty();
+        return sweeps.isEmpty() && launches.isEmpty() && senses.isEmpty();
     }
 
     private static <T> T require(FakeHardwareMap hardware, String name, Class<T> type,
@@ -173,6 +196,43 @@ public final class MechanismModel {
         Sweep(String name, FakeCRServo servo) {
             this.name = name;
             this.servo = servo;
+        }
+    }
+
+    /**
+     * One launcher and the motor whose shaft spins it: everything needed to turn encoder ticks
+     * into the speed of the rubber touching a ball.
+     */
+    private static final class Launch {
+
+        private final String motorName;
+        private final MotorConfig motor;
+        private final MotorState state;
+
+        /** Radians the wheel turns per encoder tick, times its radius: metres of surface per tick. */
+        private final double metresPerTick;
+
+        Launch(LauncherConfig launcher, MotorConfig motor, MotorState state) {
+            this.motorName = launcher.motorName();
+            this.motor = motor;
+            this.state = state;
+            this.metresPerTick = 2.0 * Math.PI * launcher.wheelRadiusMetres()
+                    / motor.ticksPerRevolution();
+        }
+
+        /**
+         * How fast the wheel's surface is moving right now, in metres/second.
+         *
+         * <p>The mounting mirror is applied here and nowhere else, exactly as {@link DriveModel}
+         * applies it to a wheel: {@link MotorState#getVelocity()} already carries the OpMode's own
+         * {@code Direction}, and {@link MotorConfig#mirrored()} is the separate fact that this
+         * gearbox is bolted on facing the other way. A flywheel mounted mirrored and never set to
+         * {@code REVERSE} therefore runs backwards and throws nothing, which is what the real one
+         * does.</p>
+         */
+        double surfaceMetresPerSecond() {
+            double surface = state.getVelocity() * metresPerTick;
+            return motor.mirrored() ? -surface : surface;
         }
     }
 

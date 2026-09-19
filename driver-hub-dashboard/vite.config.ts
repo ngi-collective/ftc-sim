@@ -1,18 +1,34 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
+/**
+ * Where the simulation's WebSocket is, for the proxy below.
+ *
+ * Set by `tools/dashboard.sh`, which is the one place the port is decided: it starts the JVM with
+ * this same number and this dev server pointed at it, so the two cannot disagree. Defaulted here
+ * only so that `bun run dev` on its own still reaches a dashboard on the usual port.
+ */
+const simulationPort = Number(process.env.DASHBOARD_PORT ?? 8765);
+
 export default defineConfig({
   plugins: [react()],
-  // Bind the IPv4 loopback explicitly. Vite's default host is the name `localhost`, which on a
-  // machine whose hosts file answers with ::1 first binds IPv6 only -- and then useDashboard's
-  // `ws://${location.hostname}:8765` becomes `ws://[::1]:8765`, which DashboardServer can never
-  // accept: it binds a concrete 127.0.0.1 on purpose (see DashboardServer's constructor for what a
-  // dual-stack bind does to Java-WebSocket on macOS). The page would load and never connect.
-  // Browsers still resolve http://localhost:5183 here, falling back to IPv4 when ::1 refuses.
-  // strictPort because the alternative is worse than a failed start: Vite's default is to take the
-  // next free port and say so in one line of scrollback, so a stale server keeps 5183 and the URL
-  // everyone types quietly serves someone else's build.
-  server: { host: '127.0.0.1', port: 5183, strictPort: true },
+  server: {
+    // Bind the IPv4 loopback explicitly, and proxy the socket to a concrete 127.0.0.1 too:
+    // `DashboardServer` binds one on purpose (see its constructor for what a dual-stack bind does
+    // to Java-WebSocket on macOS), so a target of `localhost` on a machine whose hosts file
+    // answers `::1` first is a connection it can never accept.
+    // strictPort because the alternative is worse than a failed start: Vite's default is to take
+    // the next free port and say so in one line of scrollback, so a stale server keeps 5183 and
+    // the URL everyone types quietly serves someone else's build.
+    host: '127.0.0.1',
+    port: 5183,
+    strictPort: true,
+    // The page connects to its own origin at `/ws` and this carries it to the JVM. That is what
+    // makes the pair impossible to misconfigure from the browser's side: there is no port for the
+    // UI to get wrong, because it never names one. `/ws` cannot collide with Vite's own HMR
+    // socket, which lives at the root under the `vite-hmr` subprotocol.
+    proxy: { '/ws': { target: `ws://127.0.0.1:${simulationPort}`, ws: true } },
+  },
   // Node by default: the logic worth testing is coordinate maths, wire parsing and axis mapping,
   // none of which wants a DOM. A file that does need one asks for it with
   // `// @vitest-environment happy-dom` at the top.

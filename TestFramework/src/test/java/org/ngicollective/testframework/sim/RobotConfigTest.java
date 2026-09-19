@@ -28,23 +28,26 @@ import java.util.Arrays;
 class RobotConfigTest {
 
     /**
-     * A complete version 1 robot, up to but not including its closing brace, so a test can append
-     * the blocks it is about. Deliberately a robot with no servos and no sensors: that is the shape
-     * every configuration file in the repository had before mechanisms were simulated.
+     * A complete version 1 robot down to its {@code motors} block, so a test can supply that and
+     * then append the blocks it is about. Deliberately a robot with no servos and no sensors: that
+     * is the shape every configuration file in the repository had before mechanisms were
+     * simulated.
      */
-    private static final String BASE = "{\n"
+    private static final String HEAD = "{\n"
             + "  \"version\": 1,\n"
             + "  \"name\": \"Fixture\",\n"
             + "  \"chassis\": { \"widthMetres\": 0.38, \"lengthMetres\": 0.40,"
-            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105 },\n"
+            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105,"
+            + " \"massKilograms\": 14.0 },\n"
             + "  \"drivetrain\": { \"type\": \"mecanum\", \"wheelRadiusMetres\": 0.048,"
             + " \"gearRatio\": 1.0, \"trackWidthMetres\": 0.32, \"wheelBaseMetres\": 0.29,"
-            + " \"strafeEfficiency\": 0.8 },\n"
+            + " \"strafeEfficiency\": 0.8, \"gripCoefficient\": 0.9 },\n"
             + "  \"imu\": { \"name\": \"imu\" },\n"
             + "  \"camera\": { \"name\": \"Webcam 1\", \"forwardMetres\": 0.16,"
             + " \"leftMetres\": 0.0, \"yawDegrees\": 0.0, \"pitchDegrees\": 35.0,"
-            + " \"rollDegrees\": 0.0, \"framesPerSecond\": 30.0 },\n"
-            + "  \"motors\": {\n"
+            + " \"rollDegrees\": 0.0, \"framesPerSecond\": 30.0 },\n";
+
+    private static final String WHEELS = "  \"motors\": {\n"
             + "    \"FL\": { \"role\": \"frontLeft\",  \"mirrored\": true,  \"rpm\": 312.0,"
             + " \"ticksPerRevolution\": 537.7 },\n"
             + "    \"FR\": { \"role\": \"frontRight\", \"mirrored\": false, \"rpm\": 312.0,"
@@ -55,6 +58,12 @@ class RobotConfigTest {
             + " \"ticksPerRevolution\": 537.7 }\n"
             + "  }";
 
+    /** A bare 5203 with a flywheel on it, for the tests about launchers. */
+    private static final String FLYWHEEL = "  \"motors\": {\n"
+            + "    \"flywheel\": { \"role\": \"launcher\", \"mirrored\": false, \"rpm\": 6000.0,"
+            + " \"ticksPerRevolution\": 28.0 }\n"
+            + "  }";
+
     /** The mouth of an intake at the nose of that chassis: 0.20 m out, low enough to scoop. */
     private static final String MOUTH = "{ \"forwardMetres\": 0.23, \"leftMetres\": 0.0,"
             + " \"heightMetres\": 0.045, \"lengthMetres\": 0.08, \"widthMetres\": 0.28,"
@@ -63,10 +72,14 @@ class RobotConfigTest {
     @TempDir
     Path configDirectory;
 
-    /** Writes {@code BASE} plus {@code blocks}, which must start with its own comma. */
+    /** Writes a four-wheeled fixture plus {@code blocks}, which must start with its own comma. */
     private Path write(String blocks) throws IOException {
+        return write(WHEELS, blocks);
+    }
+
+    private Path write(String motors, String blocks) throws IOException {
         Path file = configDirectory.resolve("robot.json");
-        Files.write(file, (BASE + blocks + "\n}\n").getBytes(UTF_8));
+        Files.write(file, (HEAD + motors + blocks + "\n}\n").getBytes(UTF_8));
         return file;
     }
 
@@ -234,5 +247,60 @@ class RobotConfigTest {
                 new ArrayList<>(robot.servos().keySet()));
         assertEquals(Arrays.asList("battery", "intakeTouch", "intakeColor"),
                 new ArrayList<>(robot.sensors().keySet()));
+    }
+
+    @Test
+    void aLauncherCarriesTheWheelItThrowsWithAndWhereItPoints() throws IOException {
+        RobotConfig robot = RobotConfig.load(write(FLYWHEEL, ",\n  \"launchers\": {"
+                + "\n    \"flywheel\": { \"wheelRadiusMetres\": 0.0508,"
+                + " \"transferEfficiency\": 0.5, \"spinUpSeconds\": 1.2,"
+                + " \"exitYawDegrees\": -8.0, \"exitPitchDegrees\": 75.0,"
+                + " \"mouth\": " + MOUTH + " }\n  }"));
+
+        LauncherConfig launcher = robot.launchers().get("flywheel");
+        assertEquals(1, robot.launchers().size(), "one launcher was declared");
+        assertEquals("flywheel", launcher.motorName(),
+                "a launcher is named by the motor that spins it");
+        assertEquals(0.0508, launcher.wheelRadiusMetres(), 1e-9);
+        assertEquals(0.5, launcher.transferEfficiency(), 1e-9);
+        assertEquals(1.2, launcher.spinUpSeconds(), 1e-9);
+        // Signed, and read as written: a launcher canted to the right is an ordinary robot.
+        assertEquals(-8.0, launcher.exitYawDegrees(), 1e-9);
+        assertEquals(75.0, launcher.exitPitchDegrees(), 1e-9);
+        assertEquals(0.23, launcher.mouth().forwardMetres(), 1e-9);
+    }
+
+    @Test
+    void aLauncherOnAMotorTheRobotDoesNotHaveIsRefused() throws IOException {
+        Path file = write(FLYWHEEL, ",\n  \"launchers\": {"
+                + "\n    \"flywheal\": { \"wheelRadiusMetres\": 0.0508,"
+                + " \"transferEfficiency\": 0.5, \"spinUpSeconds\": 1.2,"
+                + " \"exitYawDegrees\": 0.0, \"exitPitchDegrees\": 75.0,"
+                + " \"mouth\": " + MOUTH + " }\n  }");
+
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(file));
+
+        // The misspelling and the names it could have meant, because the alternative is a flywheel
+        // that never turns and reads as broken physics.
+        assertTrue(thrown.getMessage().contains("flywheal"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("flywheel"), thrown.getMessage());
+    }
+
+    @Test
+    void aLauncherThatThrowsFasterThanItsWheelTurnsIsRefused() throws IOException {
+        Path file = write(FLYWHEEL, ",\n  \"launchers\": {"
+                + "\n    \"flywheel\": { \"wheelRadiusMetres\": 0.0508,"
+                + " \"transferEfficiency\": 50.0, \"spinUpSeconds\": 1.2,"
+                + " \"exitYawDegrees\": 0.0, \"exitPitchDegrees\": 75.0,"
+                + " \"mouth\": " + MOUTH + " }\n  }");
+
+        // 50 where 0.5 was meant is one keystroke, and the result would be a ball leaving this
+        // flywheel at over a kilometre a second: free energy, refused where every other ratio in
+        // this file is.
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(file));
+
+        assertTrue(thrown.getMessage().contains("transferEfficiency"), thrown.getMessage());
     }
 }

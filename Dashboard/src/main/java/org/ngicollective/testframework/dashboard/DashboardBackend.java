@@ -9,7 +9,9 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -153,6 +155,50 @@ public interface DashboardBackend {
      * position, so this stream only has to say what changes after that.</p>
      */
     void subscribeBodies(Consumer<BodiesPayload> listener);
+
+    /**
+     * What the field on the table is worth, or null when this session has no scene to score.
+     *
+     * <p>Null for the same reason {@link #scene()} is: a robot whose camera renders no simulated
+     * field has no CELLs to put balls in, and a zero would claim it had two empty ones.</p>
+     */
+    ScorePayload score();
+
+    /**
+     * Fires when the score changes, and in the greeting &mdash; unlike {@link #subscribeBodies}.
+     *
+     * <p>A getter as well as a stream, because nothing else on this socket lets a browser derive
+     * the score for itself: see {@link ScorePayload}.</p>
+     */
+    void subscribeScore(Consumer<ScorePayload> listener);
+
+    /**
+     * The field arrangements available and the one in force, or null when this session has no
+     * scene to arrange.
+     *
+     * <p>Null for the same reason {@link #scene()} is, and it is what tells the browser not to
+     * offer a picker at all: a robot whose camera renders no simulated field cannot be put into an
+     * arrangement, so a list of them would be a control that does nothing.</p>
+     */
+    ScenariosPayload scenarios();
+
+    /**
+     * Puts the field into a named arrangement, or back to the robot's own with null.
+     *
+     * <p>By name rather than by a parsed scene, so that reading the file, deciding what is
+     * available and remembering what is in force all stay in one place. A browser that had to send
+     * an arrangement would need the season's CAD to build one.</p>
+     *
+     * <p>Allowed mid-run, and deliberately not refused: moving the balls under a driving robot is
+     * a thing an operator can ask for, and the alternative &mdash; a control that greys out while
+     * an OpMode is up &mdash; would make it impossible to set up the situation a bug needs
+     * without stopping first.</p>
+     *
+     * @throws IllegalArgumentException if no scenario has that name, which is a typo rather than a
+     *     reason to quietly show the official field
+     * @throws IllegalStateException if this session has no scene-backed camera to arrange
+     */
+    void loadScenario(String name);
 
     /** How the simulation is being run; also pushed to {@link #subscribeSimStatus} on change. */
     SimStatus simStatus();

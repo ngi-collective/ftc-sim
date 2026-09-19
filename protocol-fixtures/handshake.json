@@ -1,12 +1,15 @@
 {
-  "description": "Frames DashboardServer.onOpen sends a fresh client, in order. sim/config, sim/scene and camera/stream are conditional; sim/pose and device/state follow from the running ticker, not from onOpen.",
+  "description": "Frames DashboardServer.onOpen sends a fresh client, in order, captured from a session with a drivetrain, a scene-backed camera and a camera stream. sim/config, sim/scene, sim/score, sim/scenarios, camera/stream and sim/camera are each conditional on the session having the thing they describe; sim/pose and device/state follow from the running ticker, not from onOpen, and may arrive before the greeting if a tick lands first.",
   "onOpen": [
     "opmode/list",
     "opmode/status",
     "sim/status",
     "sim/config",
     "sim/scene",
-    "camera/stream"
+    "sim/score",
+    "sim/scenarios",
+    "camera/stream",
+    "sim/camera"
   ],
   "thenFromTicker": [
     "sim/pose",
@@ -18,7 +21,10 @@
     "sim/status",
     "sim/config",
     "sim/scene",
+    "sim/score",
+    "sim/scenarios",
     "camera/stream",
+    "sim/camera",
     "sim/pose",
     "device/state"
   ]

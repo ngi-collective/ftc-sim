@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Aimed shot: red's CELL staged, and three bursts of POLLEN to tip it with",
+
+  "elements": {
+    "red-nectar-1": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-2": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-3": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+
+    "pollen-near-left": { "kind": "POLLEN", "xMetres": -0.395, "yMetres": -1.26 },
+    "pollen-near-mid": { "kind": "POLLEN", "xMetres": -0.324, "yMetres": -1.26 },
+    "pollen-near-right": { "kind": "POLLEN", "xMetres": -0.253, "yMetres": -1.26 },
+
+    "pollen-mid-left": { "kind": "POLLEN", "xMetres": -0.395, "yMetres": -1.185 },
+    "pollen-mid-mid": { "kind": "POLLEN", "xMetres": -0.324, "yMetres": -1.185 },
+    "pollen-mid-right": { "kind": "POLLEN", "xMetres": -0.253, "yMetres": -1.185 },
+
+    "pollen-far-left": { "kind": "POLLEN", "xMetres": -0.395, "yMetres": -1.11 },
+    "pollen-far-mid": { "kind": "POLLEN", "xMetres": -0.324, "yMetres": -1.11 },
+    "pollen-far-right": { "kind": "POLLEN", "xMetres": -0.253, "yMetres": -1.11 }
+  }
+}

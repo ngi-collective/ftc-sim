@@ -126,6 +126,13 @@ class SimControlSurfaceTest {
         drive();
         int cycles = 10;
 
+        // Up to speed first. A standing start is no longer instantaneous: the chassis is a rigid
+        // body accelerated by what its wheels can grip, so it takes about three tenths of a second
+        // to reach free speed. Distance is not proportional to time while that is happening, and
+        // comparing a standing leg with a dilated one would be measuring the ramp rather than the
+        // multiplier.
+        ticks.pump(cycles);
+
         SimPose before = lastPose();
         ticks.pump(cycles);
         SimPose atOnce = lastPose();
@@ -140,7 +147,9 @@ class SimControlSurfaceTest {
 
         assertEquals(2.0 * cycles * ManualTicks.SECONDS_PER_PUMP,
                 dilated.elapsedSeconds - atOnce.elapsedSeconds, 1e-9);
-        assertEquals(2.0 * firstLeg, dilated.x - atOnce.x, 1e-9,
+        // A tenth of a percent, not an exact double: a wheel pulls towards its commanded speed
+        // rather than snapping to it, so there is always some slip left to take up.
+        assertEquals(2.0 * firstLeg, dilated.x - atOnce.x, firstLeg * 1e-3,
                 "the same wheels over the same number of control cycles at twice the time "
                         + "multiplier have to cover twice the ground");
     }

@@ -1,10 +1,8 @@
 package org.ngicollective.testframework.dashboard;
 
 import org.ngicollective.camerastream.MjpegServer;
-import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
-import org.ngicollective.testframework.sim.SimConfigFiles;
 
 import java.nio.file.Paths;
 import java.util.List;
@@ -92,13 +90,14 @@ public final class DashboardMain {
         LocalDashboardBackend backend = new LocalDashboardBackend(robot, opModes);
 
         // Applied to the session rather than to the robot, so it survives an init: see
-        // LocalDashboardBackend.loadScene. A misspelled name throws here, naming both places it
-        // looked, rather than starting a dashboard that quietly shows the official field.
+        // LocalDashboardBackend.loadScene. By name rather than by a scene this method loads
+        // itself, so that the one place which remembers what is in force is the one the browser's
+        // picker reads back. A misspelled name throws here, naming both places it looked, rather
+        // than starting a dashboard that quietly shows the official field.
         if (scenarioName != null) {
-            SimulatedScene scene = SimConfigFiles.scenario(scenarioName).scene();
-            backend.loadScene(scene);
+            backend.loadScenario(scenarioName);
             System.out.println("[dashboard] scenario: " + scenarioName + "  ("
-                    + scene.elements().size() + " game element(s))");
+                    + backend.scene().elements.size() + " game element(s))");
         }
 
         // Started before the socket, because the socket advertises where it landed. A robot with no

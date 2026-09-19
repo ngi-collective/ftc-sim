@@ -51,7 +51,16 @@ dependencies {
     // Pure Java, so it runs in a plain-JVM unit test as readily as on the Control Hub; Java 8
     // bytecode, matching this module's VERSION_1_8; and no native library, which is what rules out
     // every JNI binding to Bullet or PhysX for a build that has to work on an ARM Android device.
-    implementation 'org.ode4j:core:0.5.4'
+    //
+    // Without the exclusion an instrumented test cannot be dexed: ode4j depends on slf4j-api, and
+    // the SDK's own RobotCore.aar bundles the same org.slf4j classes, so D8 refuses the build with
+    // several dozen "Duplicate class" errors. Dropping the artifact rather than the dependency is
+    // safe because those classes are still there at runtime, supplied by RobotCore, and because
+    // the whole of ode4j's use of slf4j is four log calls in one file (ErrorHdl) against an API
+    // that has not changed since 1.7.
+    implementation('org.ode4j:core:0.5.4') {
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
 
     // Working android.util.Log / android.opengl.Matrix / android.os.SystemClock for unit tests,
     // replacing the android.jar stubs that throw. Test scope so they can never reach an APK.

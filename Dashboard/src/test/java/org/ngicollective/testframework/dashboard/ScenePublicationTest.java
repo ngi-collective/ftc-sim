@@ -251,6 +251,52 @@ class ScenePublicationTest {
                 "the session's arrangement, not the scene the rebuilt robot brought with it");
     }
 
+    /**
+     * And it can be taken off again, which used to be impossible.
+     *
+     * <p>Loading an arrangement overwrites the camera's scene, so before the session remembered
+     * what the robot had built for itself the only way back to the robot's own field was to
+     * restart the process. A picker that can only ever move away from where it started is not a
+     * picker.</p>
+     */
+    @Test
+    void anArrangementCanBeUnloadedBackToTheRobotsOwnField() {
+        backend = sessionOn(robotWithFreshFrames());
+        int ownField = backend.scene().elements.size();
+        backend.loadScene(arrangement());
+        assertEquals(2, backend.scene().elements.size(), "the arrangement is on the field");
+
+        backend.loadScenario(null);
+
+        assertEquals(ownField, backend.scene().elements.size(),
+                "asking for no scenario must put the robot's own field back, not leave the last"
+                        + " arrangement where it was");
+    }
+
+    /** What the picker is drawn from, and what it shows as selected. */
+    @Test
+    void aSessionReportsWhichArrangementIsInForce() {
+        backend = sessionOn(sceneRobot());
+
+        assertNull(backend.scenarios().active,
+                "a session nobody has given a scenario is showing the robot's own field");
+
+        // A scene handed over directly has no name to report, which is the honest answer: the
+        // alternative is a picker claiming a file is loaded when something else is on the table.
+        backend.loadScene(arrangement());
+        assertNull(backend.scenarios().active, "an unnamed arrangement is not a named one");
+    }
+
+    @Test
+    void aSessionWhoseCameraRendersNoSceneOffersNoArrangements() {
+        backend = sessionOn(robotWith(() -> FakeHardwareMap.builder().addMotor("drive").build()));
+
+        // Null rather than an empty list, so the browser draws no picker at all: a control that
+        // cannot do anything is worse than a missing one.
+        assertNull(backend.scenarios(),
+                "a robot with nothing to arrange has no arrangements, not zero of them");
+    }
+
     @Test
     void aSessionWhoseCameraRendersNoSceneRefusesAnArrangement() {
         backend = sessionOn(robotWith(() -> FakeHardwareMap.builder().addMotor("drive").build()));

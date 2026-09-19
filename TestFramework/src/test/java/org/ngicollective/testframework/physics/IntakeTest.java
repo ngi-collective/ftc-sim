@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.behavior.ImuBehaviors;
 import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
@@ -42,10 +43,11 @@ class IntakeTest {
             + "  \"version\": 1,\n"
             + "  \"name\": \"Sweeper\",\n"
             + "  \"chassis\": { \"widthMetres\": 0.38, \"lengthMetres\": 0.40,"
-            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105 },\n"
+            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105,"
+            + " \"massKilograms\": 14.0 },\n"
             + "  \"drivetrain\": { \"type\": \"mecanum\", \"wheelRadiusMetres\": 0.048,"
             + " \"gearRatio\": 1.0, \"trackWidthMetres\": 0.32, \"wheelBaseMetres\": 0.29,"
-            + " \"strafeEfficiency\": 0.8 },\n"
+            + " \"strafeEfficiency\": 0.8, \"gripCoefficient\": 0.9 },\n"
             + "  \"imu\": { \"name\": \"imu\" },\n"
             + "  \"camera\": { \"name\": \"Webcam 1\", \"forwardMetres\": 0.16,"
             + " \"leftMetres\": 0.0, \"yawDegrees\": 0.0, \"pitchDegrees\": 35.0,"
@@ -114,8 +116,8 @@ class IntakeTest {
 
     /** A world of one POLLEN ball, with the robot's intake pointed at it. */
     private FieldPhysics worldWith(FakeHardwareMap hardware, GameElement... balls) {
-        FieldPhysics physics = FieldPhysics.of(
-                Arrays.asList(balls), FieldConfig.standard(), hardware.drive());
+        FieldPhysics physics = FieldPhysics.of(Arrays.asList(balls),
+                Collections.<Structure>emptyList(), FieldConfig.standard(), robot);
         hardware.setPhysics(physics);
         return physics;
     }
@@ -144,7 +146,13 @@ class IntakeTest {
         run(hardware, 1.0);
 
         // The wheels never turned, so anything that moved was moved by the roller's surface.
-        assertEquals(0.0, hardware.drive().pose().x(), 1e-9,
+        //
+        // A millimetre rather than nothing at all: the roller now pushes back on the robot it is
+        // bolted to, so a light chassis with its brakes off does shift a little while dragging a
+        // ball in. Most of that force pair cancels once the ball is seated against the bumper --
+        // the roller pulls the ball back, the ball leans on the chassis -- which is why what is
+        // left is tens of microns. What this rules out is the robot driving.
+        assertEquals(0.0, hardware.drive().pose().x(), 1e-3,
                 "this test is about the intake, so the robot must not have driven");
         assertTrue(world.bodies().get(0).x() < startedAt - 0.01,
                 "a running intake should have pulled the ball towards the robot; it went from "

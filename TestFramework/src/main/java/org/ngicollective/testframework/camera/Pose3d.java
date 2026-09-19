@@ -141,6 +141,96 @@ public final class Pose3d {
         return new Pose3d(onField, yaw + robot.heading(), pitch, roll);
     }
 
+    /**
+     * This pose, rigidly rotated about an axis through a point: what a hinge does to everything
+     * bolted to it.
+     *
+     * <p>The HIVE's pivot is the one rotating axis on a BioBuzz field, and a tip has to carry the
+     * CELL's panels, its scoring volume and the four AprilTags on its underside together. Doing
+     * that as one rotation applied to whole poses is what makes it impossible for them to drift
+     * apart &mdash; the alternative, re-deriving each one from a tip angle, is three places to get
+     * a sign wrong and two of them only show up in a camera frame.</p>
+     *
+     * <h2>Why the angles are recovered rather than adjusted</h2>
+     *
+     * <p>{@code (yaw, pitch, roll)} is a chart, not a group: it covers the rotations with
+     * {@code |pitch| < 90°} and adding an angle to one of its three numbers only composes
+     * correctly while the result stays inside that. A CELL's tag plate starts at
+     * {@code pitch = -60°} and a 60&deg; tip takes it to -120&deg;, which is off the chart; the
+     * same rotation expressed in range is {@code yaw + 180°, pitch = -60°, roll = 180°}. Getting
+     * that wrong is not a small error: the roll is what keeps a tag row's ids in the order they
+     * are printed in, and a plate that lands mirrored renders 36h11 codewords that mostly are not
+     * codewords, so vision reports zero detections and looks like a broken detector.</p>
+     *
+     * <p>So the axes are rotated and the angles read back off them. The recovery is exact except
+     * where {@code cos(pitch)} vanishes, which is a pose pointing at the zenith; nothing on a
+     * field does, and a caller who builds one gets a yaw and roll that trade off against each
+     * other while the axes stay right.</p>
+     *
+     * @param point any point on the axis, in the same frame as this pose
+     * @param axis the axis's direction, which need not be a unit vector
+     */
+    public Pose3d rotatedAbout(Vec3 point, Vec3 axis, double radians) {
+        double length = Math.sqrt(axis.x() * axis.x() + axis.y() * axis.y() + axis.z() * axis.z());
+        if (length == 0.0) {
+            throw new IllegalArgumentException("an axis of rotation needs a direction; got " + axis);
+        }
+        double ax = axis.x() / length;
+        double ay = axis.y() / length;
+        double az = axis.z() / length;
+        double cos = Math.cos(radians);
+        double sin = Math.sin(radians);
+
+        Vec3 turned = position.minus(point);
+        Vec3 moved = rodrigues(turned, ax, ay, az, cos, sin);
+        Vec3 nose = rodrigues(forward, ax, ay, az, cos, sin);
+        Vec3 sky = rodrigues(up, ax, ay, az, cos, sin);
+
+        return fromAxes(new Vec3(point.x() + moved.x(), point.y() + moved.y(),
+                point.z() + moved.z()), nose, sky);
+    }
+
+    /**
+     * A pose from its own axes, with the three angles recovered from them.
+     *
+     * <p>{@code forward} and {@code up} must be perpendicular unit vectors; they come from
+     * rotating a pose's own, so they are. Package-private because a caller with axes in hand
+     * outside this package is a caller who has done geometry that belongs in here.</p>
+     */
+    static Pose3d fromAxes(Vec3 position, Vec3 forward, Vec3 up) {
+        double pitch = Math.asin(clamp(forward.z()));
+        double yaw = Math.atan2(forward.y(), forward.x());
+
+        // left.z and up.z are cos(pitch)*sin(roll) and cos(pitch)*cos(roll), so their ratio is the
+        // roll with the pitch divided out. left is up x forward under this convention -- the same
+        // right-handed triple the constructor builds -- and taking it from the two given axes
+        // rather than from a third argument is one fewer thing a caller can hand over inconsistent.
+        Vec3 left = new Vec3(
+                up.y() * forward.z() - up.z() * forward.y(),
+                up.z() * forward.x() - up.x() * forward.z(),
+                up.x() * forward.y() - up.y() * forward.x());
+        double roll = Math.atan2(left.z(), up.z());
+        return new Pose3d(position, yaw, pitch, roll);
+    }
+
+    /** Rodrigues' rotation of one vector about a unit axis. */
+    private static Vec3 rodrigues(Vec3 vector, double ax, double ay, double az,
+                                  double cos, double sin) {
+        double dot = ax * vector.x() + ay * vector.y() + az * vector.z();
+        double crossX = ay * vector.z() - az * vector.y();
+        double crossY = az * vector.x() - ax * vector.z();
+        double crossZ = ax * vector.y() - ay * vector.x();
+        return new Vec3(
+                vector.x() * cos + crossX * sin + ax * dot * (1.0 - cos),
+                vector.y() * cos + crossY * sin + ay * dot * (1.0 - cos),
+                vector.z() * cos + crossZ * sin + az * dot * (1.0 - cos));
+    }
+
+    /** Guards {@code asin} against a dot product that rounding has pushed a hair past one. */
+    private static double clamp(double sine) {
+        return sine > 1.0 ? 1.0 : (sine < -1.0 ? -1.0 : sine);
+    }
+
     @Override
     public String toString() {
         return String.format("%s yaw=%.1f\u00b0 pitch=%.1f\u00b0 roll=%.1f\u00b0",

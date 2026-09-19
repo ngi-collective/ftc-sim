@@ -131,9 +131,38 @@ export interface BodyBuffer {
    * {@code Date.now()} readings are the same clock.</p>
    *
    * <p>Returns an empty array until a frame has arrived, so a session whose field has never moved
-   * draws its balls from {@code sim/scene} and nothing here overrides them.</p>
+   * draws its balls from {@code sim/scene} and nothing here overrides them — and also for a frame
+   * that moved only a HIVE, which is a different thing entirely: {@link hasFrame} is how a caller
+   * tells those two apart.</p>
    */
   sample: (wallClockMillis: number) => SampledBody[];
+  /**
+   * How far each pivoting structure has swung at {@code wallClockMillis}, keyed by the structure
+   * name {@code sim/scene} gave it.
+   *
+   * <p>A map rather than a list because the consumer joins on the name and does it every animation
+   * frame: handing back an array only moves the same {@code Map} build into the render loop. The
+   * angles are absolute in the pivot's own convention — what to do with one is
+   * {@code scene/pivots.ts}' problem, not this module's.</p>
+   *
+   * <p>Interpolated linearly and never wrapped. A pivot angle is a hinge travelling a bounded
+   * sixty degrees, not a heading: the shortest-arc reasoning {@link interpolateBody} needs for a
+   * spinning ball would here be a way to invent a HIVE swinging the wrong way through its own
+   * frame.</p>
+   *
+   * <p>Empty until a frame carrying pivots has arrived, so a structure nobody has reported is
+   * drawn at the angle {@code sim/scene} published it at.</p>
+   */
+  samplePivots: (wallClockMillis: number) => Map<string, number>;
+  /**
+   * Whether the server has sent any body frame since the last {@link reset}.
+   *
+   * <p>Not the same question as an empty {@link sample}, and conflating the two is a visible bug: a
+   * frame carrying no bodies at all is ordinary now that a HIVE goes on swinging after the last
+   * ball has come to rest. Read as "nothing has ever been said" it sends every ball back to where
+   * the scenario placed it — backwards, and for as long as the HIVE keeps tipping.</p>
+   */
+  hasFrame: () => boolean;
   /**
    * Forgets every frame, so the next {@link sample} answers with nothing until the server speaks
    * again.
@@ -146,6 +175,39 @@ export interface BodyBuffer {
    * they look right the moment you touch them and wrong for as long as you do not.</p>
    */
   reset: () => void;
+}
+
+/**
+ * How far between {@code previous} and {@code latest} the sampled moment falls, or null when there
+ * is nothing to interpolate from and the newest frame is the whole answer.
+ *
+ * <p>Shared by the two samplers so the delay, the staleness cutoff and the clamp are decided once:
+ * bodies and pivots arrive in the same frame and drawing them a control cycle apart would show a
+ * ball resting against a HIVE it is not touching.</p>
+ */
+function blendFraction(
+  previous: SimBodies | null,
+  latest: SimBodies,
+  nowMillis: number,
+): number | null {
+  const target = nowMillis - INTERPOLATION_DELAY_MS;
+
+  // Nothing to interpolate from, or a gap that means the field was at rest in between: show the
+  // newest truth rather than inventing a slow journey to it.
+  if (
+    !previous ||
+    target >= latest.timestampMillis ||
+    latest.timestampMillis - previous.timestampMillis > STALE_FRAME_MS
+  ) {
+    return null;
+  }
+
+  const span = latest.timestampMillis - previous.timestampMillis;
+  if (span <= 0) return 1;
+  // Clamped for the same reason {@link interpolateBody} clamps its own: a sample older than the
+  // pair straddling it would otherwise extrapolate, and extrapolating is predicting.
+  const fraction = (target - previous.timestampMillis) / span;
+  return fraction <= 0 ? 0 : fraction >= 1 ? 1 : fraction;
 }
 
 export function createBodyBuffer(): BodyBuffer {
@@ -162,22 +224,11 @@ export function createBodyBuffer(): BodyBuffer {
       previous = null;
       latest = null;
     },
+    hasFrame: () => latest !== null,
     sample: (nowMillis) => {
       if (!latest) return [];
-      const target = nowMillis - INTERPOLATION_DELAY_MS;
-
-      // Nothing to interpolate from, or a gap that means the field was at rest in between: show
-      // the newest truth rather than inventing a slow journey to it.
-      if (
-        !previous ||
-        target >= latest.timestampMillis ||
-        latest.timestampMillis - previous.timestampMillis > STALE_FRAME_MS
-      ) {
-        return latest.bodies.map(bodyAt);
-      }
-
-      const span = latest.timestampMillis - previous.timestampMillis;
-      const fraction = span <= 0 ? 1 : (target - previous.timestampMillis) / span;
+      const fraction = blendFraction(previous, latest, nowMillis);
+      if (!previous || fraction === null) return latest.bodies.map(bodyAt);
 
       const before = new Map<number, SimBody>();
       for (const body of previous.bodies) before.set(body.id, body);
@@ -188,6 +239,29 @@ export function createBodyBuffer(): BodyBuffer {
         // moving, or has only just arrived in the world.
         return from ? interpolateBody(from, body, fraction) : bodyAt(body);
       });
+    },
+    samplePivots: (nowMillis) => {
+      const angles = new Map<string, number>();
+      if (!latest) return angles;
+      const fraction = blendFraction(previous, latest, nowMillis);
+
+      const before = new Map<string, number>();
+      if (fraction !== null && previous) {
+        for (const pivot of previous.pivots ?? []) before.set(pivot.name, pivot.angleRadians);
+      }
+
+      for (const pivot of latest.pivots ?? []) {
+        const from = before.get(pivot.name);
+        // A pivot the older frame never named has no journey either: it has only just begun to
+        // tip, so its newest angle is the only one there is.
+        angles.set(
+          pivot.name,
+          fraction === null || from === undefined
+            ? pivot.angleRadians
+            : from + (pivot.angleRadians - from) * fraction,
+        );
+      }
+      return angles;
     },
   };
 }

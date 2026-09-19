@@ -1,0 +1,24 @@
+{
+  "namespace": "sim",
+  "type": "score",
+  "payload": {
+    "redPoints": 6,
+    "bluePoints": 6,
+    "cells": [
+      {
+        "cell": "RED AUDIENCE",
+        "alliance": "red",
+        "holding": 3,
+        "points": 6
+      },
+      {
+        "cell": "BLUE SCORING",
+        "alliance": "blue",
+        "holding": 3,
+        "points": 6
+      }
+    ],
+    "redTips": 0,
+    "blueTips": 0
+  }
+}

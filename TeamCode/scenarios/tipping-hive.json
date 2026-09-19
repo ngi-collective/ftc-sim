@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "Tipping: red's CELL staged, and POLLEN in range to tip it with",
+
+  "elements": {
+    "red-nectar-1": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-2": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-3": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+
+    "pollen-1": { "kind": "POLLEN", "xMetres": -0.24, "yMetres": -1.26 },
+    "pollen-2": { "kind": "POLLEN", "xMetres": -0.32, "yMetres": -1.26 },
+    "pollen-3": { "kind": "POLLEN", "xMetres": -0.40, "yMetres": -1.26 },
+    "pollen-4": { "kind": "POLLEN", "xMetres": -0.48, "yMetres": -1.26 }
+  }
+}

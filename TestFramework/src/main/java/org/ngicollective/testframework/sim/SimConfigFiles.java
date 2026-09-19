@@ -1,9 +1,14 @@
 package org.ngicollective.testframework.sim;
 
+import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Finds the robot and field descriptions, on disk or inside the APK.
@@ -76,6 +81,37 @@ public final class SimConfigFiles {
         throw new IllegalArgumentException("no scenario \"" + name + "\": there is no file at "
                 + file + " and no classpath resource \"" + SCENARIO_DIRECTORY + "/" + fileName
                 + "\"");
+    }
+
+    /**
+     * Every scenario on disk, by the name {@link #scenario(String)} takes, sorted.
+     *
+     * <p>Files only, unlike every other read here, and the asymmetry is deliberate: a classpath
+     * cannot be enumerated portably &mdash; a jar can be walked, a directory can be listed, an
+     * APK is neither &mdash; so a packaged build would answer with a plausible-looking short list
+     * rather than an honest one. The one caller that needs a list is the dashboard, which always
+     * runs from a source tree; a packaged build still <em>loads</em> any scenario by name.</p>
+     *
+     * <p>Empty when the directory is missing, because a team that has written no scenarios has
+     * none rather than having a broken installation.</p>
+     */
+    public static List<String> scenarios() {
+        Path directory = scenarioDirectory();
+        if (!Files.isDirectory(directory)) {
+            return Collections.emptyList();
+        }
+        List<String> names = new ArrayList<>();
+        try (Stream<Path> files = Files.list(directory)) {
+            for (Path file : (Iterable<Path>) files.sorted()::iterator) {
+                String fileName = file.getFileName().toString();
+                if (Files.isRegularFile(file) && fileName.endsWith(EXTENSION)) {
+                    names.add(fileName.substring(0, fileName.length() - EXTENSION.length()));
+                }
+            }
+        } catch (IOException unreadable) {
+            throw new IllegalStateException("cannot list scenarios in " + directory, unreadable);
+        }
+        return Collections.unmodifiableList(names);
     }
 
     /**

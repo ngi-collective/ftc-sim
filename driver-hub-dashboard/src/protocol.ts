@@ -399,8 +399,9 @@ export function parseSavedCameraMount(payload: unknown): { path: string } | null
 
 /**
  * What the simulated world holds besides the robot, as the server sees it: the AprilTags the
- * camera can detect and the game elements on the floor. Sent on connect and whenever the scene
- * changes, so the field view can draw exactly what the camera view is looking at.
+ * camera can detect, the game elements on the floor and the structures bolted to the field. Sent
+ * on connect and whenever the scene changes, so the field view can draw exactly what the camera
+ * view is looking at.
  *
  * <p>Geometry arrives finished. The server sends the four corners it derived the tag's pose from
  * and the pattern it printed on the tag, rather than a pose and a family id, because a mirrored
@@ -408,9 +409,10 @@ export function parseSavedCameraMount(payload: unknown): { path: string } | null
  * plausible here while being undetectable there, which is the disagreement this message exists to
  * remove.</p>
  *
- * <p>Java {@code ScenePayload}, whose nested {@code Tag}, {@code Corner} and {@code Element} are
- * flattened here with the {@code Scene} prefix their outer class gives them: TypeScript has no
- * nested interface scope, and a bare {@code Element} would shadow the DOM global of that name.</p>
+ * <p>Java {@code ScenePayload}, whose nested {@code Tag}, {@code Corner}, {@code Element},
+ * {@code Structure} and {@code Solid} are flattened here with the {@code Scene} prefix their outer
+ * class gives them: TypeScript has no nested interface scope, and a bare {@code Element} would
+ * shadow the DOM global of that name.</p>
  */
 export interface SceneCorner {
   x: number;
@@ -436,6 +438,17 @@ export interface SceneTag {
    * family's bit tables live.
    */
   cells: string[];
+  /**
+   * The structure whose pivot carries this tag, named as {@link SceneStructure#name} names it, or
+   * null when the tag is bolted to the field and never moves.
+   *
+   * <p>A name rather than an index: the two tipping HIVEs are two structures, and list order is
+   * not something {@code sim/scene} promises. Null rather than absent because this protocol
+   * serialises nulls on purpose &mdash; see {@link SimScenarios#active} &mdash; and optional
+   * besides, since a server predating tipping HIVEs sends neither. Both read as falsy, which is
+   * all any of this file's readers test.</p>
+   */
+  attachedTo?: string | null;
 }
 
 /** A game element: a coloured sphere at a field-frame centre. Java {@code ScenePayload.Element}. */
@@ -456,9 +469,113 @@ export interface SceneElement {
   blue: number;
 }
 
+/**
+ * One primitive a structure is drawn from: a box or an open-ended cylinder, posed in the field
+ * frame and coloured. Java {@code ScenePayload.Solid}.
+ *
+ * <p>{@code shape} is the discriminator, and <em>every</em> number is always on the wire — the
+ * pair the other shape has no use for arrives as zero. That is deliberate: Java writes one flat
+ * record, so nothing here has to decide which arm of a union it was handed, and a reader that
+ * consults the wrong pair draws a solid of size zero rather than a plausible wrong one. A box is
+ * sized by {@code lengthX/lengthY/lengthZ}; a cylinder by {@code radiusMetres} and
+ * {@code lengthMetres}.</p>
+ *
+ * <p><strong>A cylinder's axis is its own local {@code +Z}</strong>, and a cylinder is an
+ * <em>open-ended shell with no end caps</em> — it models a ring or a length of pipe, not a rod. A
+ * FLOWER is the reason: capping its tube would hide the POLLEN sitting inside it, which is the one
+ * thing anyone who opened this view is looking for. Three.js builds cylinders about {@code Y}, so
+ * {@code scene/solids.ts} owns that correction and no component repeats it.</p>
+ */
+export interface SceneSolid {
+  shape: 'box' | 'cylinder';
+  /** Field-frame metres, and the <em>centre</em> of the solid — not a corner, not an end cap. */
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Which way it is turned, in the one rotation convention this codebase has and the same angles
+   * the camera mount is quoted in: yaw CCW-positive about field {@code +Z}, then pitch positive
+   * upward, then roll about the solid's own {@code +X}, which is to say Java {@code Pose3d}'s
+   * {@code Rz(yaw) * Ry(-pitch) * Rx(roll)}. Rolling last is what makes roll spin a solid in place
+   * rather than aim it somewhere else.
+   */
+  yawDegrees: number;
+  pitchDegrees: number;
+  rollDegrees: number;
+  /** A box's full extents along its own axes, metres. Zero on a cylinder. */
+  lengthX: number;
+  lengthY: number;
+  lengthZ: number;
+  /** A cylinder's radius, and its extent along its own {@code +Z}, metres. Zero on a box. */
+  radiusMetres: number;
+  lengthMetres: number;
+  /** 0-255, exactly as {@link SceneElement} carries a ball's colour. */
+  red: number;
+  green: number;
+  blue: number;
+}
+
+/**
+ * The hinge a structure swings on. Java {@code ScenePayload.Pivot}.
+ *
+ * <p>A point on the axis and a unit direction along it, both in the field frame, plus the angle
+ * the published {@link SceneStructure#solids} are <em>already drawn at</em>. That last field is
+ * the whole reason this is not just an axis: a live angle equal to it means "draw exactly what was
+ * sent", so a renderer turns the group by the <em>difference</em>. Applying the live angle as an
+ * absolute rotation tips the structure twice over — and at the small angles a HIVE spends most of
+ * a match at, twice over still looks almost right.</p>
+ */
+export interface ScenePivot {
+  /** A point on the axis, field-frame metres. */
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * A unit vector along the axis, field frame, with the rotation CCW-positive about it. Always
+   * {@code (1, 0, 0)} for a HIVE today, which is not a promise: it comes off the wire because the
+   * next hinge on this field need not be parallel to the audience wall.
+   */
+  axisX: number;
+  axisY: number;
+  axisZ: number;
+  /** The angle, radians, that {@link SceneStructure#solids} were posed at when this was sent. */
+  angleRadians: number;
+}
+
+/**
+ * One piece of field furniture — the four FLOWERs today, the HIVE when it lands — as the posed
+ * primitives that draw it. Java {@code ScenePayload.Structure}.
+ *
+ * <p>Nothing about this is computed in the browser, and that is the whole point of publishing it:
+ * the coordinates are CAD measurements, and retyping thirty inch-denominated numbers into
+ * TypeScript is the same class of mistake as a mirrored tag — plausible on screen, wrong everywhere
+ * it matters. See {@code docs/adr/0004-structures-are-published-as-posed-primitives.md}.</p>
+ *
+ * <p>These are the drawing, not the colliders. The physics world builds its own from the same
+ * dimensions and the two are not meant to agree in detail: a FLOWER is one cylinder drawn and a
+ * ring of boxes collided with, because ode4j has no cylinder-versus-cylinder collider at all.</p>
+ *
+ * <p>A structure that moves carries a {@link pivot}: the {@link solids} are still absolute
+ * field-frame poses, drawn at the pivot's own {@code angleRadians}, and the live angle arrives
+ * through {@link SimBodies#pivots}. A structure without one — the A-frame the HIVEs hang on, the
+ * four FLOWERs — never moves at all.</p>
+ */
+export interface SceneStructure {
+  /** As the server names it, e.g. {@code FLOWER RED AUDIENCE}: unique within a scene. */
+  name: string;
+  solids: SceneSolid[];
+  /**
+   * The hinge this structure swings on, or null when it is bolted to the field. See
+   * {@link ScenePivot} for why the angle it was drawn at travels with it. Null rather than absent
+   * for {@link SceneTag#attachedTo}'s reason, and optional for the same one too.
+   */
+  pivot?: ScenePivot | null;
+}
+
 export interface ScenePayload {
   tags: SceneTag[];
   elements: SceneElement[];
+  structures: SceneStructure[];
 }
 
 /**
@@ -479,6 +596,19 @@ export interface SimBody {
 }
 
 /**
+ * How far one pivoting structure has swung, right now. Java {@code BodiesPayload.Pivot}.
+ *
+ * <p>Keyed by structure name, not by index, because there are two tipping HIVEs and the name is
+ * the stable thing — {@code sim/scene} does not promise list order. The angle is absolute in the
+ * pivot's own convention, so it is compared against {@link ScenePivot#angleRadians} rather than
+ * accumulated.</p>
+ */
+export interface SimPivot {
+  name: string;
+  angleRadians: number;
+}
+
+/**
  * Where the moving bodies on the field are. Java {@code BodiesPayload}.
  *
  * <p>Arrives only on the control cycles that moved something, so silence means a field at rest
@@ -488,6 +618,155 @@ export interface SimBodies {
   timestampMillis: number;
   elapsedSeconds: number;
   bodies: SimBody[];
+  /**
+   * Where the tipping structures are, or absent from a server that predates them.
+   *
+   * <p>Sibling to {@link bodies} and under the same "only while something moved" gate, so either
+   * list may be empty while the other is not: a HIVE goes on swinging after the last ball has come
+   * to rest, and those frames carry no bodies at all.</p>
+   */
+  pivots?: SimPivot[];
+}
+
+/**
+ * One upward-facing CELL of the HIVE, and what it is currently worth. Java
+ * {@code ScorePayload.Cell}.
+ *
+ * <p>{@link cell} is the CELL's name as the field spells it — {@code RED SCORING},
+ * {@code RED AUDIENCE}, {@code BLUE AUDIENCE}, {@code BLUE SCORING}. It is a label to show a
+ * driver, not a key: which alliance the CELL scores for is {@link alliance}, and reading it back
+ * out of the name would be a second, weaker copy of a fact the server already sent.</p>
+ *
+ * <p>{@link holding} counts the game elements in the CELL, POLLEN and NECTAR alike, and
+ * {@link points} is twice it — the manual's two points per element. Both are sent rather than one
+ * derived here, so a rule change moves in the Java that owns it instead of in a browser that
+ * guessed the multiplier.</p>
+ */
+export interface SimScoreCell {
+  cell: string;
+  alliance: Alliance;
+  holding: number;
+  points: number;
+}
+
+/**
+ * What the HIVE is holding right now, and what it would score. Java {@code ScorePayload}.
+ *
+ * <p>{@link cells} lists only the upward-facing CELLs — normally one per alliance. Game manual
+ * §10.5.1 scores "any POLLEN and/or NECTAR left in an upward-facing CELL", so a CELL turned the
+ * other way cannot score and is absent from the list entirely rather than present as a zero: a
+ * zero would read as an empty CELL still waiting to be filled.</p>
+ *
+ * <p>Unlike {@code sim/bodies} this one is in the connect greeting. Nothing else on the wire lets
+ * the browser work a score out for itself — the body stream says where balls are, not which CELL
+ * they are resting in — so a browser that only learned the score on the next change would show
+ * nothing through a whole match that scored early. It arrives again on OpMode init, on a scenario
+ * load, and on the control cycles where the numbers actually moved, which is nothing like the
+ * 50 Hz body traffic.</p>
+ */
+export interface SimScore {
+  redPoints: number;
+  bluePoints: number;
+  cells: SimScoreCell[];
+  /**
+   * Completed HIVE TIPs, cumulative over the match, worth 20 each inside the totals above.
+   *
+   * <p>Sent beside the totals because a total alone is ambiguous at the moment a driver cares
+   * about: a TIP empties the CELL that earned it, so six POLLEN worth 12 becoming one TIP is a
+   * total that went up by 8 and a CELL that went to zero. Optional because a server from before
+   * the HIVE could tip sends neither, and a readout showing a dash is better than one showing
+   * zero TIPs it was never told about.</p>
+   */
+  redTips?: number;
+  blueTips?: number;
+}
+
+/**
+ * The score out of a {@code sim/score} payload, or null when the frame does not carry one.
+ *
+ * <p>Checked rather than asserted, unlike the sim frames beside it. The strip maps over
+ * {@link SimScore.cells} to build its tooltip, and it is drawn in every view, so a frame from a
+ * server that renamed or dropped the key would land as {@code undefined.map} and take the whole
+ * page down — the same failure a {@code device/state} without its devices used to cause, and the
+ * reason {@link parseDeviceStates} exists. The totals are checked for finiteness for
+ * {@link parseCameraMount}'s reason: a {@code NaN} that reaches the readout stays on screen
+ * reading "NaN" until the next change, where keeping the last honest score costs nothing.</p>
+ *
+ * <p>Only the wrapper is checked, not each CELL, as with {@link parseOpModeList}: the rows are
+ * composed by the same tick that builds the Java record, and a bad one shows as a blank tooltip
+ * line rather than a dead page.</p>
+ */
+export function parseSimScore(payload: unknown): SimScore | null {
+  const message = fields(payload);
+  if (
+    !message ||
+    !Number.isFinite(message.redPoints) ||
+    !Number.isFinite(message.bluePoints) ||
+    !Array.isArray(message.cells)
+  ) {
+    return null;
+  }
+  return {
+    redPoints: message.redPoints as number,
+    bluePoints: message.bluePoints as number,
+    cells: message.cells as SimScoreCell[],
+    // Passed through only when they are numbers, so an older server's absent pair stays absent
+    // rather than becoming a zero the readout cannot tell from "no tips yet".
+    ...(Number.isFinite(message.redTips) ? { redTips: message.redTips as number } : {}),
+    ...(Number.isFinite(message.blueTips) ? { blueTips: message.blueTips as number } : {}),
+  };
+}
+
+/**
+ * The staged fields the server can load, and the one it is showing now. Java
+ * {@code ScenariosPayload}.
+ *
+ * <p>{@link scenarios} are bare names — {@code match-staging}, not {@code match-staging.json} —
+ * sorted by the server, and legitimately empty on a machine whose scenario directory holds nothing
+ * yet. {@link directory} is absolute for {@link parseSavedCameraMount}'s reason: the browser may be
+ * nowhere near the machine holding the files, and this is the path someone types to add one.</p>
+ *
+ * <p>{@link active} is null for the robot's own field — the official BioBuzz field with nothing
+ * staged on it, which is what a session started with no flag shows. Null is an answer here, not the
+ * absence of one.</p>
+ */
+export interface SimScenarios {
+  scenarios: string[];
+  directory: string;
+  active: string | null;
+}
+
+/**
+ * The scenario list out of a {@code sim/scenarios} payload, or null when the frame does not carry
+ * one.
+ *
+ * <p>Checked rather than asserted, and checked the way {@link parseLayoutList} is, because it is the
+ * same kind of frame: a directory listing, where a name that is not a string is a file someone put
+ * on disk rather than a bug in the tick that built the record. Such a name is dropped and the rest
+ * of the frame kept — failing the whole thing would cost the picker every other scenario over one
+ * odd file — while a missing {@code scenarios} key fails it, since the picker maps over the list on
+ * every render.</p>
+ *
+ * <p>{@link SimScenarios.active} is accepted as null and rejected as absent. The two are one
+ * {@code ==} apart in JavaScript and opposites here: null is the server saying the robot's own field
+ * is loaded, while a missing key is a server that has stopped reporting which scenario is on, and
+ * reading that as "own field" would leave the picker confidently naming the wrong entry.</p>
+ */
+export function parseSimScenarios(payload: unknown): SimScenarios | null {
+  const message = fields(payload);
+  if (
+    !message ||
+    !Array.isArray(message.scenarios) ||
+    typeof message.directory !== 'string' ||
+    !(typeof message.active === 'string' || message.active === null)
+  ) {
+    return null;
+  }
+  return {
+    scenarios: message.scenarios.filter((name): name is string => typeof name === 'string'),
+    directory: message.directory,
+    active: message.active,
+  };
 }
 
 /** What the clock is doing before the server has said otherwise: real time, running, red alliance. */

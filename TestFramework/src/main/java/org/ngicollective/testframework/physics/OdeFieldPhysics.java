@@ -1,24 +1,32 @@
 package org.ngicollective.testframework.physics;
 
 import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.Pivot;
+import org.ngicollective.testframework.camera.Pose3d;
+import org.ngicollective.testframework.camera.Solid;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.camera.Vec3;
+import org.ngicollective.testframework.sim.Chassis;
 import org.ngicollective.testframework.sim.ChassisConfig;
 import org.ngicollective.testframework.sim.ChassisVelocity;
-import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.LauncherConfig;
 import org.ngicollective.testframework.sim.Pose2d;
 import org.ngicollective.testframework.sim.RobotConfig;
 import org.ngicollective.testframework.sim.SensorConfig;
 import org.ngicollective.testframework.sim.ServoConfig;
 import org.ngicollective.testframework.sim.VolumeConfig;
-import org.ode4j.math.DQuaternion;
+import org.ode4j.math.DMatrix3;
 import org.ode4j.math.DQuaternionC;
+import org.ode4j.math.DVector3;
 import org.ode4j.math.DVector3C;
 import org.ode4j.ode.DBody;
 import org.ode4j.ode.DBox;
 import org.ode4j.ode.DContact;
 import org.ode4j.ode.DContactBuffer;
 import org.ode4j.ode.DGeom;
+import org.ode4j.ode.DJoint;
+import org.ode4j.ode.DHingeJoint;
 import org.ode4j.ode.DJointGroup;
 import org.ode4j.ode.DMass;
 import org.ode4j.ode.DRay;
@@ -39,7 +47,8 @@ import java.util.Map;
  * Rigid-body physics for the field, on ode4j.
  *
  * <p>Balls are spheres, the floor and the perimeter are static geometry, and the robot is a
- * kinematic box dragged to wherever the drive model says it is. Everything is in the FTC field
+ * dynamic box driven by what its wheels can grip &mdash; see {@link OdeChassis}. Everything is in
+ * the FTC field
  * frame &mdash; metres, origin at field centre, {@code +Z} up &mdash; so gravity is
  * {@code -Z} and no coordinates are converted anywhere in this class. A solver working in its own
  * frame is a conversion at every read and write, and a sign error there looks exactly like broken
@@ -183,22 +192,32 @@ final class OdeFieldPhysics implements FieldPhysics {
     private final DJointGroup contactGroup;
     private final DContactBuffer contacts = new DContactBuffer(MAX_CONTACTS);
     private final List<Ball> balls;
-    private final DriveModel drive;
+    /** The robot's own numbers, or null when the session's robot has no drivetrain. */
+    private final RobotConfig robotConfig;
+
+    /** The robot in this world, or null when it has no drivetrain and so no place on the field. */
+    private final OdeChassis chassis;
 
     /** The sweeping surfaces this robot carries, by the name their servo is configured under. */
     private final Map<String, Roller> rollers = new LinkedHashMap<>();
 
-    /** The robot's collision box, or null when the session's robot has no drivetrain. */
-    private final DBody robot;
+    /** The flywheel launchers it carries, by the name of the motor that spins each one. */
+    private final Map<String, Launcher> launchers = new LinkedHashMap<>();
+
+    /** The structures that can turn: a HIVE each, on a competition field. */
+    private final List<Hinge> hinges = new ArrayList<>();
+
+    /**
+     * The floor slab, kept so the chassis can be excluded from scraping along it: see
+     * {@link #isTheRobotOnTheFloor}.
+     */
+    private final DBox floor;
 
     /** Simulated time handed over but not yet stepped, in whole nanoseconds; see {@link #STEP_NANOS}. */
     private long pendingNanos;
 
     /** Whether the last {@link #advance} left anything somewhere new; see {@link #moving()}. */
     private boolean movedLastTick;
-
-    /** Reused across ticks so a stepping world allocates nothing per tick. */
-    private final DQuaternion heading = new DQuaternion();
 
     /**
      * The beam every distance sensor is measured with, outside the space so the ordinary collision
@@ -220,9 +239,10 @@ final class OdeFieldPhysics implements FieldPhysics {
         OdeHelper.initODE2(0);
     }
 
-    OdeFieldPhysics(List<GameElement> arrangement, FieldConfig field, DriveModel drive) {
+    OdeFieldPhysics(List<GameElement> arrangement, List<Structure> structures, FieldConfig field,
+                    RobotConfig robot) {
 
-        this.drive = drive;
+        this.robotConfig = robot;
         this.world = OdeHelper.createWorld();
         this.space = OdeHelper.createHashSpace();
         this.contactGroup = OdeHelper.createJointGroup();
@@ -234,18 +254,177 @@ final class OdeFieldPhysics implements FieldPhysics {
         world.setContactMaxCorrectingVel(2.0);
         world.setQuickStepNumIterations(20);
 
-        buildFloor(field);
+        this.floor = buildFloor(field);
         buildPerimeter(field);
+        for (Structure structure : structures) {
+            buildStructure(structure);
+        }
 
         this.balls = new ArrayList<>(arrangement.size());
         for (int id = 0; id < arrangement.size(); id++) {
             balls.add(new Ball(id, arrangement.get(id)));
         }
 
-        this.robot = drive == null ? null : buildRobot(drive.robot().chassis());
-        if (robot != null) {
-            buildRollers(drive.robot());
-            carryRobot();
+        this.chassis = robot == null ? null : new OdeChassis(world, space, robot, field);
+        if (chassis != null) {
+            buildRollers(robot);
+            buildLaunchers(robot);
+            chassis.onPlaced(this::evictBallsFromFootprint);
+        }
+    }
+
+    /**
+     * How close to a stop counts as having arrived there, for the purpose of counting TIPs.
+     *
+     * <p>A degree. The solver satisfies a joint stop to within a fraction of one, and a HIVE
+     * pressed against its damper by the hold torque sits a hair short of the limit forever, so an
+     * exact comparison would count no TIPs at all.</p>
+     */
+    private static final double ARRIVED_RADIANS = Math.toRadians(1.0);
+
+    /**
+     * Marks a geom as part of the field's own furniture; see {@link #isFieldStructure}.
+     *
+     * <p>A marker on the geom rather than a set to look pairs up in, because this is read inside
+     * the collision callback for every overlapping pair in the world.</p>
+     */
+    private static final Object FIELD_STRUCTURE = new Object();
+
+    /**
+     * One structure's collision geometry: static geoms straight off its own primitives, unless it
+     * turns on something.
+     *
+     * <p>Static is the case that matters for almost all of it: a FLOWER is bolted to the
+     * perimeter, and a geom with no body is the cheapest thing in the world, since the collision
+     * sweep skips any pair of them and twenty-odd little boxes around a FLOWER's rim cost contacts
+     * only against the balls and the robot that actually reach them.</p>
+     *
+     * <p>Built from {@link Structure#collided()} and never from what the structure draws. The
+     * rim of a FLOWER is one open cylinder as a drawing and a dozen boxes here, because ode4j's
+     * cylinders are solid and a solid one would plug the hole a robot is shooting POLLEN
+     * through.</p>
+     */
+    private void buildStructure(Structure structure) {
+        Pivot pivot = structure.pivot();
+        DBody body = pivot == null ? null : buildPivotBody(structure.name(), pivot);
+
+        for (Solid solid : structure.collided()) {
+            DGeom geom = solid.shape() == Solid.Shape.BOX
+                    ? OdeHelper.createBox(space,
+                            solid.lengthX(), solid.lengthY(), solid.lengthZ())
+                    : OdeHelper.createCylinder(space,
+                            solid.radiusMetres(), solid.lengthMetres());
+            geom.setData(FIELD_STRUCTURE);
+
+            Pose3d pose = solid.pose();
+            Vec3 at = pose.position();
+
+            // A rotation's columns are the geom's own axes in world coordinates, and a Solid's
+            // axes are exactly forward/left/up. A cylinder's axis is its local +Z in both
+            // conventions, so a ring lying flat here needs no correction anywhere.
+            //
+            // Written out by rows, because DMatrix3.setCol does not set a column: ode4j stores
+            // ODE's row-major dMatrix3, so setCol(i, v) writes row i, and assigning
+            // forward/left/up through it installs the transpose. Every FLOWER survived that for
+            // three reasons worth writing down, since between them they hid it completely. A
+            // solid's position is set separately, so only its turn was ever wrong. Transposing a
+            // yaw-only rotation gives a yaw of -yaw, which is the identity for the many solids at
+            // yaw zero. And a FLOWER's twelve rim boxes stayed where they were and only faced the
+            // wrong way, which still closes a ring of one-inch chords against a 2.8 in ball,
+            // while an upright cylinder's axis is +Z either way round.
+            //
+            // The first solid that leaned was an A-frame leg, whose collider ended up somewhere a
+            // ball fell straight past. The nine arguments below are in (row, column) order, so
+            // each line here is one row and each axis reads downward as one column.
+            DMatrix3 rotation = new DMatrix3(
+                    pose.forward().x(), pose.left().x(), pose.up().x(),
+                    pose.forward().y(), pose.left().y(), pose.up().y(),
+                    pose.forward().z(), pose.left().z(), pose.up().z());
+
+            if (body == null) {
+                geom.setPosition(at.x(), at.y(), at.z());
+                geom.setRotation(rotation);
+            } else {
+                // Attached to the body, so the pose becomes an offset from it: the body sits on
+                // the pivot with no rotation of its own at the angle the structure was built at,
+                // which makes each offset the solid's own field pose less the pivot point. Set
+                // after setBody, which resets any offset already on the geom.
+                geom.setBody(body);
+                geom.setOffsetPosition(at.x() - pivot.point().x(), at.y() - pivot.point().y(),
+                        at.z() - pivot.point().z());
+                geom.setOffsetRotation(rotation);
+            }
+        }
+    }
+
+    /**
+     * The body a pivoting structure's geometry hangs off, hinged to the field.
+     *
+     * <p>The body sits <em>on</em> the pivot and carries its centre of mass there, which is what
+     * makes gravity produce no torque about the axis: the weight goes straight into the anchor.
+     * That is deliberate and it is the whole model &mdash; see {@link Pivot} for why a HIVE's
+     * measured overhang cannot be what holds it &mdash; so the only things that can turn one are
+     * the hold torque, the damper, and whatever hits it.</p>
+     *
+     * <p>The inertia is the same figure about all three axes. Only the one about the hinge can
+     * ever be felt, because the joint removes the other five degrees of freedom, and inventing a
+     * plausible-looking tensor for the two nobody can observe would be five more numbers to keep
+     * consistent with a geometry that is already only an effective model.</p>
+     */
+    private DBody buildPivotBody(String name, Pivot pivot) {
+        DBody body = OdeHelper.createBody(world);
+        body.setPosition(pivot.point().x(), pivot.point().y(), pivot.point().z());
+
+        DMass mass = OdeHelper.createMass();
+        double inertia = pivot.inertiaKilogramMetresSquared();
+        mass.setParameters(pivot.massKilograms(), 0.0, 0.0, 0.0,
+                inertia, inertia, inertia, 0.0, 0.0, 0.0);
+        body.setMass(mass);
+
+        DHingeJoint joint = OdeHelper.createHingeJoint(world);
+        // To the static environment, which is the A-frame: a HIVE is held by a field that cannot
+        // be moved, so there is no second body for the reaction to go into.
+        joint.attach(body, null);
+        joint.setAnchor(pivot.point().x(), pivot.point().y(), pivot.point().z());
+        joint.setAxis(pivot.axis().x(), pivot.axis().y(), pivot.axis().z());
+
+        // Stops are relative to the angle the joint was created at, which is the angle the
+        // structure's geometry was built at. They are the manual's dampers: reaching one is both
+        // halves of its definition of a completed TIP at once.
+        joint.setParamLoStop(pivot.lowRadians() - pivot.angleRadians());
+        joint.setParamHiStop(pivot.highRadians() - pivot.angleRadians());
+        // No bounce: a HIVE arriving at its damper stays there. With any, one hard shot could
+        // rebound over centre and score two TIPs.
+        joint.setParamBounce(0.0);
+        // And a stop that does not give. A compliant one lets a load below the hold torque push
+        // the HIVE a few degrees off its damper, and a few degrees is all it takes: the hold falls
+        // away towards the middle while the balls inside roll outwards as the CELL flattens, so
+        // anything that leaves the stop at all runs away. That put the tip threshold about an
+        // eighth below the hold torque and made it a property of the solver's error correction
+        // rather than of the number this class states.
+        joint.setParam(DJoint.PARAM_N.dParamStopERP1, 1.0);
+        joint.setParam(DJoint.PARAM_N.dParamStopCFM1, 0.0);
+
+        hinges.add(new Hinge(name, pivot, joint));
+        return body;
+    }
+
+    /**
+     * Holds every pivoting structure in place, or lets it go, once per solver step.
+     *
+     * <p>Two torques: the bi-stable hold, which is what "enough POLLEN or NECTAR" has to beat, and
+     * the damper, which is viscous and is what stops a tip from accelerating the whole way round
+     * and slamming. Everything else that turns a HIVE is a contact the solver worked out for
+     * itself &mdash; the weight of the balls resting in a raised CELL, and the impact of the next
+     * one arriving. That is the point of hinging it rather than scripting the tip: nothing here
+     * decides that a tip has happened.</p>
+     */
+    private void driveHinges() {
+        for (Hinge hinge : hinges) {
+            double angle = hinge.angle();
+            double torque = hinge.pivot.holdAt(angle)
+                    - hinge.pivot.dampingNewtonMetreSecondsPerRadian() * hinge.joint.getAngleRate();
+            hinge.joint.addTorque(torque);
         }
     }
 
@@ -276,6 +455,22 @@ final class OdeFieldPhysics implements FieldPhysics {
     }
 
     /**
+     * A throwing zone per launcher: where the wheel is, how hard it grips, and where it points.
+     *
+     * <p>The same shape as {@link #buildRollers} and for the same reason &mdash; a mechanism is a
+     * region of space with a state, not a body &mdash; but the two do opposite things to what they
+     * find. A roller adds a force and lets the world argue with it. A launcher sets a velocity,
+     * because the few centimetres over which a flywheel accelerates a ball are below anything this
+     * step size can resolve: at 250&nbsp;Hz a ball leaving at 7&nbsp;m/s moves 28&nbsp;mm in a
+     * step, so an acceleration modelled as a force would have to happen inside one anyway.</p>
+     */
+    private void buildLaunchers(RobotConfig configured) {
+        for (LauncherConfig launcher : configured.launchers().values()) {
+            launchers.put(launcher.motorName(), new Launcher(launcher));
+        }
+    }
+
+    /**
      * Drags whatever is inside a running sweep towards the robot, once per solver step.
      *
      * <p>A force rather than a velocity, so the ball is still something the rest of the world can
@@ -285,10 +480,10 @@ final class OdeFieldPhysics implements FieldPhysics {
      * one a ball pinned against the chassis would be crushed into it.</p>
      */
     private void driveSweeps() {
-        if (drive == null) {
+        if (chassis == null) {
             return;
         }
-        Pose2d pose = drive.pose();
+        Pose2d pose = chassis.pose();
         double cos = Math.cos(pose.heading());
         double sin = Math.sin(pose.heading());
 
@@ -317,6 +512,94 @@ final class OdeFieldPhysics implements FieldPhysics {
                     force = -traction;
                 }
                 ball.push(force * cos, force * sin);
+
+                // And the same push back on the robot, which is what a light robot being pulled
+                // towards the ball it is intaking actually feels. While the chassis could not be
+                // moved by anything this was simply missing, and a roller that pushes a ball
+                // without being pushed back is the one thing in this world that broke Newton.
+                chassis.addReaction(-force * cos, -force * sin,
+                        roller.sweep.forwardMetres(), roller.sweep.leftMetres());
+            }
+        }
+    }
+
+    /**
+     * Throws whatever is inside a spinning launcher, once per solver step.
+     *
+     * <p>Exit speed is the wheel's surface speed times what the mechanism can transfer, so a ball
+     * fed to a flywheel that has not finished spinning up dribbles out instead of flying &mdash;
+     * which is the mistake this whole seam exists to let an OpMode make. Nothing decides that a
+     * shot has "happened": a ball in the mouth is given the velocity the wheel can give it, on
+     * every step it is still in there, which is what a hood accelerating a ball over its length
+     * amounts to. The second and third of those steps add nothing, because by then the ball is
+     * already going that fast.</p>
+     *
+     * <p>Where the ball leaves from is moving too, so the launch point's own velocity is added:
+     * the chassis's, plus what its turn rate contributes at the mouth's lever arm. A shot taken
+     * while driving forwards really does go further, and one taken mid-spin really does pull off
+     * line, and both are things a driver has to learn rather than artefacts to design away.</p>
+     */
+    private void driveLaunchers() {
+        if (chassis == null) {
+            return;
+        }
+        Pose2d pose = chassis.pose();
+        double cos = Math.cos(pose.heading());
+        double sin = Math.sin(pose.heading());
+        ChassisVelocity carried = chassis.velocity();
+
+        for (Launcher launcher : launchers.values()) {
+            // A wheel that is stopped, or running the wrong way, throws nothing. Skipped rather
+            // than launched at zero: setting a resting ball's velocity to nothing every step would
+            // pin it wherever it was, including in mid-air.
+            if (launcher.surfaceMetresPerSecond <= 0.0) {
+                continue;
+            }
+            VolumeConfig mouth = launcher.mouth;
+            double exit = launcher.surfaceMetresPerSecond * launcher.transferEfficiency;
+
+            // The aim, in the field frame. Yaw turns with the robot; pitch does not, because the
+            // launcher is bolted to a chassis this world keeps flat on the tiles.
+            double aim = pose.heading() + Math.toRadians(launcher.exitYawDegrees);
+            double pitch = Math.toRadians(launcher.exitPitchDegrees);
+            double flat = exit * Math.cos(pitch);
+            double upward = exit * Math.sin(pitch);
+
+            // The mouth's own velocity: the chassis's, plus omega cross r for a mouth held out
+            // ahead of the centre it is spinning about.
+            double alongNose = carried.forwardMetresPerSecond()
+                    - carried.yawRadiansPerSecond() * mouth.leftMetres();
+            double alongLeft = carried.lateralMetresPerSecond()
+                    + carried.yawRadiansPerSecond() * mouth.forwardMetres();
+
+            double velocityX = flat * Math.cos(aim) + alongNose * cos - alongLeft * sin;
+            double velocityY = flat * Math.sin(aim) + alongNose * sin + alongLeft * cos;
+
+            for (Ball ball : balls) {
+                if (!ball.inside(pose, mouth)) {
+                    continue;
+                }
+                // Copied out, not held onto. ode4j's getLinearVel() hands back a live view of the
+                // body's own vector, so reading it after the launch reads the launch: the first
+                // version of this took the difference against a "before" that had already become
+                // the after, worked out an impulse of exactly zero, and threw balls across the
+                // field off a robot that never felt a thing.
+                DVector3C before = ball.velocity();
+                double wasX = before.get0();
+                double wasY = before.get1();
+                ball.launch(velocityX, velocityY, upward);
+
+                // Newton, as the roller has it: the momentum the ball leaves with came out of the
+                // robot. As a force over this step, because that is what a solver takes, and only
+                // the horizontal half of it -- the vertical goes into the tiles through a chassis
+                // this world holds flat, which is what a launcher bolted to a robot standing on
+                // the floor does with it. Worth having even though 22 g at 7 m/s barely moves
+                // 14 kg: the force pair is what stays true when somebody bolts this launcher to a
+                // 3 kg robot, and the roller went a year without it.
+                double forceX = ball.mass * (velocityX - wasX) / STEP_SECONDS;
+                double forceY = ball.mass * (velocityY - wasY) / STEP_SECONDS;
+                chassis.addReaction(-forceX, -forceY,
+                        mouth.forwardMetres(), mouth.leftMetres());
             }
         }
     }
@@ -334,10 +617,11 @@ final class OdeFieldPhysics implements FieldPhysics {
      * <p>Deep and wide for the same reason the walls are: this only works while the body is nearer
      * the face it came in through than any other.</p>
      */
-    private void buildFloor(FieldConfig field) {
+    private DBox buildFloor(FieldConfig field) {
         double span = field.sizeMetres() + 4.0 * WALL_THICKNESS_METRES;
         DBox slab = OdeHelper.createBox(space, span, span, FLOOR_DEPTH_METRES);
         slab.setPosition(0.0, 0.0, -FLOOR_DEPTH_METRES / 2.0);
+        return slab;
     }
 
     /**
@@ -367,64 +651,30 @@ final class OdeFieldPhysics implements FieldPhysics {
     }
 
     /**
-     * The robot as one box, reaching from the floor to the deck.
+     * Moves any ball the robot was just teleported on top of out from under it.
      *
-     * <p>The footprint is the same rectangle {@link DriveModel} stops against the walls with, so
-     * the robot that shoves a ball is the robot that hits the perimeter. It reaches the floor
-     * because a mecanum robot's wheels and frame rails do: balls do not roll under Verity, they get
-     * shoved, and a box floating at deck height would swallow them instead.</p>
+     * <p>This used to run every tick, and it had to. A kinematic chassis pressed with unbounded
+     * force and could not be slowed by what it pressed on, so a ball pinched against the perimeter
+     * was an over-constrained problem: every way it could yield was wrong. Balls were squeezed
+     * through the wall into the gym, or under the floor, or into the footprint, where the chassis
+     * held one down against a floor pushing back and neither won &mdash; that last case oscillated
+     * at about three metres a second while going nowhere, for the rest of the session, and was
+     * found as hot fans.</p>
      *
-     * <p>Kinematic, not dynamic. It is moved by the drive model and by nothing else, so a ball
-     * cannot slow the robot down &mdash; which is wrong, and is exactly what making the chassis
-     * dynamic will fix. Until then the asymmetry is at least honest: the robot pushes, the ball is
-     * pushed.</p>
+     * <p>A dynamic chassis can be slowed by what it presses on, so the solver has a legal answer
+     * to all of that and every one of those cases is now ordinary physics. What is left is the one
+     * thing no solver can fix: a robot <em>authored</em> on top of a ball. A teleport is not a
+     * motion, no contact preceded it, and the overlap is already there when the next step starts.
+     * Out through the nearest side, because that is where a ball under a robot goes, and stopped
+     * dead rather than flung, because it is being moved out of the way rather than hit. The
+     * threshold is a quarter of a radius so a ball merely touching the bumper is left to the
+     * contact solver.</p>
      */
-    private DBody buildRobot(ChassisConfig chassis) {
-        DBody body = OdeHelper.createBody(world);
-        body.setKinematic();
-
-        DBox box = OdeHelper.createBox(space, chassis.lengthMetres(), chassis.widthMetres(),
-                chassis.deckHeightMetres());
-        box.setBody(body);
-        // The geom sits half the box above the body's origin, so the body's origin is the pose the
-        // drive model publishes: on the floor, at the centre of the footprint.
-        box.setOffsetPosition(0.0, 0.0, chassis.deckHeightMetres() / 2.0);
-        return body;
-    }
-
-    /**
-     * Puts back any ball that has ended up somewhere no ball can be: inside the robot, or below
-     * the floor.
-     *
-     * <p>This is a repair, not physics, and it is here because the solver has no legal answer to
-     * give. The chassis is kinematic: it presses with unbounded force and cannot be slowed by what
-     * it presses on. A ball caught between it and the perimeter is an over-constrained problem, so
-     * something has to yield, and every way it yields is wrong &mdash; the ball squeezed through
-     * the wall and into the gym, or under the floor, or into the footprint, where the chassis then
-     * held it down against a floor pushing back and neither won. That last one oscillated at about
-     * three metres a second while going nowhere, for the rest of the session: a body frame
-     * published fifty times a second, the camera's scene rebuilt as often, and a browser burning
-     * six cores redrawing a field that was not changing. It was found as hot fans.</p>
-     *
-     * <p>Two other fixes were tried first and are worth knowing about. Dropping the downward
-     * contacts left the ball with no contacts at all, so the robot drove straight through it.
-     * Thickening the floor into a slab, which does fix a ball pushed <em>through</em> a plane,
-     * cannot fix this one: the chassis is still above the ball and still infinitely strong.</p>
-     *
-     * <p>So the world restores the invariant the solver cannot: a ball is never inside the robot
-     * and never below the floor. Out through the nearest side, because that is where a ball under
-     * a robot goes, and stopped dead rather than flung, because it is being moved out of the way
-     * rather than hit. The threshold is a quarter of a radius so that a ball merely touching the
-     * bumper is left entirely to the contact solver.</p>
-     *
-     * <p>This should be deleted when the chassis becomes dynamic. A robot that can be slowed by a
-     * ball cannot crush one, and then the solver has an answer again.</p>
-     */
-    private void repairImpossiblePlaces() {
-        Pose2d pose = drive.pose();
+    private void evictBallsFromFootprint() {
+        Pose2d pose = chassis.pose();
         double cos = Math.cos(pose.heading());
         double sin = Math.sin(pose.heading());
-        ChassisConfig chassis = drive.robot().chassis();
+        ChassisConfig chassis = robotConfig.chassis();
 
         for (Ball ball : balls) {
             double radius = ball.radius();
@@ -440,18 +690,15 @@ final class OdeFieldPhysics implements FieldPhysics {
             double outLeft = chassis.widthMetres() / 2.0 + radius - Math.abs(left);
             boolean insideTheRobot = outForward > margin && outLeft > margin
                     && at.get2() - radius < chassis.deckHeightMetres();
-            boolean belowTheFloor = at.get2() < radius / 2.0;
-            if (!insideTheRobot && !belowTheFloor) {
+            if (!insideTheRobot) {
                 continue;
             }
 
-            if (insideTheRobot) {
-                // Whichever way out is shorter, and straight out along that axis.
-                if (outForward < outLeft) {
-                    forward += Math.signum(forward == 0.0 ? 1.0 : forward) * outForward;
-                } else {
-                    left += Math.signum(left == 0.0 ? 1.0 : left) * outLeft;
-                }
+            // Whichever way out is shorter, and straight out along that axis.
+            if (outForward < outLeft) {
+                forward += Math.signum(forward == 0.0 ? 1.0 : forward) * outForward;
+            } else {
+                left += Math.signum(left == 0.0 ? 1.0 : left) * outLeft;
             }
             ball.placeAt(
                     pose.x() + forward * cos - left * sin,
@@ -465,9 +712,10 @@ final class OdeFieldPhysics implements FieldPhysics {
         if (seconds < 0.0) {
             throw new IllegalArgumentException("cannot advance physics backwards");
         }
-        if (robot != null) {
-            carryRobot();
-            repairImpossiblePlaces();
+        if (chassis != null) {
+            // Contact is a fact about this tick and nothing else would ever clear it: a robot that
+            // touched a wall and has driven away since is not in contact.
+            chassis.clearContact();
         }
 
         pendingNanos += Math.round(seconds * NANOS_PER_SECOND);
@@ -487,19 +735,47 @@ final class OdeFieldPhysics implements FieldPhysics {
                 break;
             }
         }
+        // A HIVE counts. It keeps turning for the better part of a second after the shot that
+        // tipped it, and the balls it has just thrown out may well have settled by then: a world
+        // that called itself still would freeze the tip halfway round in every view of it, since
+        // this is the flag the scene rebuild and the wire's body frames are both gated on.
+        for (Hinge hinge : hinges) {
+            if (hinge.movedFromBaseline()) {
+                moved = true;
+                break;
+            }
+        }
         if (moved) {
             for (Ball ball : balls) {
                 ball.rebase();
+            }
+            for (Hinge hinge : hinges) {
+                hinge.rebase();
             }
         }
         movedLastTick = moved;
     }
 
     private void step() {
+        if (chassis != null) {
+            chassis.step(STEP_SECONDS);
+        }
         driveSweeps();
+        // After the sweeps, so that a ball being dragged into a spinning flywheel leaves at the
+        // wheel's speed rather than at the wheel's speed minus one step of the roller still
+        // holding onto it. Both mechanisms reach the same space on a shoot-through robot, and the
+        // launcher is the one that wins.
+        driveLaunchers();
+        driveHinges();
         space.collide(null, this::resolve);
         world.quickStep(STEP_SECONDS);
         contactGroup.empty();
+
+        // After the step, because a stop is satisfied by the solver and not before it: asking
+        // beforehand reads the angle the HIVE had when it was still a degree short of its damper.
+        for (Hinge hinge : hinges) {
+            hinge.note();
+        }
     }
 
     /**
@@ -515,8 +791,23 @@ final class OdeFieldPhysics implements FieldPhysics {
         if (isImmovable(first) && isImmovable(second)) {
             return;
         }
+        // Nor can two pieces of field furniture, even though a HIVE is a body the solver can
+        // turn: what relates it to the A-frame is its pivot, and the frame's own logo panel
+        // passes within a fraction of an inch of the HIVE's spine by design. Left in, those
+        // contacts are a fight between the joint and the collider that the joint has to win 250
+        // times a second, and the lowered CELL would be resting on the crossbar it is drawn
+        // beside.
+        if (isFieldStructure(first) && isFieldStructure(second)) {
+            return;
+        }
+        if (isTheRobotOnTheFloor(first, second)) {
+            return;
+        }
 
         int found = OdeHelper.collide(first, second, MAX_CONTACTS, contacts.getGeomBuffer());
+        if (found > 0) {
+            noteRobotContact(first, second);
+        }
         for (int i = 0; i < found; i++) {
             DContact contact = contacts.get(i);
             contact.surface.mode = OdeConstants.dContactBounce
@@ -544,30 +835,50 @@ final class OdeFieldPhysics implements FieldPhysics {
     }
 
     /**
-     * Puts the robot's box where the drive model says the robot is, and gives it the velocity the
-     * drive model says it has.
+     * Whether a geom is part of the field's own furniture: a FLOWER, the A-frame, or a HIVE.
      *
-     * <p>Both, not just the position. A kinematic body's velocity is what the solver uses to work
-     * out how hard it hits something: teleported frame by frame with a velocity of zero, the robot
-     * would still displace balls, but it would displace them as though it had arrived from nowhere
-     * &mdash; a shove with no speed behind it, which reads as balls squirting out at random.</p>
+     * <p>Marked at construction rather than worked out from whether it has a body, because the
+     * whole point is that one of these does: a HIVE is a body the solver turns, and it still must
+     * not collide with the frame it hangs in.</p>
      */
-    private void carryRobot() {
-        Pose2d pose = drive.pose();
-        ChassisVelocity velocity = drive.velocity();
-        double cos = Math.cos(pose.heading());
-        double sin = Math.sin(pose.heading());
+    private static boolean isFieldStructure(DGeom geom) {
+        return geom.getData() == FIELD_STRUCTURE;
+    }
 
-        robot.setPosition(pose.x(), pose.y(), 0.0);
-        // ODE's quaternion order is (w, x, y, z); a heading is a rotation about field +Z alone.
-        heading.set(Math.cos(pose.heading() / 2.0), 0.0, 0.0, Math.sin(pose.heading() / 2.0));
-        robot.setQuaternion(heading);
+    /**
+     * Whether this pair is the chassis meeting the floor it stands on.
+     *
+     * <p>Skipped, because the robot's contact with the floor is its <em>wheels</em>, and those are
+     * four analytic forces rather than geometry. Letting the box scrape the slab as well would be
+     * a second friction path, uncalibrated and fighting the first, and the robot would accelerate
+     * worse than its grip allows for no reason a reader could find.</p>
+     */
+    private boolean isTheRobotOnTheFloor(DGeom first, DGeom second) {
+        if (chassis == null) {
+            return false;
+        }
+        DBody body = chassis.body();
+        return (first == floor && second.getBody() == body)
+                || (second == floor && first.getBody() == body);
+    }
 
-        robot.setLinearVel(
-                velocity.forwardMetresPerSecond() * cos - velocity.lateralMetresPerSecond() * sin,
-                velocity.forwardMetresPerSecond() * sin + velocity.lateralMetresPerSecond() * cos,
-                0.0);
-        robot.setAngularVel(0.0, 0.0, velocity.yawRadiansPerSecond());
+    /**
+     * Records that the robot is touching something that cannot be moved.
+     *
+     * <p>Static geometry only. A ball against the bumper is not the robot being held up &mdash; it
+     * gets shoved &mdash; and reporting it as contact would light the dashboard's indicator every
+     * time a robot drove past a POLLEN.</p>
+     */
+    private void noteRobotContact(DGeom first, DGeom second) {
+        if (chassis == null) {
+            return;
+        }
+        DBody body = chassis.body();
+        boolean firstIsRobot = first.getBody() == body;
+        boolean secondIsRobot = second.getBody() == body;
+        if ((firstIsRobot && isImmovable(second)) || (secondIsRobot && isImmovable(first))) {
+            chassis.noteContact();
+        }
     }
 
     @Override
@@ -588,6 +899,21 @@ final class OdeFieldPhysics implements FieldPhysics {
         return Collections.unmodifiableList(states);
     }
 
+    @Override
+    public List<PivotState> pivots() {
+        List<PivotState> states = new ArrayList<>(hinges.size());
+        for (Hinge hinge : hinges) {
+            states.add(hinge.state());
+        }
+        return Collections.unmodifiableList(states);
+    }
+
+    /** The robot in this world, or null when the session's robot has no drivetrain. */
+    @Override
+    public Chassis chassis() {
+        return chassis;
+    }
+
     /** Whether anything has moved since the last tick that said so; see {@link #advance}. */
     @Override
     public boolean moving() {
@@ -596,12 +922,12 @@ final class OdeFieldPhysics implements FieldPhysics {
 
     @Override
     public List<GameElement> touching(VolumeConfig volume) {
-        if (drive == null) {
+        if (chassis == null) {
             // No drivetrain, so no robot, so nothing to bolt a volume to. An empty answer is the
             // truth: a sensor on a robot that cannot be anywhere is looking at nothing.
             return Collections.emptyList();
         }
-        final Pose2d pose = drive.pose();
+        final Pose2d pose = chassis.pose();
         List<GameElement> found = new ArrayList<>(2);
         for (Ball ball : balls) {
             GameElement element = ball.element();
@@ -643,10 +969,10 @@ final class OdeFieldPhysics implements FieldPhysics {
      */
     @Override
     public double rangeAlong(SensorConfig sensor) {
-        if (drive == null) {
+        if (chassis == null) {
             return Double.NaN;
         }
-        Pose2d pose = drive.pose();
+        Pose2d pose = chassis.pose();
         double aim = pose.heading() + Math.toRadians(sensor.yawDegrees());
         double pitch = Math.toRadians(sensor.pitchDegrees());
 
@@ -684,7 +1010,7 @@ final class OdeFieldPhysics implements FieldPhysics {
     private void measure(Object data, DGeom beam, DGeom hit) {
         // Its own robot is not something a sensor can see: a beam that stopped on the bumper it is
         // bolted to would read zero for the whole match.
-        if (robot != null && hit.getBody() == robot) {
+        if (chassis != null && hit.getBody() == chassis.body()) {
             return;
         }
         Nearest nearest = (Nearest) data;
@@ -726,6 +1052,121 @@ final class OdeFieldPhysics implements FieldPhysics {
         Roller(VolumeConfig sweep, double surfaceMetresPerSecond) {
             this.sweep = sweep;
             this.surfaceMetresPerSecond = surfaceMetresPerSecond;
+        }
+    }
+
+    @Override
+    public void setLauncherSpeed(String motorName, double surfaceMetresPerSecond) {
+        Launcher launcher = launchers.get(motorName);
+        if (launcher == null) {
+            throw new IllegalArgumentException("no launcher is driven by a motor named \""
+                    + motorName + "\"; the ones this robot declares are " + launchers.keySet());
+        }
+        launcher.surfaceMetresPerSecond = surfaceMetresPerSecond;
+    }
+
+    /**
+     * One launcher: where its wheel is, what leaving it does to a ball, and how fast it is running.
+     *
+     * <p>The geometry is unpacked from the configuration once rather than read through it on every
+     * ball on every step. The speed is written from outside on each tick and read inside the
+     * solver's loop, on the same thread in both cases.</p>
+     */
+    private static final class Launcher {
+
+        private final VolumeConfig mouth;
+        private final double transferEfficiency;
+        private final double exitYawDegrees;
+        private final double exitPitchDegrees;
+        private double surfaceMetresPerSecond;
+
+        Launcher(LauncherConfig configured) {
+            this.mouth = configured.mouth();
+            this.transferEfficiency = configured.transferEfficiency();
+            this.exitYawDegrees = configured.exitYawDegrees();
+            this.exitPitchDegrees = configured.exitPitchDegrees();
+        }
+    }
+
+    /**
+     * One pivoting structure: the joint that holds it, and how far round it has been.
+     *
+     * <p>{@link #completedSwings} is the count of HIVE TIPs. It is kept here rather than derived
+     * by anyone watching the angle because it is a fact about the motion, and the motion happens
+     * 250 times a second inside a solver step: a watcher sampling at a control cycle's 50&nbsp;Hz
+     * would miss a fast swing outright, and one comparing two samples would score a HIVE that
+     * bounced off its damper twice.</p>
+     */
+    private static final class Hinge {
+
+        private final String structureName;
+        private final Pivot pivot;
+        private final DHingeJoint joint;
+
+        /** Whether it is resting against the stop nearer {@link Pivot#lowRadians()}. */
+        private boolean againstLow;
+
+        private int completedSwings;
+
+        /** The angle this pivot was at the last time the world said something had moved. */
+        private double baseAngle;
+
+        Hinge(String structureName, Pivot pivot, DHingeJoint joint) {
+            this.structureName = structureName;
+            this.pivot = pivot;
+            this.joint = joint;
+            this.againstLow = pivot.angleRadians() - pivot.lowRadians()
+                    <= pivot.highRadians() - pivot.angleRadians();
+            this.baseAngle = pivot.angleRadians();
+        }
+
+        /**
+         * Its angle in the pivot's own absolute measure.
+         *
+         * <p>The joint reports its angle relative to the configuration it was created in, which is
+         * the angle the structure's geometry was built at, so the two have to be added. A HIVE
+         * staged tipped back and one staged upright therefore report angles a scene can use
+         * directly rather than each being right relative to its own start.</p>
+         *
+         * <p>Clamped to the travel, because a constraint solver satisfies a stop approximately:
+         * a HIVE pressed against its damper settles a ten-thousandth of a radian past it, which
+         * is four thousandths of a degree of nothing and enough to make the structure it belongs
+         * to refuse to be drawn.</p>
+         */
+        double angle() {
+            double angle = pivot.angleRadians() + joint.getAngle();
+            if (angle < pivot.lowRadians()) {
+                return pivot.lowRadians();
+            }
+            return angle > pivot.highRadians() ? pivot.highRadians() : angle;
+        }
+
+        /**
+         * Notes arrival at the far stop, which is one completed TIP.
+         *
+         * <p>Only ever the <em>far</em> one: a HIVE shoved by a shot that does not get it over
+         * centre falls back where it came from, and that has to score nothing. Manual &sect;10.5.1
+         * needs the HIVE to reach "the other stable state", and nothing short of it counts.</p>
+         */
+        void note() {
+            double far = againstLow ? pivot.highRadians() : pivot.lowRadians();
+            if (Math.abs(angle() - far) < ARRIVED_RADIANS) {
+                completedSwings++;
+                againstLow = !againstLow;
+            }
+        }
+
+        PivotState state() {
+            return new PivotState(structureName, angle(), completedSwings);
+        }
+
+        /** Whether it has turned far enough to be worth republishing; see {@link #MOVED_METRES}. */
+        boolean movedFromBaseline() {
+            return Math.abs(angle() - baseAngle) > TURNED_RADIANS;
+        }
+
+        void rebase() {
+            baseAngle = angle();
         }
     }
 
@@ -863,6 +1304,20 @@ final class OdeFieldPhysics implements FieldPhysics {
         /** Adds a horizontal force for this step, which is how a sweep pulls. */
         void push(double newtonsX, double newtonsY) {
             body.addForce(newtonsX, newtonsY, 0.0);
+        }
+
+        /**
+         * Throws this ball, which is the one thing here that overrides the solver outright.
+         *
+         * <p>A velocity rather than a force, and deliberately not {@link #placeAt}: the ball stays
+         * exactly where it is, keeps every contact it has, and is then part of ordinary physics
+         * again on the very next step &mdash; so it arcs under gravity, bounces off a CELL's back
+         * panel and rolls where it lands, with nothing marking it as "in flight". What is given up
+         * is spin: a real shot leaves with heavy backspin, and this world has no aerodynamics for
+         * that to act through.</p>
+         */
+        void launch(double metresPerSecondX, double metresPerSecondY, double metresPerSecondZ) {
+            body.setLinearVel(metresPerSecondX, metresPerSecondY, metresPerSecondZ);
         }
     }
 }

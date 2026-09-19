@@ -13,6 +13,12 @@ import { describe, describePose, useCameraFeed } from './CameraView';
  * One `<img>` across both sizes, deliberately. Expanding restyles its container rather than
  * mounting a second element, so the stream is not dropped and re-established every time somebody
  * zooms in — an MJPEG reconnect costs a round trip and a frame.
+ *
+ * Collapsed, it is the picture and nothing else: the click target is the image, and the caption
+ * that used to sit above it said the pose the field view already draws and a stream state that is
+ * only interesting when it is wrong. That line cost a tenth of the panel's height permanently to
+ * report something twice, so it is gone and the one fact the picture cannot show on its own — a
+ * feed that is not arriving — appears over the image only while that is true.
  */
 export function CameraPip({
   stream,
@@ -44,42 +50,49 @@ export function CameraPip({
     <>
       {expanded && <div style={backdrop} onClick={() => onExpandedChange(false)} />}
       <div style={expanded ? expandedFrame : pipFrame}>
-        <div style={bar}>
-          <span style={label}>CAMERA</span>
-          <span style={feed.state === 'streaming' ? live : stale}>{describe(feed.state)}</span>
-          {expanded && (
-            <>
-              <span style={hint}>
-                {stream.width}&times;{stream.height}
-              </span>
-              <span style={hint}>{stream.framesPerSecond} fps</span>
-              <span style={hint}>sampled view, not every frame</span>
-            </>
-          )}
-          {/* The pose belongs on the smallest version too: an empty frame means the robot is
-              aimed at nothing far more often than it means the view is broken. */}
-          <span style={poseText}>{pose ? describePose(pose) : 'no pose'}</span>
-          <button
-            style={zoomButton}
-            onClick={() => onExpandedChange(!expanded)}
-            title={expanded ? 'Collapse (Esc)' : 'Expand'}
-          >
-            {expanded ? 'collapse' : 'expand'}
-          </button>
-        </div>
+        {expanded && (
+          <div style={bar}>
+            <span style={label}>CAMERA</span>
+            <span style={feed.state === 'streaming' ? live : stale}>{describe(feed.state)}</span>
+            <span style={hint}>
+              {stream.width}&times;{stream.height}
+            </span>
+            <span style={hint}>{stream.framesPerSecond} fps</span>
+            <span style={hint}>sampled view, not every frame</span>
+            <span style={poseText}>{pose ? describePose(pose) : 'no pose'}</span>
+            <button
+              style={zoomButton}
+              onClick={() => onExpandedChange(false)}
+              title="Collapse (Esc)"
+            >
+              collapse
+            </button>
+          </div>
+        )}
         <img
           {...feed.imageProps}
           alt="Simulated camera view"
-          style={picture}
+          style={expanded ? { ...picture, cursor: 'zoom-out' } : picture}
+          title={expanded ? 'Collapse (Esc)' : 'Expand'}
           onClick={() => onExpandedChange(!expanded)}
         />
+        {/* Only while something is wrong. A frame with nothing in it is the commonest thing this
+            panel shows — the robot is aimed where the tags are not — and without this there is no
+            way to tell that from a stream that stopped arriving. */}
+        {!expanded && feed.state !== 'streaming' && (
+          <div style={feedBadge}>{describe(feed.state)}</div>
+        )}
       </div>
     </>
   );
 }
 
 /**
- * Sits above the gamepad panel, which owns the bottom-right corner. 4:3, as the camera is.
+ * Sits in the top-left corner of the field view, opposite the gamepad panel. 4:3, as the camera is.
+ *
+ * Both panels are up here because the bottom half of the scene is where the robot is driven: a
+ * panel over the near half of the field hides the tiles a driver is aiming across, and the two of
+ * them stacked in one corner hid a quarter of it.
  *
  * The z-index is not decoration: the scene's own labels are drei `<Html>` overlays with a real
  * stacking order (5 for station names, 10 for device tags), and anything left on `auto` paints
@@ -88,8 +101,8 @@ export function CameraPip({
  */
 const pipFrame: React.CSSProperties = {
   position: 'absolute',
-  right: 12,
-  bottom: 220,
+  left: 12,
+  top: 12,
   width: 260,
   display: 'flex',
   flexDirection: 'column',
@@ -144,6 +157,23 @@ const hint: React.CSSProperties = { color: '#5f7a5f' };
 
 /** Pushed right so the zoom control stays in the same place whatever the pose reads. */
 const poseText: React.CSSProperties = { ...hint, marginLeft: 'auto' };
+
+/**
+ * Over the picture rather than above it, so a healthy feed pays nothing for it. `pointerEvents`
+ * off because the image underneath is the expand control and a badge that swallowed the click
+ * would make the panel stop responding exactly when something is already wrong.
+ */
+const feedBadge: React.CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  bottom: 0,
+  padding: '2px 6px',
+  background: 'rgba(8, 12, 16, 0.85)',
+  color: '#d8d84a',
+  fontFamily: 'monospace',
+  fontSize: 10,
+  pointerEvents: 'none',
+};
 
 const picture: React.CSSProperties = {
   display: 'block',

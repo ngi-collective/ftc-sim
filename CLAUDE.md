@@ -24,8 +24,10 @@ mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
 mise run simulator   # install + launch the simulated app on a running emulator
 mise run test-vision # vision tests against a running emulator's camera (not in CI)
-mise run dashboard   # local Driver Hub server (ws://localhost:8765)
-mise run dashboard-ui  # Driver Hub browser UI (http://localhost:5183)
+mise run dashboard   # local Driver Hub: simulation + browser UI (http://localhost:5183)
+mise run dashboard --scenario tipping-hive   # the same, with a field arrangement loaded
+mise run dashboard-headless  # the simulation socket alone, for scripts (ws://localhost:8765)
+mise run dashboard-headless --args="--port 8775 --camera-port 8776"  # ...on spare ports
 mise run lint
 mise run clean
 mise run setup-sdk         # (re)install the SDK packages the build needs
@@ -34,7 +36,13 @@ mise run verify-toolchain  # assert CLI and IDE toolchains can both still build 
 mise tasks           # list the above with descriptions
 ```
 
-Supervised processes: `hub ps` before starting anything, one name per service, and reuse a live one with `hub restart <name>`. Stop a process in the turn its work finishes. The pair worth keeping between turns is `mise run dashboard` plus `mise run dashboard-ui`, which idle at 0% CPU once no browser is attached.
+The two dashboard tasks take flags differently, which is worth knowing before losing ten minutes
+to it: `dashboard` is a shell script, so its flags follow the task name, while
+`dashboard-headless` is a bare Gradle invocation, so its flags go inside `--args=`. Either way an
+unrecognised flag is dropped in silence, and the symptom is a session sitting on the robot's own
+field wondering where the scenario went.
+
+Supervised processes: `hub ps` before starting anything, one name per service, and reuse a live one with `hub restart <name>`. Stop a process in the turn its work finishes. The one worth keeping between turns is `mise run dashboard`, which idles at 0% CPU once no browser is attached.
 
 ## Workflow
 
@@ -51,11 +59,21 @@ There is a side-project occurring in this same directory. It is a simulation and
 
 Use Chrome for Testing for browser work, through `browser.open`: those tabs freeze when the turn settles. A Chromium launched as a supervised process never freezes — the dashboard's 3D view and camera stream keep rendering through software GL, which is a runaway GPU process an hour later. Launch one only when a check needs raw CDP, and stop it in the same turn.
 
-The headless sim drives a real pose, not just spinning motors. `TestFramework`'s
-`org.ngicollective.testframework.sim` package reads each wheel's simulated physical velocity,
-applies mecanum forward kinematics, and integrates an `(x, y, heading)` pose on a 3.58 m FTC field
-with perimeter walls. `mise run dashboard` streams it at 50 Hz and the 3D view drives the robot
-from it.
+The headless sim drives a real pose, not just spinning motors, and **the physics world owns that
+pose**. `FieldPhysics.chassis()` is the robot: a box with mass, accelerated by four mecanum
+contact patches and stopped by whatever it runs into, so a ball slows it, a wall stops it and a
+corner spins it. `DriveModel` no longer integrates anything — it reads each wheel's simulated
+physical velocity, hands the four speeds to the chassis before the world steps, and publishes the
+resulting heading to the IMU after. See `docs/adr/0003-the-world-owns-the-robots-pose.md`.
+`mise run dashboard` streams the pose at 50 Hz and the 3D view drives the robot from it.
+
+**The dashboard is one command, on one port.** `tools/dashboard.sh` starts the JVM and the Vite
+dev server together and decides the port once; the page connects to its own origin at `/ws` and
+Vite proxies that to the simulation, so the browser never names a port and the two halves cannot
+disagree. Move both with `DASHBOARD_PORT=9000 mise run dashboard` — a bare `--port` is refused,
+because a port only the JVM knows about is exactly the bug this replaced: the UI silently
+connected to whatever else was on 8765, green indicator and all. Scripts that drive the socket
+directly want `mise run dashboard-headless`, which has no UI to point anywhere.
 
 **The simulated flavour starts its own robot**, because the SDK's robot start cannot finish on an
 emulator: it waits for a Wi-Fi Direct network that is not there and gives up with
@@ -81,8 +99,9 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   the same `SimulatedRobotStart`. See `RobotUnderTest`.
 
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
-  track width, strafe efficiency, encoder resolution, chassis dimensions, per-motor mounting
-  mirror. `VerityRobot` reads it; do not hardcode these numbers anywhere else. The files are also
+  track width, strafe efficiency, grip coefficient, chassis dimensions and mass, encoder
+  resolution, per-motor mounting mirror, launcher wheel and aim. `VerityRobot` reads it; do not
+  hardcode these numbers anywhere else. The files are also
   packaged as APK resources, so the simulated app works on a device with no checkout.
   Read again on every `create()`, so **editing a config file takes effect at the next INIT** — no
   dashboard restart. The camera mount is six-DOF (`forwardMetres`, `leftMetres`, `heightMetres`,
@@ -91,14 +110,126 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   costs an INIT rather than the session.
 - **`TeamCode/robot-layouts/*.json` is cosmetic** — mesh choice, scale, label offsets. It never
   affects how the robot moves.
+- **Structures vs surfaces.** A **structure** is field furniture a robot can hit — the HIVE, the
+  FLOWERs. Java owns its geometry and publishes it in `sim/scene` as posed boxes and cylinders;
+  the browser draws what it is sent. One that moves carries a `pivot` there — a point, an axis and
+  the angle its solids are drawn at — and its live angle arrives through `sim/bodies` beside the
+  balls, keyed by structure **name**, since there are two of them and list order is not a promise.
+  The browser turns the group by the *difference* between the live angle and the drawn one;
+  rotating by the absolute angle draws a HIVE tipped twice over, which looks nearly right at small
+  angles. A **field surface** — tiles, perimeter faces — is cosmetic and stays procedural in both
+  renderers, derived from the dimensions already in `sim/config`. Never retype CAD numbers into
+  TypeScript. See `docs/adr/0004-structures-are-published-as-posed-primitives.md`.
+- ode4j has **no cylinder-versus-cylinder collider** (`CollideCylinderSphere`,
+  `CollideCylinderBox` and `CollideCylinderPlane` exist; nothing for two cylinders). A hollow
+  thing that has to hold a ball — a FLOWER tube — is a ring of boxes as a collider even when it is
+  one cylinder as a drawing.
+- A collider's **rotation** is set by rows, not by `DMatrix3.setCol`: ode4j stores ODE's row-major
+  `dMatrix3`, so `setCol(i, v)` writes row `i` and assigning forward/left/up through it installs
+  the transpose. Every FLOWER hid that completely — a yaw-only solid transposes to a mirrored yaw,
+  which is the identity at yaw zero and is the same ring for twelve identical rim boxes — and the
+  first thing that leaned, an A-frame leg, had its collider somewhere a ball fell straight past.
+  Anything with pitch or roll needs a test that a ball or a robot actually hits it.
+- What has to cross a static box in one 250 Hz step is **the whole ball, not its centre**, so a
+  quarter-inch rim catches anything under about 19 m/s. Thin colliders are fine; a ball squeezing
+  *through* one is a rotation bug, not a tunnelling one.
+- The **HIVE Structure is three structures**: `HIVE FRAME`, which never moves, and one per
+  alliance, each on a **pivot**. Only the frame is reachable — a HIVE's lowest point is 25.5 in
+  up and a legal robot is 18 — so the frame's legs and the bars its feet sit on are the only part
+  a robot can hit. The CELL face carrying an AprilTag Cluster is **collided with but not drawn**:
+  a panel coplanar with the sticker would take turns painting over it in a renderer that sorts
+  whole polygons by depth, and the tags would vanish from some viewpoints only.
+- **A HIVE really tips, on a real hinge, and nothing decides that it has.** The body is hinged on
+  the measured pivot axis with hard stops at the two stable states and one explicit bi-stable
+  torque; what turns it is the weight of the balls in the raised CELL and the impact of the next
+  one arriving, worked out by the solver. Balls spill out because the basket is now pointing at
+  the floor, a swing takes about two thirds of a second, and the manual's own warning about
+  LAUNCHING at a tipping HIVE is reproducible. `FieldPhysics.pivots()` reports each HIVE's angle
+  and its count of completed TIPs. See
+  `docs/adr/0005-the-hive-tips-on-a-hinge-nothing-decides-it.md`.
+- **Everything on a HIVE moves as one body.** Its panels, its two CELLs' scoring volumes and its
+  two AprilTag clusters declare which structure carries them, and `SimulatedScene.tipped(angles)`
+  applies one rigid rotation to the lot. Re-deriving any of them from a tip angle separately is
+  how the tag plates came to be mirrored: a plate starts 60° below the horizon and 60° of tip
+  takes it off the end of the yaw-pitch-roll chart, so the far state needs 180° of **roll**, and
+  without it the four ids reverse along the row with every pattern upside down. A detector reports
+  zero detections, because a rotated 36h11 codeword is usually not a codeword.
+- The one number nobody has measured is **`BioBuzzHive.PIVOT_HOLD_NEWTON_METRES`**, the torque
+  holding a HIVE against its stop. It is bracketed by the manual: the three NECTAR a MATCH stages
+  in each CELL weigh 0.34 N·m and must not tip it, and a TIP is worth ten elements so more than
+  ten POLLEN would make tipping pointless. Measure it on a real field by putting POLLEN into a
+  raised CELL one at a time and counting; `HiveTipTest` states what the current figure implies
+  rather than enshrining it.
+- **Scoring is a containment test against a posed box**, not a flag on a structure. A
+  `ScoringVolume` is the manual's own term (§10.5.2) for a region where an element counts, it is
+  invisible, and it rides on `SimulatedScene` beside the structures, swinging with the HIVE it is
+  cut in. All four CELLs are published; **which of them score is read off the geometry**, because
+  a HIVE halfway through a tip has no answer to "which CELL is up". `BioBuzzScore` takes the
+  volumes, the balls and the TIP counts, and knows nothing about a HIVE beyond which names are
+  red.
+- The score is **live, and a HIVE TIP is 20 points of it**, in AUTO and TELEOP alike and again for
+  every TIP. The manual scores a CELL at the end of the match; a driver practising needs to know
+  what *would* score now, so a ball knocked out takes its two points with it — and a tip empties
+  the basket that earned it, so the strip reports the TIP count beside the totals or a total that
+  rose by 8 while a CELL went to zero would be unreadable. A downward-facing CELL is absent from
+  the list rather than present with a zero, which is also how `sim/score` reaches the browser —
+  and unlike `sim/bodies` it is in the connect greeting, because nothing else on that socket lets
+  the browser derive a score.
+- A CELL counts **any** POLLEN or NECTAR, of either colour: points follow the basket, not the ball
+  (manual §10.5.1, and the same rule as GARDEN and FLOWER). Containment is of the ball's
+  **centre**, not "at least partially", which is the CELL rule and not the FLOWER one.
+- A scenario stages a ball either on the tiles (`xMetres`/`yMetres`) or inside a CELL
+  (`"cell": "RED AUDIENCE"`), which is where the manual's three NECTAR per alliance start — four
+  and a half feet up, on a basket whose position depends on the tip. `match-staging` is that setup
+  and reads 6-6 before anyone has driven; `tipping-hive` is the same three NECTAR plus four POLLEN
+  lying in launcher range of red's raised CELL, which is a HIVE two good shots short of going
+  over.
+- **A scenario is chosen in the browser, not at startup.** `sim/scenarios` carries the names in
+  `TeamCode/scenarios/`, the directory they live in, and which one is loaded; `sim/scenario`
+  loads one by name, and a **null** name is the real request that means "the robot's own field",
+  which is the only way back off a scenario without restarting. The session remembers the
+  arrangement the robot built for itself so that null has something to restore — loading a
+  scenario overwrites the camera's scene, and before that was kept there was no way back. The
+  `--scenario` flag still works and now goes through the same call, so one place knows what is in
+  force.
+- **A launcher is a flywheel, and the only motor that touches the world.** Servos sweep balls;
+  `launchers` in `robot-config` is a block keyed by the *motor* that spins one, and
+  `FieldPhysics.setLauncherSpeed` is fed the wheel's **physical surface speed** — shaft ticks
+  through the wheel's radius, with `mirrored` applied here exactly as `DriveModel` applies it to a
+  wheel. Reading the shaft and not the command is the whole point: a shot fired before spin-up
+  falls short, and that is why the launcher's motor is the one motor built with
+  `MotorBehaviors.ramping` (from `spinUpSeconds`) while every other one is ideal.
+- The mouth is **where the wheel is**, not a trigger: anything inside it while the wheel spins
+  leaves at `surfaceSpeed × transferEfficiency` (about 0.5 for one wheel against a hood, near 1
+  for two counter-rotating), aimed by `exitYawDegrees`/`exitPitchDegrees` plus the launch point's
+  own velocity — the chassis's, plus `omega × r` at the mouth. So a driver must spin up *before*
+  collecting, one ball goes at a time because one ball arrives at a time, and nothing anywhere is
+  marked "in flight". The mouth must clear the chassis footprint, since a ball inside a robot is
+  evicted from under it.
+- That discipline is not advice, it is the model: presenting a ball to a wheel that is still
+  spinning up throws it at whatever speed the wheel has *now*, so it dribbles a foot and lands on
+  the tiles out of reach. Driving onto a ball with the flywheel already at speed is the difference
+  between a shot and a nudge, and it is the same order `LauncherTest.spunUpOver` uses.
+- **Shots are steep lobs, and the field forces it.** A raised CELL's mouth is 1.51 m up and 0.30 m
+  from the field's centre line, and a legal robot cannot get its nose further back than about
+  1.4 m from it, so the straight line to the target is already near 60° — anything flatter cannot
+  reach. The basket's back panel also returns a third of what hits it, so a flat hard shot bounces
+  out of the opening it came in through. Verity is aimed at 75°, which scores from that stand-off
+  at 35% of a bare 5203's free speed, and the whole scoring band is about ±5% of that.
 - Poses are stored in the **FTC field frame**: origin at field centre, metres, heading radians
   CCW-positive, heading 0 facing +X. Only the browser converts to three.js coordinates.
 - The drivetrain IMU uses `ImuBehaviors.followingChassis()`, so heading is derived from the wheels.
   The `stationary` / `rotating` / `followingYawRate` presets remain as deliberate fault injection.
-- Wall contact **slides** and deliberately leaves the encoders counting, so dead-reckoning drift
-  is reproducible rather than hidden.
+- A standing start **is not instantaneous**: grip bounds acceleration, so Verity reaches its
+  1.57 m/s free speed in about three tenths of a second (measured on a live session: 0.50 m/s at
+  0.1 s, 1.12 at 0.2 s, 1.564 at 0.3 s). Assertions that assume a robot leaves the
+  line at full speed are wrong, and were rewritten as brackets when the chassis went dynamic.
+- Wall contact is a **real collision** with the perimeter, and deliberately leaves the encoders
+  counting, so dead-reckoning drift is reproducible rather than hidden. `inWallContact()` is
+  reported by the solver, not inferred from a velocity of zero.
 - Assert drive behaviour on **pose**, not wheel powers — see
-  `TeamCode/src/testSimulated/.../MecanumDrivePoseTest.java`.
+  `TeamCode/src/testSimulated/.../MecanumDrivePoseTest.java`. Pose is now solver output, so
+  compare against physical bounds (free speed, grip) rather than pinning a distance.
 
 ## Vision
 
@@ -132,10 +263,67 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
   oracle for "is the detector broken, or is my renderer?". It needs a `google_apis` AVD with
   `hw.camera.back=webcam0`; see `mise.toml`.
 - The acceptance tests are instrumented and deliberately outside CI: `mise run test-acceptance`
-  runs both, one Gradle invocation each. `RealEventLoopAcceptanceTest` proves the SDK's own
+  runs all three, one Gradle invocation each. `RealEventLoopAcceptanceTest` proves the SDK's own
   lifecycle drives the camera; `SyntheticCameraAcceptanceTest` proves the detections are right by
-  reading an unmodified OpMode's telemetry. They cannot share a process: each builds a LiveView
-  portal, and a second portal fails with "Viewport container specified by user is not empty!".
+  reading an unmodified OpMode's telemetry; `AimedLauncherAcceptanceTest` runs the whole season
+  loop. They cannot share a process: each builds a LiveView portal, and a second portal fails with
+  "Viewport container specified by user is not empty!".
+
+## Aiming, and shooting what you aimed at
+
+`AimedLauncherTeleOp` closes the loop: detect the cluster, range off it, set the flywheel from the
+range, shoot. `LensMount` → `ShotSolver` → `LaunchGeometry` in `TeamCode/src/main`, all three
+plain-JVM testable. See `docs/adr/0006-a-cluster-detection-is-an-aim-point.md`.
+
+**To watch the whole game work at once**, run `mise run dashboard --scenario auto-sweep`, pick
+**Auto: sweep and shoot**, drag the robot onto the start square the INIT telemetry names
+(`x -0.55, y -1.43, heading 90`), and press START. Nine seconds later the score reads
+`RED 20 (1 TIP)`. `SweepAndShootAuto` is the routine to read first: five timed steps, no vision,
+no odometry, and `SweepAndShootAutoTest` runs it headlessly on every commit — which the vision
+loop's equivalent cannot do, since it needs an emulator.
+
+- **An AUTO aims off the field drawing, not off a camera.** It starts on a known square facing a
+  known direction, so the range is arithmetic before the robot has moved and with no tag in view.
+  Same `ShotSolver`, different source of range — and the weakness is the obvious one: set the robot
+  down half a metre out and every ball lands on the tiles, cheerfully.
+- **It slides sideways rather than driving at the balls**, for the reason below: forward motion
+  ruins a shot and sideways motion costs a quarter of an opening. Two rows, because the mouth
+  reaches 24 cm and the bumper is at 20, so the band a ball can sit in without being shoved along
+  by the chassis is one ball wide.
+- **A routine that ends undoes its own work.** A dashboard session rebuilds the field when an
+  OpMode stops, so the last step of an AUTO worth watching is `while (opModeIsActive())` holding
+  still — which is also what a real one does while it waits for the buzzer.
+
+- **A cluster detection is the aim point.** The SDK's cluster origin lands 1.42 in from the centre
+  of the CELL opening its tags hang under — an eighth of the opening's height — identically for all
+  four CELLs in both tip states, so there is no offset table. Measured, not chosen: the SDK's
+  member offsets, FIRST's CAD and the manual's CELL dimensions agree there and none of them
+  mentions the others.
+- **Never use `ftcPose.range`, `bearing` or `elevation` on this robot.** They are measured in the
+  camera's own frame — `range` is `hypot(x, y)` with the vertical dropped — and the camera aims up
+  35°, so all three are wrong about the field by a plausible-looking amount. Use `x`, `y`, `z` and
+  level them through the mount.
+- **`robotPose` is useless this season.** The SDK declares all four BioBuzz clusters at
+  `fieldPosition = (0,0,0)` with an identity orientation, so anything absolute must be built from
+  relative measurements.
+- **The two CELLs of a HIVE are one part mounted two ways**, the second turned 180° about the
+  CELL's own rise axis. Their tag plates therefore differ by 180° of roll, and getting that wrong
+  is nearly invisible: the tags still land on the measured plate and still detect, only the ids run
+  the other way and the cluster origin lands two feet away, behind the closed end of the basket.
+  `BioBuzzFieldTest.everyClusterOriginSitsAtItsCellsOpening` is the guard.
+- **The detector reads about 3 % near** — a cluster 0.92 m away reports 0.89 m. Uniform, harmless
+  for a steep lob, and the reason the acceptance test works in centimetres.
+- **Which CELL to shoot at is a question about height.** Both plates of a HIVE share a normal, so a
+  camera sees all four of its tags at once; the raised opening is at 1.51 m and the lowered one at
+  0.97 m, and `LaunchGeometry.RAISED_CELL_HEIGHT_METRES` sits in the gap.
+- **A 75° lob has a minimum range** (`rise / tan p`, about 40 cm) and needs its *least* speed at
+  twice that. Closer shots are harder than mid-range ones, which is the opposite of the intuition a
+  flat shooter gives a driver.
+- **This robot cannot shoot on the move.** The intake's sweep and the launcher's mouth are the same
+  6 cm of space, so a ball comes within reach and goes; at a third of power the chassis adds
+  0.55 m/s to a 1.45 m/s horizontal component and the ball clears the far lip, which is 9 cm past
+  the near one. Spin up, then roll the last couple of centimetres. Firing while driving needs a
+  feeder, which this robot has not got.
 
 ## Conventions
 

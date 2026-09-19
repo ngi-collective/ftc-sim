@@ -13,6 +13,8 @@ import simCameraSavedFrame from '../../protocol-fixtures/sim-camera-saved.json';
 import simConfigFrame from '../../protocol-fixtures/sim-config.json';
 import simPoseFrame from '../../protocol-fixtures/sim-pose.json';
 import simSceneFrame from '../../protocol-fixtures/sim-scene.json';
+import simScenariosFrame from '../../protocol-fixtures/sim-scenarios.json';
+import simScoreFrame from '../../protocol-fixtures/sim-score.json';
 import simStatusFrame from '../../protocol-fixtures/sim-status.json';
 import telemetryFrame from '../../protocol-fixtures/telemetry-frame.json';
 import unknownErrorFrame from '../../protocol-fixtures/unknown-error.json';
@@ -23,6 +25,9 @@ import {
   parseLayoutList,
   parseOpModeList,
   parseSavedCameraMount,
+  parseSimScenarios,
+  parseSimScore,
+  type Alliance,
   type CameraMountPayload,
   type CameraStreamInfo,
   type DeviceState,
@@ -33,6 +38,8 @@ import {
   type ScenePayload,
   type SceneCorner,
   type SceneElement,
+  type SceneSolid,
+  type SceneStructure,
   type SceneTag,
   type SimBodies,
   type SimBody,
@@ -41,6 +48,9 @@ import {
   type SimDrivetrain,
   type SimField,
   type SimPose,
+  type SimScenarios,
+  type SimScore,
+  type SimScoreCell,
   type SimStatus,
   type TelemetryFrame,
 } from './protocol';
@@ -59,11 +69,24 @@ import {
  * robot is still reporting.</p>
  */
 
-/** Every key of {@code value}, and nothing else. Order-independent; nesting is asserted separately. */
-function expectFields(value: unknown, named: readonly string[]): void {
+/**
+ * Every key of {@code value}, and nothing else. Order-independent; nesting is asserted separately.
+ *
+ * <p>{@code optional} names the keys the wire is allowed to omit — the handful a server that
+ * predates a feature simply does not send, like the {@code pivot} a bolted-down structure has no
+ * use for. They are tolerated rather than expected, and anything not named either way still fails:
+ * the point of this file is that a field appearing or disappearing on the Java side cannot pass
+ * unnoticed.</p>
+ */
+function expectFields(
+  value: unknown,
+  named: readonly string[],
+  optional: readonly string[] = [],
+): void {
   expect(value).toBeTypeOf('object');
   expect(value).not.toBeNull();
-  expect(Object.keys(value as object).sort()).toEqual([...named].sort());
+  const keys = Object.keys(value as object);
+  expect(keys.filter((key) => !optional.includes(key)).sort()).toEqual([...named].sort());
 }
 
 /**
@@ -307,8 +330,11 @@ describe('sim frames', () => {
     );
   });
 
-  it('carry the scene as tags and elements, each tag a quad and a pattern', () => {
-    expectFields(simSceneFrame.payload, ['tags', 'elements'] satisfies (keyof ScenePayload)[]);
+  it('carry the scene as tags, elements and structures, each tag a quad and a pattern', () => {
+    expectFields(
+      simSceneFrame.payload,
+      ['tags', 'elements', 'structures'] satisfies (keyof ScenePayload)[],
+    );
     const tagFields = [
       'id',
       'cluster',
@@ -319,11 +345,50 @@ describe('sim frames', () => {
     const cornerFields = ['x', 'y', 'z'] satisfies (keyof SceneCorner)[];
     expect(simSceneFrame.payload.tags.length).toBeGreaterThan(0);
     for (const tag of simSceneFrame.payload.tags) {
-      expectFields(tag, tagFields);
+      // A tag is either bolted to the field or bolted to a HIVE that tips, and only the second
+      // kind names the structure it swings with.
+      expectFields(tag, tagFields, ['attachedTo'] satisfies (keyof SceneTag)[]);
       // Four corners and a square pattern, or the renderer draws a tag the detector cannot read.
       expect(tag.corners).toHaveLength(4);
       for (const corner of tag.corners) expectFields(corner, cornerFields);
       for (const row of tag.cells) expect(row).toHaveLength(tag.cells.length);
+    }
+  });
+
+  it('carry each structure as the posed primitives it is drawn from', () => {
+    const solidFields = [
+      'shape',
+      'x',
+      'y',
+      'z',
+      'yawDegrees',
+      'pitchDegrees',
+      'rollDegrees',
+      'lengthX',
+      'lengthY',
+      'lengthZ',
+      'radiusMetres',
+      'lengthMetres',
+      'red',
+      'green',
+      'blue',
+    ] satisfies (keyof SceneSolid)[];
+
+    expect(simSceneFrame.payload.structures.length).toBeGreaterThan(0);
+    for (const structure of simSceneFrame.payload.structures) {
+      // Only a structure that swings carries a hinge; the A-frame and the FLOWERs never move.
+      expectFields(
+        structure,
+        ['name', 'solids'] satisfies (keyof SceneStructure)[],
+        ['pivot'] satisfies (keyof SceneStructure)[],
+      );
+      expect(structure.solids.length).toBeGreaterThan(0);
+      for (const solid of structure.solids) {
+        // Every key on every solid, whichever shape it is: the fields the other shape does not
+        // use are sent as zero rather than omitted, so a reader never has to test for presence.
+        expectFields(solid, solidFields);
+        expect(solid.shape).toMatch(/^(box|cylinder)$/);
+      }
     }
   });
 
@@ -365,11 +430,13 @@ describe('sim frames', () => {
       'qz',
       'qw',
     ] satisfies (keyof SimBody)[];
-    expectFields(simBodiesFrame.payload, [
-      'timestampMillis',
-      'elapsedSeconds',
-      'bodies',
-    ] satisfies (keyof SimBodies)[]);
+    // The hinge angles are a sibling of the bodies under the same gate, and a frame sent while
+    // nothing was tipping carries none.
+    expectFields(
+      simBodiesFrame.payload,
+      ['timestampMillis', 'elapsedSeconds', 'bodies'] satisfies (keyof SimBodies)[],
+      ['pivots'] satisfies (keyof SimBodies)[],
+    );
     for (const body of simBodiesFrame.payload.bodies as SimBody[]) {
       expectFields(body, named);
     }
@@ -385,17 +452,19 @@ describe('sim frames', () => {
   it('capture bodies that are actually in motion, orientation and all', () => {
     // A fixture of resting balls would pin the field names and nothing about their meaning: every
     // quaternion would be the identity and every position would equal the scene's. This capture is
-    // mid-shove, so a ball that stopped rolling in the simulation would change it.
+    // mid-shove, and what is asserted is a law rather than a count of the balls the robot happened
+    // to reach: a ball that has moved has rolled. One that slid without turning is a
+    // wrong-friction bug, and the orientation — which nothing on screen can show — is the only
+    // place it would ever surface.
     const atRest = simSceneFrame.payload.elements;
     const moved = simBodiesFrame.payload.bodies.filter((body) => {
       const start = atRest.find((element) => element.id === body.id);
       return start && Math.hypot(body.x - start.x, body.y - start.y) > 0.01;
     });
-    expect(moved.length).toBe(simBodiesFrame.payload.bodies.length);
-    const spinning = simBodiesFrame.payload.bodies.filter(
-      (body) => Math.hypot(body.qx, body.qy, body.qz) > 0.01,
-    );
-    expect(spinning.length).toBe(simBodiesFrame.payload.bodies.length);
+    expect(moved.length).toBeGreaterThan(1);
+    for (const body of moved) {
+      expect(Math.hypot(body.qx, body.qy, body.qz)).toBeGreaterThan(0.01);
+    }
   });
 
   it('report the clock and the alliance as the browser spells them', () => {
@@ -405,6 +474,82 @@ describe('sim frames', () => {
     // Java's Alliance is an enum with @SerializedName; a browser reading RED instead of red would
     // silently take red's heading zero on a blue session.
     expect(alliances).toContain(simStatusFrame.payload.alliance);
+  });
+
+  it('score only the upward-facing CELLs, two points an element', () => {
+    const named = ['redPoints', 'bluePoints', 'cells', 'redTips', 'blueTips'] satisfies (keyof SimScore)[];
+    const cellFields = ['cell', 'alliance', 'holding', 'points'] satisfies (keyof SimScoreCell)[];
+    expectFields(simScoreFrame.payload, named);
+    const alliances: Alliance[] = ['red', 'blue'];
+    for (const cell of simScoreFrame.payload.cells) {
+      expectFields(cell, cellFields);
+      // Same enum spelling trap as sim/status: Java's Alliance serialises lowercase, and a RED
+      // here would colour red's total as neither alliance rather than failing visibly.
+      expect(alliances).toContain(cell.alliance);
+      // Manual §10.5.1 is two points per POLLEN or NECTAR. The browser prints the server's number
+      // rather than deriving it, so this is the only place the two spellings are compared: a Java
+      // side that started sending points per CELL, or per alliance, would still render.
+      expect(cell.points).toBe(cell.holding * 2);
+    }
+    // A downward-facing CELL cannot score and is absent rather than zero, so the totals are a sum
+    // over the CELLs that are here — nothing else on the wire lets the browser check them.
+    const total = (alliance: Alliance) =>
+      simScoreFrame.payload.cells
+        .filter((cell) => cell.alliance === alliance)
+        .reduce((sum, cell) => sum + cell.points, 0);
+    expect(simScoreFrame.payload.redPoints).toBe(total('red'));
+    expect(simScoreFrame.payload.bluePoints).toBe(total('blue'));
+    expect(parseSimScore(simScoreFrame.payload)).toEqual(simScoreFrame.payload);
+  });
+});
+
+/**
+ * The scenario list: the captured frame where the contract is its shape, and hand-built frames for
+ * the two states a single capture cannot hold at once — a session on the robot's own field, and a
+ * directory listing with something odd in it.
+ */
+describe('the scenario list', () => {
+  const listing = simScenariosFrame.payload;
+
+  it('names the staged fields on disk, the directory holding them, and the loaded one', () => {
+    const named = ['scenarios', 'directory', 'active'] satisfies (keyof SimScenarios)[];
+    expectFields(listing, named);
+    // Bare names, not filenames: the picker shows these to a driver, and the server is the only
+    // side that should know a scenario is a .json file at all.
+    for (const name of listing.scenarios) expect(name).not.toMatch(/\.json$/);
+    // Absolute for the same reason sim/camera-saved's path is: it is shown to someone who may be
+    // on another machine entirely and has to find the folder to add a file to.
+    expect(listing.directory.startsWith('/')).toBe(true);
+    expect(parseSimScenarios(listing)).toEqual(listing);
+  });
+
+  it('reads a null active as the robot own field rather than as a broken frame', () => {
+    // The distinction the picker is built on, and the one the capture cannot show: a parser that
+    // tested `!message.active`, or that required a string, would reject every frame from a session
+    // started with no scenario — the default session — and the picker would never appear at all.
+    expect(parseSimScenarios({ ...listing, active: null })).toEqual({ ...listing, active: null });
+    // An empty directory is a listing, not a failure: the picker is how someone with no scenario
+    // files at all learns where to put the first one.
+    expect(parseSimScenarios({ ...listing, scenarios: [], active: null })?.scenarios).toEqual([]);
+  });
+
+  it('refuses a frame that has stopped saying which scenario is loaded', () => {
+    // Absent is not null. A server that dropped the key would leave every frame reading "the
+    // robot's own field" while a scenario is staged, which is a picker naming the wrong entry
+    // rather than an empty one.
+    const missing: Record<string, unknown> = { ...listing };
+    delete missing.active;
+    expect(parseSimScenarios(missing)).toBeNull();
+    expect(parseSimScenarios({ ...listing, scenarios: 'match-staging' })).toBeNull();
+    expect(parseSimScenarios({ ...listing, directory: 7 })).toBeNull();
+    expect(parseSimScenarios(null)).toBeNull();
+  });
+
+  it('drops a name that is not a string and keeps the scenarios around it', () => {
+    // These come off disk, like the layout list: one odd entry must not cost the picker every
+    // other scenario, and a non-string reaching the option list renders as the word "object".
+    const parsed = parseSimScenarios({ ...listing, scenarios: ['match-staging', 7, null] });
+    expect(parsed?.scenarios).toEqual(['match-staging']);
   });
 });
 

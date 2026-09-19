@@ -11,6 +11,8 @@ import simCameraSavedFrame from '../../protocol-fixtures/sim-camera-saved.json';
 import simConfigFrame from '../../protocol-fixtures/sim-config.json';
 import simPoseFrame from '../../protocol-fixtures/sim-pose.json';
 import simSceneFrame from '../../protocol-fixtures/sim-scene.json';
+import simScenariosFrame from '../../protocol-fixtures/sim-scenarios.json';
+import simScoreFrame from '../../protocol-fixtures/sim-score.json';
 import simStatusFrame from '../../protocol-fixtures/sim-status.json';
 import telemetryFrame from '../../protocol-fixtures/telemetry-frame.json';
 import unknownErrorFrame from '../../protocol-fixtures/unknown-error.json';
@@ -52,6 +54,8 @@ function recorder() {
     setSimScene: record('setSimScene'),
     setCameraStream: record('setCameraStream'),
     setSimStatus: record('setSimStatus'),
+    setSimScore: record('setSimScore'),
+    setSimScenarios: record('setSimScenarios'),
     setCameraMount: record('setCameraMount'),
     setSavedCameraMount: record('setSavedCameraMount'),
     pose: { publish: record('publish'), commit: record('commit') },
@@ -84,8 +88,11 @@ describe('applyMessage', () => {
       'sim/status': simStatusFrame as Envelope,
       'sim/config': simConfigFrame as Envelope,
       'sim/scene': simSceneFrame as Envelope,
+      'sim/score': simScoreFrame as Envelope,
+      'sim/scenarios': simScenariosFrame as Envelope,
       'camera/stream': cameraStreamFrame as Envelope,
       'sim/pose': simPoseFrame as Envelope,
+      'sim/camera': simCameraFrame as Envelope,
       'device/state': deviceStateFrame as Envelope,
     };
     for (const name of handshake.observed) {
@@ -106,6 +113,8 @@ describe('applyMessage', () => {
       [simConfigFrame as Envelope, 'setSimConfig'],
       [simSceneFrame as Envelope, 'setSimScene'],
       [simStatusFrame as Envelope, 'setSimStatus'],
+      [simScoreFrame as Envelope, 'setSimScore'],
+      [simScenariosFrame as Envelope, 'setSimScenarios'],
       [cameraStreamFrame as Envelope, 'setCameraStream'],
       [simCameraFrame as Envelope, 'setCameraMount'],
       [simCameraSavedFrame as Envelope, 'setSavedCameraMount'],
@@ -181,6 +190,56 @@ describe('applyMessage', () => {
     expect(calls.setLayoutDirectory).toEqual([layoutListFrame.payload.directory]);
     expect(calls.setLoadedLayout).toBeUndefined();
     expect(calls.setSavedLayout).toBeUndefined();
+  });
+
+  it('carries the whole score to the score sink, totals and CELLs alike', () => {
+    // The strip shows the totals and names the CELLs in its tooltip, so a route that delivered a
+    // reshaped object — the cells dropped, the totals swapped — would still render something, and
+    // what it rendered would be a plausible-looking wrong score. Equality against the frame is the
+    // only assertion that catches that.
+    const { sinks, calls } = recorder();
+    applyMessage(simScoreFrame as Envelope, sinks);
+    expect(calls.setSimScore).toEqual([simScoreFrame.payload]);
+  });
+
+  it('drops a score frame with no cells rather than taking every view down with it', () => {
+    // Unlike the sim frames beside it, this one is validated: the readout maps over `cells` in the
+    // strip that all three views render, so a frame from a server that renamed the key would land
+    // as `undefined.map` on the next render — the whole page, not the one number. A total that is
+    // not a number is the same kind of thing more quietly: it reaches the strip and stays there
+    // reading NaN until something else changes.
+    const { sinks, calls } = recorder();
+    applyMessage(frame('sim', 'score', { redPoints: 6, bluePoints: 0 }), sinks);
+    applyMessage(frame('sim', 'score', { redPoints: 'six', bluePoints: 0, cells: [] }), sinks);
+    applyMessage(frame('sim', 'score', null), sinks);
+    expect(calls).toEqual({});
+  });
+
+  it('carries the whole scenario list to its sink, directory and active one alike', () => {
+    // The picker is built from all three fields: it lists the names, selects the active one and
+    // shows the directory in its tooltip. A route that delivered a reshaped object would still
+    // render a menu, and the menu would be wrong about which field is on the table.
+    const { sinks, calls } = recorder();
+    applyMessage(simScenariosFrame as Envelope, sinks);
+    expect(calls.setSimScenarios).toEqual([simScenariosFrame.payload]);
+  });
+
+  it('carries a null active through to the sink instead of dropping the frame', () => {
+    // The default session: nothing staged, the robot's own field. The capture cannot show it —
+    // it ran with a scenario loaded — and validation that read a null active as a malformed frame
+    // would stop the picker appearing in exactly the sessions most people run.
+    const { sinks, calls } = recorder();
+    const payload = { ...simScenariosFrame.payload, active: null };
+    applyMessage(frame('sim', 'scenarios', payload), sinks);
+    expect(calls.setSimScenarios).toEqual([payload]);
+  });
+
+  it('drops a scenario frame that no longer says which one is loaded', () => {
+    const { sinks, calls } = recorder();
+    const { scenarios, directory } = simScenariosFrame.payload;
+    applyMessage(frame('sim', 'scenarios', { scenarios, directory }), sinks);
+    applyMessage(frame('sim', 'scenarios', null), sinks);
+    expect(calls).toEqual({});
   });
 });
 

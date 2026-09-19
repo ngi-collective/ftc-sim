@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.behavior.ImuBehaviors;
 import org.ngicollective.testframework.camera.GameElement;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -45,10 +47,11 @@ class RobotPushTest {
             + "  \"version\": 1,\n"
             + "  \"name\": \"Pusher\",\n"
             + "  \"chassis\": { \"widthMetres\": 0.38, \"lengthMetres\": 0.40,"
-            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105 },\n"
+            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105,"
+            + " \"massKilograms\": 14.0 },\n"
             + "  \"drivetrain\": { \"type\": \"mecanum\", \"wheelRadiusMetres\": 0.048,"
             + " \"gearRatio\": 1.0, \"trackWidthMetres\": 0.32, \"wheelBaseMetres\": 0.29,"
-            + " \"strafeEfficiency\": 0.8 },\n"
+            + " \"strafeEfficiency\": 0.8, \"gripCoefficient\": 0.9 },\n"
             + "  \"imu\": { \"name\": \"imu\" },\n"
             + "  \"camera\": { \"name\": \"Webcam 1\", \"forwardMetres\": 0.16,"
             + " \"leftMetres\": 0.0, \"yawDegrees\": 0.0, \"pitchDegrees\": 35.0,"
@@ -89,6 +92,20 @@ class RobotPushTest {
         return hardware;
     }
 
+    /**
+     * A world of these balls, with this robot in it.
+     *
+     * <p>Installed on the hardware map rather than kept beside it, because the world is what the
+     * robot's pose comes out of: a world nobody installed would hold a robot nothing is
+     * driving.</p>
+     */
+    private FieldPhysics worldWith(FakeHardwareMap hardware, List<GameElement> arrangement) {
+        FieldPhysics world = FieldPhysics.of(arrangement,
+                Collections.<Structure>emptyList(), FieldConfig.standard(), robot);
+        hardware.setPhysics(world);
+        return world;
+    }
+
     /** Drives the session forward at {@code power} for {@code seconds}, physics and all. */
     private void drive(FakeHardwareMap hardware, FieldPhysics world, double power,
                        double seconds) {
@@ -107,10 +124,10 @@ class RobotPushTest {
             hardware.motor(wheel).setPower(power);
         }
         for (int tick = 0; tick < Math.round(seconds / cycleSeconds); tick++) {
-            // The same order the dashboard's tick uses: the drive model integrates the wheels
-            // first, then the physics world is carried to the pose that produced.
+            // One call, because one clock: the hardware map advances the wheels, the world they
+            // are in, and the devices, in that order. Advancing the world separately would step
+            // it twice per cycle.
             hardware.advance(cycleSeconds);
-            world.advance(cycleSeconds);
         }
     }
 
@@ -120,9 +137,8 @@ class RobotPushTest {
         hardware.drive().setPose(Pose2d.ORIGIN);
         // Half a metre ahead, dead on the nose: the chassis is 0.40 m long, so its bumper starts
         // 0.20 m out and reaches the ball a quarter of a second in.
-        FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(0.5, 0.0)),
-                FieldConfig.standard(), hardware.drive());
+        FieldPhysics world = worldWith(hardware,
+                Arrays.asList(GameElement.pollen(0.5, 0.0)));
 
         drive(hardware, world, 1.0, 0.6);
 
@@ -141,9 +157,8 @@ class RobotPushTest {
     void aShovedBallRollsToAStopOnceTheRobotStops() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(0.5, 0.0)),
-                FieldConfig.standard(), hardware.drive());
+        FieldPhysics world = worldWith(hardware,
+                Arrays.asList(GameElement.pollen(0.5, 0.0)));
 
         drive(hardware, world, 1.0, 0.5);
         // Wheels off. Whatever the ball does now is the floor's doing, not the robot's.
@@ -191,7 +206,7 @@ class RobotPushTest {
                 GameElement.pollen(0.0, 0.02),
                 GameElement.pollen(0.6, -0.02),
                 GameElement.pollen(1.2, 0.0));
-        FieldPhysics world = FieldPhysics.of(line, FieldConfig.standard(), hardware.drive());
+        FieldPhysics world = worldWith(hardware, line);
 
         drive(hardware, world, 1.0, 2.56, 0.16);
 
@@ -234,14 +249,12 @@ class RobotPushTest {
     void aRobotPlacedOnTopOfABallPushesItOutRatherThanFightingIt() {
         FakeHardwareMap hardware = hardware();
         double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
-        FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(0.0, 0.0)),
-                FieldConfig.standard(), hardware.drive());
+        FieldPhysics world = worldWith(hardware,
+                Arrays.asList(GameElement.pollen(0.0, 0.0)));
 
         // Dead centre of the footprint, the worst case: every side face is equally far away.
         hardware.drive().setPose(Pose2d.ORIGIN);
         hardware.advance(TICK);
-        world.advance(TICK);
 
         // The correction has to be reported, not just made. It is the largest single jump a ball
         // ever makes, and a world that moved it quietly would leave every browser drawing it under
@@ -301,9 +314,8 @@ class RobotPushTest {
         double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
         hardware.drive().setPose(new Pose2d(half - 0.6, 0.0, 0.0));
 
-        FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(half - 0.1, 0.0)),
-                FieldConfig.standard(), hardware.drive());
+        FieldPhysics world = worldWith(hardware,
+                Arrays.asList(GameElement.pollen(half - 0.1, 0.0)));
 
         drive(hardware, world, 1.0, 3.0);
         drive(hardware, world, -1.0, 1.0);

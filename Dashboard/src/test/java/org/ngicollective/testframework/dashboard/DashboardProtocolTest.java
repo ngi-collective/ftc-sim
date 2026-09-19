@@ -13,7 +13,9 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -75,6 +77,9 @@ class DashboardProtocolTest {
     void greetsAFreshClientWithEveryFrameTheHandshakeFixtureRecords() {
         backend.simConfig = someSimConfig();
         backend.scene = someScene();
+        backend.score = someScore();
+        backend.scenarios = someScenarios();
+        backend.cameraMount = someCameraMount(false);
 
         assertEquals(handshakeRoutes("onOpen"), routes(protocol(CAMERA).greeting()));
     }
@@ -129,6 +134,91 @@ class DashboardProtocolTest {
     }
 
     /**
+     * The score is greeted with, which is what separates it from the bodies.
+     *
+     * <p>A browser can work out where the balls are from the scene it was just sent, and cannot
+     * work out a score from anything on this socket: the CELL geometry, the tip that decides which
+     * one counts and the manual's point values are all Java's. A score that only arrived on the
+     * next change would leave a freshly opened page reading nothing at all through an entire
+     * autonomous that scored on its first second.</p>
+     */
+    @Test
+    void greetingCarriesTheScoreWhenTheSessionHasOne() {
+        backend.simConfig = someSimConfig();
+        backend.scene = someScene();
+
+        assertFalse(routes(protocol().greeting()).contains("sim/score"),
+                "a session with nowhere to score has no score to state");
+
+        backend.score = someScore();
+
+        assertEquals(Arrays.asList("opmode/list", "opmode/status", "sim/status", "sim/config",
+                "sim/scene", "sim/score"), routes(protocol().greeting()));
+    }
+
+    /**
+     * Beside the score, and absent for the same kind of session: a robot whose camera renders no
+     * field cannot be put into an arrangement, so the browser is told nothing and draws no picker.
+     */
+    @Test
+    void greetingCarriesTheScenariosWhenThereIsAFieldToArrange() {
+        backend.simConfig = someSimConfig();
+        backend.scene = someScene();
+
+        assertFalse(routes(protocol().greeting()).contains("sim/scenarios"),
+                "a session with no field to arrange has no arrangements to offer");
+
+        backend.scenarios = someScenarios();
+
+        assertEquals(Arrays.asList("opmode/list", "opmode/status", "sim/status", "sim/config",
+                "sim/scene", "sim/scenarios"), routes(protocol().greeting()));
+    }
+
+    @Test
+    void simScenariosRequestAnswersWithWhatIsAvailableAndWhatIsLoaded() {
+        backend.scenarios = someScenarios();
+
+        receive("{\"namespace\":\"sim\",\"type\":\"scenarios\",\"payload\":{}}");
+
+        assertEquals(Collections.singletonList("sim/scenarios"), routes(replies.replied));
+        JsonObject answered = replies.replied.get(0).payload.getAsJsonObject();
+        assertEquals("match-staging", answered.getAsJsonArray("scenarios").get(1).getAsString());
+        assertEquals("practice-balls", answered.get("active").getAsString());
+    }
+
+    @Test
+    void simScenarioLoadsTheNameItWasGivenAndTellsEveryClient() {
+        backend.scenarios = someScenarios();
+
+        receive("{\"namespace\":\"sim\",\"type\":\"scenario\","
+                + "\"payload\":{\"name\":\"hives-tipped-back\"}}");
+
+        assertEquals(Collections.singletonList("hives-tipped-back"), backend.loadedScenarios);
+        // Broadcast rather than replied to: two browsers watching one field must not disagree
+        // about which arrangement they are looking at.
+        assertEquals(Collections.singletonList("sim/scenarios"), routes(replies.broadcast));
+        assertEquals("hives-tipped-back", replies.broadcast.get(0).payload.getAsJsonObject()
+                .get("active").getAsString());
+    }
+
+    /**
+     * The one {@code sim} request whose field may be null, because null is the answer: it is how
+     * the browser asks for the field with no scenario on it. Requiring a name would make the
+     * robot's own field the one arrangement a picker could not select.
+     */
+    @Test
+    void simScenarioWithANullNameAsksForNoScenarioAtAll() {
+        backend.scenarios = someScenarios();
+
+        receive("{\"namespace\":\"sim\",\"type\":\"scenario\",\"payload\":{\"name\":null}}");
+        receive("{\"namespace\":\"sim\",\"type\":\"scenario\",\"payload\":{}}");
+
+        assertEquals(Arrays.asList(null, null), backend.loadedScenarios);
+        assertTrue(routes(replies.replied).isEmpty(),
+                "a null name is a request, not a malformed message");
+    }
+
+    /**
      * Each stream the backend pushes arrives on its own namespace and type, because that is what
      * the browser routes on: a telemetry frame delivered as {@code sim/pose} is not a slower
      * dashboard, it is a silent one.
@@ -145,10 +235,11 @@ class DashboardProtocolTest {
         backend.emitSimPose(new SimPose(1L, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false));
         backend.emitSimConfig(someSimConfig());
         backend.emitScene(someScene());
+        backend.emitScore(someScore());
         backend.emitSimStatus(new SimStatus(1.0, false, Alliance.BLUE));
 
         assertEquals(Arrays.asList("opmode/status", "telemetry/frame", "device/state", "sim/pose",
-                "sim/config", "sim/scene", "sim/status"), routes(pushed));
+                "sim/config", "sim/scene", "sim/score", "sim/status"), routes(pushed));
     }
 
     // Requests, in the order the message table on DashboardServer lists them.
@@ -488,7 +579,22 @@ class DashboardProtocolTest {
 
     private static ScenePayload someScene() {
         return new ScenePayload(Collections.<ScenePayload.Tag>emptyList(),
-                Collections.<ScenePayload.Element>emptyList());
+                Collections.<ScenePayload.Element>emptyList(),
+                Collections.<ScenePayload.Structure>emptyList());
+    }
+
+    /** One upward-facing CELL per alliance, which is all a real session ever sends. */
+    private static ScorePayload someScore() {
+        return new ScorePayload(6, 0, Arrays.asList(
+                new ScorePayload.Cell("RED AUDIENCE", Alliance.RED, 3, 6),
+                new ScorePayload.Cell("BLUE SCORING", Alliance.BLUE, 0, 0)), 0, 0);
+    }
+
+    /** The three scenarios TeamCode commits, with one of them loaded. */
+    private static ScenariosPayload someScenarios() {
+        return new ScenariosPayload(
+                Arrays.asList("hives-tipped-back", "match-staging", "practice-balls"),
+                "/Users/team/FtcRobotController/TeamCode/scenarios", "practice-balls");
     }
 
     private static CameraMountPayload someCameraMount(boolean unsaved) {

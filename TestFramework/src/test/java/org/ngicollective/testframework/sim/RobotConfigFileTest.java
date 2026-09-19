@@ -29,10 +29,11 @@ class RobotConfigFileTest {
             + "  \"version\": 1,\n"
             + "  \"name\": \"Fixture\",\n"
             + "  \"chassis\": { \"widthMetres\": 0.38, \"lengthMetres\": 0.40,"
-            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105 },\n"
+            + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105,"
+            + " \"massKilograms\": 14.0 },\n"
             + "  \"drivetrain\": { \"type\": \"mecanum\", \"wheelRadiusMetres\": 0.048,"
             + " \"gearRatio\": 1.0, \"trackWidthMetres\": 0.32, \"wheelBaseMetres\": 0.29,"
-            + " \"strafeEfficiency\": 0.8 },\n"
+            + " \"strafeEfficiency\": 0.8, \"gripCoefficient\": 0.9 },\n"
             + "  \"imu\": { \"name\": \"imu\" },\n";
 
     /** Everything after it, including the aligned motor table. */

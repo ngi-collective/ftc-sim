@@ -1,8 +1,10 @@
 package org.ngicollective.testframework.physics;
 
 import org.ngicollective.testframework.camera.GameElement;
-import org.ngicollective.testframework.sim.DriveModel;
+import org.ngicollective.testframework.camera.Structure;
+import org.ngicollective.testframework.sim.Chassis;
 import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.RobotConfig;
 import org.ngicollective.testframework.sim.SensorConfig;
 import org.ngicollective.testframework.sim.VolumeConfig;
 
@@ -16,12 +18,11 @@ import java.util.List;
  * camera view &mdash; two pictures of one field that can disagree are worse than one picture,
  * because then a driver cannot tell which of them is lying.</p>
  *
- * <p>The robot is not simulated here, yet. It enters the world as a kinematic box carried to
- * wherever {@link DriveModel} says the robot is: it shoves balls and is shoved by nothing, because
- * the drive model still integrates wheel speeds straight into a pose. Making the chassis dynamic is
- * a later step and a bigger one &mdash; it needs mass, traction and a torque&ndash;speed curve
- * &mdash; and doing it in the same breath as the balls would have left no way to tell which half
- * was wrong.</p>
+ * <p>The robot is one of the bodies in it. It arrives with mass and is moved only by what its
+ * wheels can grip and by whatever it runs into, so it can be slowed by a ball, stopped by a wall
+ * and spun by a corner &mdash; which is what makes the field's own structures worth building, as
+ * geometry a robot drives straight through is a lie the driver can see. {@link #chassis()} is the
+ * robot in this world, and where its pose comes from.</p>
  *
  * <p>An interface rather than a class because of the licence. ode4j is LGPL-2.1, and while the
  * module graph already keeps it out of the competition APK, a team that wants it out of the build
@@ -50,6 +51,30 @@ public interface FieldPhysics {
 
     /** The same balls as the wire wants them: id, position, orientation. In id order. */
     List<BodyState> bodies();
+
+    /**
+     * Every structure on the field that can move, and where it has got to.
+     *
+     * <p>Two of them on a competition field: the red HIVE and the blue one. Empty when the world
+     * was built without structures, which is what most tests want, and empty for every world
+     * ode4j is absent from &mdash; nothing to tip is the same answer as nothing that can tip.</p>
+     *
+     * <p>What a caller does with this is hand it to {@code SimulatedScene.tipped}, which swings
+     * the panels, the scoring volumes and the AprilTags together. Reading it is how a test asks
+     * "did that shot tip the HIVE", and it is the only place the count of TIPs exists.</p>
+     */
+    List<PivotState> pivots();
+
+    /**
+     * The robot in this world, or null when the session's robot declares no drivetrain.
+     *
+     * <p>This is the one source of the robot's pose. Handing it to {@code DriveModel} rather than
+     * letting the drive model keep its own is what stops two answers to "where is the robot"
+     * existing at once, which is the same rule ADR-0002 states for the camera view: two pictures
+     * of one field that can disagree are worse than one, because then nobody can tell which is
+     * lying.</p>
+     */
+    Chassis chassis();
 
     /**
      * Whether anything is still in motion.
@@ -103,6 +128,25 @@ public interface FieldPhysics {
     void setSweepPower(String servoName, double power);
 
     /**
+     * Runs a launcher's flywheel with its surface moving at {@code surfaceMetresPerSecond}.
+     *
+     * <p>A surface speed and not a power, because a flywheel's whole point is that its speed lags
+     * its command: the caller has read the simulated shaft, applied the wheel's radius and the
+     * mounting mirror, and is telling the world what the rubber is doing right now. Negative is a
+     * wheel running backwards, which throws nothing &mdash; that is a launcher whose motor wants
+     * {@code REVERSE} and never got it, and it should be as visibly useless here as it is on a
+     * real robot.</p>
+     *
+     * <p>What the world does with it is turn surface speed into ball speed, which is the part that
+     * is physics rather than hardware: see {@code LauncherConfig.transferEfficiency}.</p>
+     *
+     * @param motorName the motor the launcher is keyed under
+     * @throws IllegalArgumentException if no launcher is driven by that motor, because a mechanism
+     *     nobody declared is a configuration mistake rather than a no-op
+     */
+    void setLauncherSpeed(String motorName, double surfaceMetresPerSecond);
+
+    /**
      * Releases this world.
      *
      * <p>Worth having rather than left to the garbage collector because a dashboard session builds
@@ -112,16 +156,19 @@ public interface FieldPhysics {
     void destroy();
 
     /**
-     * A world containing {@code arrangement}, walled in by {@code field}, with {@code drive}'s robot
-     * pushing things around.
+     * A world containing {@code arrangement} and {@code structures}, walled in by {@code field},
+     * with {@code robot} in it.
      *
-     * @param drive the drive model whose pose the robot's collision box follows, or null for a
-     *     robot that has no drivetrain and therefore no place on the field
+     * @param structures the field's own furniture, whose {@code collided()} geometry becomes
+     *     static obstacles; empty for a bare field, which is what most tests want
+     * @param robot the robot to put on the field, or null for a hardware map that declares no
+     *     drivetrain and therefore has no place on one
      * @return an ode4j-backed world, or one whose balls never move if ode4j is not on the classpath
      */
-    static FieldPhysics of(List<GameElement> arrangement, FieldConfig field, DriveModel drive) {
+    static FieldPhysics of(List<GameElement> arrangement, List<Structure> structures,
+                           FieldConfig field, RobotConfig robot) {
         try {
-            return new OdeFieldPhysics(arrangement, field, drive);
+            return new OdeFieldPhysics(arrangement, structures, field, robot);
         } catch (NoClassDefFoundError absent) {
             // Said once, loudly, and then the simulator carries on: the balls are where the
             // scenario put them and nothing can move them. Anyone who dropped the jar on purpose
@@ -130,7 +177,7 @@ public interface FieldPhysics {
             System.err.println("[physics] ode4j is not on the classpath (" + absent.getMessage()
                     + "); the balls on the field will not move. Add org.ode4j:core to"
                     + " TestFramework's dependencies to simulate them.");
-            return new StillFieldPhysics(arrangement, drive);
+            return new StillFieldPhysics(arrangement, field, robot);
         }
     }
 }

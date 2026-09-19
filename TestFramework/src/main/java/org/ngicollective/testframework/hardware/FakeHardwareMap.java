@@ -22,7 +22,9 @@ import org.ngicollective.testframework.behavior.VoltageState;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.SceneFrameSource;
+import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.physics.FieldPhysics;
+import org.ngicollective.testframework.physics.PivotState;
 import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.MechanismModel;
@@ -117,14 +119,22 @@ public class FakeHardwareMap extends HardwareMap {
     }
 
     /**
-     * The world the robot is driving in, or null when nothing is simulating one.
+     * Puts this robot in a different world: a dashboard scenario, or a test's arrangement.
      *
-     * <p>Set from outside rather than built here, because what is on the field is a property of the
-     * session &mdash; a dashboard scenario, a test's arrangement &mdash; while what advances it has
-     * to be this class, which is the one place simulated time passes.</p>
+     * <p>Set from outside rather than built here, because what is on the field is a property of
+     * the session, while what advances it has to be this class, which is the one place simulated
+     * time passes.</p>
+     *
+     * <p>The robot moves house with it, keeping where it was standing. A world owns the robot's
+     * pose, so replacing the world replaces the thing that knows where the robot is &mdash; and a
+     * robot that returned to the origin every time an arrangement was loaded would make the
+     * dashboard's "place the robot here" useless the moment anything else was edited.</p>
      */
     public void setPhysics(FieldPhysics physics) {
         this.physics = physics;
+        if (drive != null && physics != null && physics.chassis() != null) {
+            drive.useChassis(physics.chassis());
+        }
     }
 
     /** The world this robot is driving in, or null when nothing is simulating one. */
@@ -145,12 +155,9 @@ public class FakeHardwareMap extends HardwareMap {
         }
         elapsedSeconds += seconds;
         if (drive != null) {
-            // Before the devices, deliberately: the drive model publishes this tick's chassis
-            // heading into the IMU's state, and the IMU behavior that copies it out runs in the
-            // loop below. Advancing the devices first would report the heading the robot had a tick
-            // ago, and at 50 Hz a fast pivot moves several degrees in a tick -- exactly the lag a
-            // heading-holding routine would then be tuned against and fail on the real robot.
-            drive.advance(seconds);
+            // Before the world steps, because the world is what moves the robot: these are the
+            // wheel speeds the contact forces of this step are computed from.
+            drive.commandWheels();
         }
         if (physics != null) {
             if (mechanisms != null) {
@@ -158,15 +165,23 @@ public class FakeHardwareMap extends HardwareMap {
                 // run, or every intake acts on the command before last.
                 mechanisms.applyMechanisms(physics);
             }
-            // After the drive and before the devices, for the same reason and one more: the robot's
-            // collision box follows the pose the drive model just produced, and the camera is a
-            // device. Stepping the world after the camera had rendered would stream frames of where
-            // the balls were a tick ago, while the field view showed where they are -- two pictures
-            // of one field that disagree, which ADR-0002 exists to prevent.
+            // Before the devices, and the camera is a device. Stepping the world after the camera
+            // had rendered would stream frames of where the balls were a tick ago, while the field
+            // view showed where they are -- two pictures of one field that disagree, which
+            // ADR-0002 exists to prevent.
             physics.advance(seconds);
             if (physics.moving()) {
-                showMovedElements();
+                showMovedBodies();
             }
+        }
+        if (drive != null) {
+            // After the step, because only now does the chassis know where it ended up, and before
+            // the devices, because the IMU behavior that copies the heading out to an OpMode runs
+            // in the loop below. Publishing before the step would report the heading the robot had
+            // a tick ago, and at 50 Hz a fast pivot moves several degrees in a tick -- exactly the
+            // lag a heading-holding routine would then be tuned against and fail on the real
+            // robot.
+            drive.publishHeading();
         }
         if (mechanisms != null) {
             // After the step and before the devices, which is the same sandwich the IMU sits in:
@@ -182,13 +197,21 @@ public class FakeHardwareMap extends HardwareMap {
     }
 
     /**
-     * Puts the balls' new positions in front of any camera rendering a scene.
+     * Puts the balls' new positions, and any HIVE that has turned, in front of any camera
+     * rendering a scene.
      *
      * <p>Only while something is moving. A field at rest is the common case &mdash; a scenario
      * nobody has driven into yet, an OpMode being written &mdash; and it costs nothing at all.</p>
+     *
+     * <p>The tip goes through the scene rather than being applied to the tags directly, because a
+     * tipping HIVE moves three things that have to agree: the panels a ball bounces off, the
+     * region it scores in, and the AprilTag cluster an OpMode ranges off. This class knows none of
+     * that &mdash; it hands over angles by structure name, and the scene swings whatever named
+     * them.</p>
      */
-    private void showMovedElements() {
+    private void showMovedBodies() {
         List<GameElement> moved = null;
+        Map<String, Double> tips = null;
         for (FakeDevice<?> device : fakes.values()) {
             if (!(device instanceof FakeWebcam)) {
                 continue;
@@ -199,9 +222,10 @@ public class FakeHardwareMap extends HardwareMap {
             }
             if (moved == null) {
                 moved = physics.elements();
+                tips = PivotState.anglesOf(physics.pivots());
             }
             SceneFrameSource scene = (SceneFrameSource) frames;
-            scene.setScene(scene.scene().withElements(moved));
+            scene.setScene(scene.scene().withElements(moved).tipped(tips));
         }
     }
 
@@ -398,7 +422,17 @@ public class FakeHardwareMap extends HardwareMap {
 
         public FakeHardwareMap build() {
             if (drivetrainRobot != null) {
-                map.drive = new DriveModel(drivetrainRobot, drivetrainField, map);
+                // The world first, because it is what the robot's pose comes out of. Every
+                // hardware map with a drivetrain gets one, empty of game elements and of field
+                // furniture until a session or a test loads an arrangement: a robot whose pose
+                // came from somewhere else until the first INIT would be a second physics nobody
+                // tested.
+                FieldPhysics world = FieldPhysics.of(
+                        Collections.<GameElement>emptyList(), Collections.<Structure>emptyList(),
+                        drivetrainField, drivetrainRobot);
+                map.physics = world;
+                map.drive = new DriveModel(
+                        drivetrainRobot, drivetrainField, map, world.chassis());
             }
             if (mechanismRobot != null) {
                 MechanismModel mechanisms = new MechanismModel(mechanismRobot, map);

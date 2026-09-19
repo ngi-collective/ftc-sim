@@ -6,16 +6,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Everything on the field a camera could see, and how to draw it.
  *
  * <p>The field itself &mdash; its tiles, its perimeter and its alliance ends, from
- * {@link FieldSurfaces} &mdash; plus the tag clusters and coloured game elements standing on it.
- * The field is drawn because the Dashboard shows this camera beside a field view of the same
- * world, and a camera that saw a grey void could not be checked against it; the grey is now only
- * what lies beyond the perimeter.</p>
+ * {@link FieldSurfaces} &mdash; plus the tag clusters, the coloured game elements, and the
+ * structures standing on it. The field is drawn because the Dashboard shows this camera beside a
+ * field view of the same world, and a camera that saw a grey void could not be checked against
+ * it; the grey is now only what lies beyond the perimeter.</p>
  *
  * <p>Drawn back to front, so a ball in front of a tag hides it. That is not decoration either: a
  * robot's own intake blocking its view of a tag is an ordinary situation, and an OpMode that
@@ -30,6 +32,8 @@ public final class SimulatedScene {
 
     private final List<TagCluster> clusters;
     private final List<GameElement> elements;
+    private final List<Structure> structures;
+    private final List<ScoringVolume> volumes;
     private final List<Surface> surfaces;
     private final int background;
 
@@ -50,7 +54,8 @@ public final class SimulatedScene {
 
     public SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
                           FieldConfig field, int backgroundGrey) {
-        this(clusters, elements, everythingAround(field), backgroundGrey);
+        this(clusters, elements, Collections.<Structure>emptyList(),
+                Collections.<ScoringVolume>emptyList(), everythingAround(field), backgroundGrey);
     }
 
     /**
@@ -68,9 +73,12 @@ public final class SimulatedScene {
     }
 
     private SimulatedScene(List<TagCluster> clusters, List<GameElement> elements,
+                           List<Structure> structures, List<ScoringVolume> volumes,
                            List<Surface> surfaces, int backgroundGrey) {
         this.clusters = Collections.unmodifiableList(new ArrayList<>(clusters));
         this.elements = Collections.unmodifiableList(new ArrayList<>(elements));
+        this.structures = Collections.unmodifiableList(new ArrayList<>(structures));
+        this.volumes = Collections.unmodifiableList(new ArrayList<>(volumes));
         this.surfaces = surfaces;
         this.background = backgroundGrey;
     }
@@ -84,6 +92,7 @@ public final class SimulatedScene {
      */
     public static SimulatedScene of(TagCluster... clusters) {
         return new SimulatedScene(Arrays.asList(clusters), Collections.<GameElement>emptyList(),
+                Collections.<Structure>emptyList(), Collections.<ScoringVolume>emptyList(),
                 Collections.<Surface>emptyList(), DEFAULT_BACKGROUND);
     }
 
@@ -93,6 +102,48 @@ public final class SimulatedScene {
 
     public List<GameElement> elements() {
         return elements;
+    }
+
+    /** The field furniture a robot can run into: the HIVE Structure and the FLOWERs. */
+    public List<Structure> structures() {
+        return structures;
+    }
+
+    /**
+     * Where an element on this field is worth points: the upward-facing CELLs, for now.
+     *
+     * <p>Empty for a scene that is not a season field &mdash; a bare cluster fixture, a taped-out
+     * gym &mdash; because there is nowhere on one of those to score. These are the only part of a
+     * scene a camera cannot see, and they ride along on it anyway because the scene is what every
+     * consumer already receives: the Dashboard needs to know which CELL is the raised one to put a
+     * score on screen, and the tip state that decides it lives in a scenario file that nothing
+     * downstream of {@code ScenarioConfig.scene()} ever sees.</p>
+     */
+    public List<ScoringVolume> scoringVolumes() {
+        return volumes;
+    }
+
+    /**
+     * This scene with field furniture in it.
+     *
+     * <p>Separate from the constructors because a structure is the field's, not a scenario's: the
+     * competition FLOWERs are bolted to the wall and nobody chooses where they go, while a
+     * scenario chooses every ball. {@link org.ngicollective.testframework.season.BioBuzzField} is
+     * what puts them here, once, and everything derived from that scene carries them along.</p>
+     */
+    public SimulatedScene withStructures(List<Structure> added) {
+        return new SimulatedScene(clusters, elements, added, volumes, surfaces, background);
+    }
+
+    /**
+     * This scene with somewhere on it that scores.
+     *
+     * <p>Attached by the season alongside the structures, and for the same reason: which CELL is
+     * facing up is a property of the field as arranged, not of the robot looking at it or of the
+     * balls lying on it.</p>
+     */
+    public SimulatedScene withScoringVolumes(List<ScoringVolume> added) {
+        return new SimulatedScene(clusters, elements, structures, added, surfaces, background);
     }
 
     /**
@@ -106,30 +157,91 @@ public final class SimulatedScene {
      * configured.</p>
      */
     public SimulatedScene on(FieldConfig field) {
-        return new SimulatedScene(clusters, elements, everythingAround(field), background);
+        return new SimulatedScene(clusters, elements, structures, volumes,
+                everythingAround(field), background);
     }
 
     /**
-     * This scene with one cluster moved &mdash; what happens when a HIVE tips.
+     * This scene with its pivoting structures turned to the angles given &mdash; what a HIVE
+     * tipping does to the field.
      *
-     * @throws IllegalArgumentException if no cluster goes by that name, since a silent no-op here
-     *     would look exactly like a tip that failed to change anything
+     * <p>One rigid rotation per pivot, applied to the structure's own solids and to everything
+     * that named it: its CELLs' scoring volumes, and the AprilTag clusters stuck to their
+     * undersides. That is the point of doing it here rather than in the season &mdash; the panels,
+     * the regions balls score in and the tags a camera ranges off are one body, and this is the
+     * one place that can be true by construction instead of by three derivations agreeing.</p>
+     *
+     * <p>Structures not mentioned are left alone, and an angle a structure is already at costs
+     * nothing: the common case is a field where nothing has tipped, called once per control cycle.
+     * Surfaces are handed straight through for the same reason {@link #withElements} does it
+     * &mdash; the tiles cannot tip.</p>
+     *
+     * @param anglesByStructure structure name to absolute pivot angle in radians, as
+     *     {@code FieldPhysics} reports them
+     * @throws IllegalArgumentException if a named structure is missing or is bolted down, because
+     *     a silently ignored angle looks exactly like a HIVE the solver cannot move
      */
-    public SimulatedScene withCluster(String name, Pose3d pose) {
-        List<TagCluster> moved = new ArrayList<>(clusters.size());
-        boolean found = false;
+    public SimulatedScene tipped(Map<String, Double> anglesByStructure) {
+        if (anglesByStructure.isEmpty()) {
+            return this;
+        }
+        List<Structure> turned = new ArrayList<>(structures.size());
+        Map<String, Double> rotations = new LinkedHashMap<>();
+        for (Structure structure : structures) {
+            Double angle = anglesByStructure.get(structure.name());
+            if (angle == null) {
+                turned.add(structure);
+                continue;
+            }
+            if (structure.pivot() == null) {
+                throw new IllegalArgumentException("structure \"" + structure.name() + "\" is"
+                        + " bolted to the field and cannot be tipped to " + angle + " radians");
+            }
+            rotations.put(structure.name(), angle - structure.pivot().angleRadians());
+            turned.add(structure.at(angle));
+        }
+        if (rotations.size() != anglesByStructure.size()) {
+            throw new IllegalArgumentException("no structure named " + anglesByStructure.keySet()
+                    + " in this scene; it has " + names(structures));
+        }
+
+        List<TagCluster> movedClusters = new ArrayList<>(clusters.size());
         for (TagCluster cluster : clusters) {
-            if (cluster.name().equals(name)) {
-                moved.add(cluster.movedTo(pose));
-                found = true;
-            } else {
-                moved.add(cluster);
+            Double turn = rotations.get(cluster.attachedTo());
+            movedClusters.add(turn == null || turn == 0.0 ? cluster
+                    : cluster.movedTo(rotate(cluster.pose(), cluster.attachedTo(), turn, turned)));
+        }
+
+        List<ScoringVolume> movedVolumes = new ArrayList<>(volumes.size());
+        for (ScoringVolume volume : volumes) {
+            Double turn = rotations.get(volume.attachedTo());
+            movedVolumes.add(turn == null || turn == 0.0 ? volume
+                    : volume.movedTo(rotate(volume.pose(), volume.attachedTo(), turn, turned)));
+        }
+
+        return new SimulatedScene(movedClusters, elements, turned, movedVolumes, surfaces,
+                background);
+    }
+
+    /** One attached pose, swung about the pivot of the structure it named. */
+    private static Pose3d rotate(Pose3d pose, String structureName, double radians,
+                                 List<Structure> structures) {
+        for (Structure structure : structures) {
+            if (structure.name().equals(structureName)) {
+                Pivot pivot = structure.pivot();
+                return pose.rotatedAbout(pivot.point(), pivot.axis(), radians);
             }
         }
-        if (!found) {
-            throw new IllegalArgumentException("no cluster named \"" + name + "\" in this scene");
+        throw new IllegalArgumentException("nothing in this scene is attached to \""
+                + structureName + "\"");
+    }
+
+    private static String names(List<Structure> structures) {
+        List<String> named = new ArrayList<>(structures.size());
+        for (Structure structure : structures) {
+            named.add(structure.name());
         }
-        return new SimulatedScene(moved, elements, surfaces, background);
+        return named.toString();
     }
 
     /**
@@ -141,7 +253,7 @@ public final class SimulatedScene {
      * the field it rolls on.</p>
      */
     public SimulatedScene withElements(List<GameElement> moved) {
-        return new SimulatedScene(clusters, moved, surfaces, background);
+        return new SimulatedScene(clusters, moved, structures, volumes, surfaces, background);
     }
 
     /**
@@ -160,6 +272,15 @@ public final class SimulatedScene {
                 elements.size() + clusters.size() * 4 + surfaces.size());
         for (Surface surface : surfaces) {
             drawables.add(new SurfaceDrawable(surface, surface.depthFrom(view)));
+        }
+        // Flattened here rather than kept as polygons, so a structure's own geometry stays one
+        // description shared with the solver and the browser. Each facet joins the same depth
+        // sort as everything else, which is what lets a ball inside a FLOWER be drawn over the
+        // tube's far wall and behind its near one with no depth buffer anywhere.
+        for (Structure structure : structures) {
+            for (Surface surface : SolidSurfaces.of(structure)) {
+                drawables.add(new SurfaceDrawable(surface, surface.depthFrom(view)));
+            }
         }
         for (TagCluster cluster : clusters) {
             for (FieldTag tag : cluster.tags()) {

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Match staging: three NECTAR in each upward-facing CELL",
+
+  "elements": {
+    "red-nectar-1": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-2": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+    "red-nectar-3": { "kind": "RED_NECTAR", "cell": "RED AUDIENCE" },
+
+    "blue-nectar-1": { "kind": "BLUE_NECTAR", "cell": "BLUE SCORING" },
+    "blue-nectar-2": { "kind": "BLUE_NECTAR", "cell": "BLUE SCORING" },
+    "blue-nectar-3": { "kind": "BLUE_NECTAR", "cell": "BLUE SCORING" }
+  }
+}

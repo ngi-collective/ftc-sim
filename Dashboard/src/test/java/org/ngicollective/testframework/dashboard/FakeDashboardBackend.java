@@ -9,7 +9,9 @@ import org.ngicollective.testframework.dashboard.protocol.DeviceState;
 import org.ngicollective.testframework.dashboard.protocol.GamepadState;
 import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
+import org.ngicollective.testframework.dashboard.protocol.ScenariosPayload;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
+import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.dashboard.protocol.SimConfigPayload;
 import org.ngicollective.testframework.dashboard.protocol.SimPose;
 import org.ngicollective.testframework.dashboard.protocol.SimStatus;
@@ -43,9 +45,14 @@ final class FakeDashboardBackend implements DashboardBackend {
     OpModeStatus status = OpModeStatus.stopped();
     SimStatus simStatus = new SimStatus(1.0, false, Alliance.RED);
 
-    /** Null the way a real session's is null: no drivetrain, no scene, no camera. */
+    /** Null the way a real session's is null: no drivetrain, no scene, no camera, no score. */
     SimConfigPayload simConfig;
     ScenePayload scene;
+    ScorePayload score;
+    ScenariosPayload scenarios;
+
+    /** Every name loadScenario was asked for, nulls included, in order. */
+    final List<String> loadedScenarios = new ArrayList<>();
     FrameSource cameraFrames;
     CameraMountPayload cameraMount;
 
@@ -80,6 +87,7 @@ final class FakeDashboardBackend implements DashboardBackend {
     private final List<Consumer<SimConfigPayload>> simConfigListeners = new ArrayList<>();
     private final List<Consumer<ScenePayload>> sceneListeners = new ArrayList<>();
     private final List<Consumer<BodiesPayload>> bodyListeners = new ArrayList<>();
+    private final List<Consumer<ScorePayload>> scoreListeners = new ArrayList<>();
     private final List<Consumer<SimStatus>> simStatusListeners = new ArrayList<>();
     private final List<Consumer<CameraMountPayload>> cameraMountListeners = new ArrayList<>();
 
@@ -156,6 +164,31 @@ final class FakeDashboardBackend implements DashboardBackend {
     @Override
     public void subscribeBodies(Consumer<BodiesPayload> listener) {
         bodyListeners.add(listener);
+    }
+
+    @Override
+    public ScorePayload score() {
+        return score;
+    }
+
+    @Override
+    public void subscribeScore(Consumer<ScorePayload> listener) {
+        scoreListeners.add(listener);
+    }
+
+    @Override
+    public ScenariosPayload scenarios() {
+        return scenarios;
+    }
+
+    @Override
+    public void loadScenario(String name) {
+        loadedScenarios.add(name);
+        if (scenarios != null) {
+            // What a real backend does: the list is unchanged and the selection moves, which is
+            // what lets a protocol test see the broadcast carry the new one.
+            scenarios = new ScenariosPayload(scenarios.scenarios, scenarios.directory, name);
+        }
     }
 
     @Override
@@ -269,6 +302,10 @@ final class FakeDashboardBackend implements DashboardBackend {
 
     void emitBodies(BodiesPayload pushed) {
         bodyListeners.forEach(listener -> listener.accept(pushed));
+    }
+
+    void emitScore(ScorePayload pushed) {
+        scoreListeners.forEach(listener -> listener.accept(pushed));
     }
 
     void emitSimStatus(SimStatus pushed) {
