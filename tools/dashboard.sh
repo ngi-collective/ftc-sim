@@ -12,9 +12,17 @@
 # Usage:
 #   tools/dashboard.sh                                  # official empty field
 #   tools/dashboard.sh --scenario practice-balls        # an arrangement from TeamCode/scenarios
+#   tools/dashboard.sh --dev                            # Vite dev server, for working on the UI
 #   DASHBOARD_PORT=9000 tools/dashboard.sh              # both halves move together
 #
-# Everything passed here goes on to DashboardMain; see its javadoc for the rest of the flags.
+# The UI is served as a production build, because the development build is half the cost of
+# running it. React's development build emits a `performance.measure` per component per commit and
+# this page commits at 20 Hz: profiled at 6x CPU throttle, the dev build spent 28% of the main
+# thread in `clearMeasures` and 20% in `jsxDEV`, ran at 27-30 fps and stalled for 100 ms at a
+# time, while the production build of the same commit held 60 fps with a 16.7 ms p95. `--dev`
+# brings back hot reload for anyone actually editing the UI.
+#
+# Everything else passed here goes on to DashboardMain; see its javadoc for the rest of the flags.
 set -euo pipefail
 
 port="${DASHBOARD_PORT:-8765}"
@@ -25,8 +33,14 @@ ui_port=5183
 # The message names the port they asked for, because being told the right way to say the thing you
 # just said is more use than being told the default.
 wanted=""
+forwarded=""
+dev=""
 for argument in "$@"; do
   case $argument in
+    --dev)
+      dev=yes
+      continue
+      ;;
     --port) wanted="next" ;;
     --port=*) wanted="${argument#--port=}" ;;
     *) if [[ $wanted == next ]]; then wanted=$argument; fi ;;
@@ -35,6 +49,7 @@ for argument in "$@"; do
     echo "dashboard: use DASHBOARD_PORT=$wanted so the UI moves with the simulation, not --port" >&2
     exit 2
   fi
+  forwarded="$forwarded $argument"
 done
 if [[ $wanted == next ]]; then
   echo "dashboard: --port needs a number, and it belongs in DASHBOARD_PORT so the UI moves"\
@@ -48,7 +63,14 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # up yet: the page retries every second until the JVM answers.
 cd "$root/driver-hub-dashboard"
 bun install --silent
-DASHBOARD_PORT="$port" bun run dev --clearScreen false &
+if [[ -n $dev ]]; then
+  DASHBOARD_PORT="$port" bun run dev --clearScreen false &
+else
+  # `preview` serves what `build` just wrote, and it proxies `/ws` exactly as the dev server does,
+  # so the page still names no port of its own.
+  bun run build
+  DASHBOARD_PORT="$port" bunx vite preview --port "$ui_port" --strictPort &
+fi
 ui=$!
 
 # Either half dying takes the other with it. A UI left running against a dead simulation is the
@@ -60,4 +82,4 @@ echo "[dashboard] open http://127.0.0.1:$ui_port  (simulation on ws://127.0.0.1:
 # The JVM in the foreground so that Ctrl-C reaches it directly: Gradle runs it as a child JavaExec,
 # and signalling a backgrounded Gradle is not reliably the same as signalling the JVM it started.
 cd "$root"
-./gradlew :TeamCode:dashboard --args="--port $port $*"
+./gradlew :TeamCode:dashboard --args="--port $port$forwarded"

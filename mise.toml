@@ -86,11 +86,15 @@ run = """
 ./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.AimedLauncherAcceptanceTest
 """
 
-# The dashboard is two processes -- a JVM serving the simulated robot over a WebSocket, and the
-# Vite dev server for the browser UI -- and exactly one way to start them. They were two tasks in
+# The dashboard is two processes -- a JVM serving the simulated robot over a WebSocket, and a Vite
+# server for the browser UI -- and exactly one way to start them. They were two tasks in
 # two terminals until the obvious failure happened: the UI can only reach the socket through its
 # own origin, so a JVM started on a different port left the page talking to whatever else was
 # listening. tools/dashboard.sh decides the port once and hands it to both halves.
+#
+# The UI is built and served in production mode, because React's development build costs half the
+# main thread on this page (see docs/agents/dashboard-probes.md). `--dev` restores hot reload for
+# anyone editing the UI itself.
 [tasks.dashboard]
 description = "Serve the local Driver Hub, UI and simulation together (http://localhost:5183)"
 run = "tools/dashboard.sh"

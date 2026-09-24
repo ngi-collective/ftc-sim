@@ -2,8 +2,8 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ScenarioPicker, SimScoreReadout } from './App';
-import type { SimScenarios, SimScore } from './protocol';
+import { OpModeControls, ScenarioPicker, SimScoreReadout } from './App';
+import type { OpModeState, SimScenarios, SimScore } from './protocol';
 import { blueChip, redChip } from './ui';
 
 /**
@@ -167,5 +167,75 @@ describe('the scenario picker', () => {
     // The only place the directory appears. Without it the picker lists names from a folder the
     // person reading it has no way to find.
     expect(picker(SCENARIOS)?.getAttribute('title')).toContain(SCENARIOS.directory);
+  });
+});
+
+/**
+ * The OpMode buttons, for the one thing about them that is not formatting: which actions the strip
+ * offers in each state. INIT and START are mutually exclusive and STOP means nothing with no
+ * OpMode, so the strip is one button before INIT and two after — a set that is wrong in either
+ * direction is a control that either lies about what can be done or hides the only thing that can.
+ */
+function controls(state: OpModeState, onAct: (what: string) => void = () => {}) {
+  act(() =>
+    root.render(
+      <OpModeControls
+        state={state}
+        selected="org.team.Auto"
+        onInit={() => onAct('init')}
+        onStart={() => onAct('start')}
+        onStop={() => onAct('stop')}
+      />,
+    ),
+  );
+  return [...host.querySelectorAll('button')];
+}
+
+describe('the OpMode controls', () => {
+  it('offers only init before anything is initialised', () => {
+    expect(controls('STOPPED').map((element) => element.textContent)).toEqual(['init']);
+  });
+
+  it('offers start and stop once an OpMode is initialised, and no second init', () => {
+    expect(controls('INIT').map((element) => element.textContent)).toEqual(['start', 'stop']);
+  });
+
+  it('leaves only stop live while the OpMode runs', () => {
+    // The slot keeps its spent start rather than collapsing: a driver's hand is on that button as
+    // the match begins, and stop sliding under it at that instant is the one misclick that costs a
+    // run.
+    expect(controls('RUNNING').map((element) => element.textContent)).toEqual(['start', 'stop']);
+    expect(
+      controls('RUNNING')
+        .filter((live) => !live.disabled)
+        .map((live) => live.textContent),
+    ).toEqual(['stop']);
+  });
+
+  it('sends the action its button names', () => {
+    const acted: string[] = [];
+    const [init] = controls('STOPPED', (what) => acted.push(what));
+    act(() => init.click());
+    const [start, stop] = controls('INIT', (what) => acted.push(what));
+    act(() => start.click());
+    act(() => stop.click());
+    expect(acted).toEqual(['init', 'start', 'stop']);
+  });
+
+  it('will not init with no OpMode chosen', () => {
+    // The select is empty until the server lists something; init on nothing is a message the
+    // server answers with an error.
+    act(() =>
+      root.render(
+        <OpModeControls
+          state="STOPPED"
+          selected=""
+          onInit={() => {}}
+          onStart={() => {}}
+          onStop={() => {}}
+        />,
+      ),
+    );
+    expect(host.querySelector('button')?.disabled).toBe(true);
   });
 });

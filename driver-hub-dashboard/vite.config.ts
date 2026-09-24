@@ -29,6 +29,14 @@ export default defineConfig({
     // socket, which lives at the root under the `vite-hmr` subprotocol.
     proxy: { '/ws': { target: `ws://127.0.0.1:${simulationPort}`, ws: true } },
   },
+  // `vite preview` serves the production build, which is what a long practice session wants (the
+  // dev build's React instrumentation is half its main thread). It does not inherit `server`, so
+  // without this the preview is a dashboard that can never reach a simulation: same page, same
+  // `/ws`, nothing listening.
+  preview: {
+    host: '127.0.0.1',
+    proxy: { '/ws': { target: `ws://127.0.0.1:${simulationPort}`, ws: true } },
+  },
   // Node by default: the logic worth testing is coordinate maths, wire parsing and axis mapping,
   // none of which wants a DOM. A file that does need one asks for it with
   // `// @vitest-environment happy-dom` at the top.

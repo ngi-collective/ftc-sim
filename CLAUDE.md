@@ -26,6 +26,7 @@ mise run simulator   # install + launch the simulated app on a running emulator
 mise run test-vision # vision tests against a running emulator's camera (not in CI)
 mise run dashboard   # local Driver Hub: simulation + browser UI (http://localhost:5183)
 mise run dashboard --scenario tipping-hive   # the same, with a field arrangement loaded
+mise run dashboard --dev                     # ...served by Vite with hot reload, for UI work
 mise run dashboard-headless  # the simulation socket alone, for scripts (ws://localhost:8765)
 mise run dashboard-headless --args="--port 8775 --camera-port 8776"  # ...on spare ports
 mise run lint
@@ -67,13 +68,20 @@ physical velocity, hands the four speeds to the chassis before the world steps, 
 resulting heading to the IMU after. See `docs/adr/0003-the-world-owns-the-robots-pose.md`.
 `mise run dashboard` streams the pose at 50 Hz and the 3D view drives the robot from it.
 
-**The dashboard is one command, on one port.** `tools/dashboard.sh` starts the JVM and the Vite
-dev server together and decides the port once; the page connects to its own origin at `/ws` and
-Vite proxies that to the simulation, so the browser never names a port and the two halves cannot
+**The dashboard is one command, on one port.** `tools/dashboard.sh` builds the UI, serves it and
+starts the JVM, deciding the port once; the page connects to its own origin at `/ws` and Vite
+proxies that to the simulation, so the browser never names a port and the two halves cannot
 disagree. Move both with `DASHBOARD_PORT=9000 mise run dashboard` — a bare `--port` is refused,
 because a port only the JVM knows about is exactly the bug this replaced: the UI silently
 connected to whatever else was on 8765, green indicator and all. Scripts that drive the socket
 directly want `mise run dashboard-headless`, which has no UI to point anywhere.
+
+**It serves a production build**, and `--dev` is the opt-out for anyone editing the UI. React's
+development build emits a `performance.measure` per component per commit and this page commits at
+20 Hz: profiled at 6× CPU throttle, the dev build spent 28% of the main thread in `clearMeasures`
+and 20% in `jsxDEV`, ran at 27–30 fps and stalled for 100 ms at a time, where the production
+build of the same commit held 60 fps with a 16.7 ms p95. That is the single biggest thing between
+a driver and a smooth field view, and it is a build flag, not a scene.
 
 **The simulated flavour starts its own robot**, because the SDK's robot start cannot finish on an
 emulator: it waits for a Wi-Fi Direct network that is not there and gives up with
@@ -347,4 +355,7 @@ Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (not yet crea
 
 Dashboard slow, choppy, or suspected of leaking: measure with `driver-hub-dashboard/src/probe.ts`
 (open the UI with `?probe`) and `tools/rss-curve.mjs` before theorising. A JS heap counter and a
-DevTools profile both answer this question wrongly. See `docs/agents/dashboard-probes.md`.
+DevTools profile both answer this question wrongly. See `docs/agents/dashboard-probes.md`, which
+also carries the 3D view's measured budget — draw calls, GPU milliseconds per frame, and what
+each of resolution, shadows and materials actually costs — plus the levers that were tried and
+left alone.

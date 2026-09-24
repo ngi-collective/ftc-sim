@@ -1,7 +1,8 @@
 import { Html } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
-import { useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Alliance, SimField } from '../protocol';
 
 /**
@@ -72,7 +73,43 @@ export function tiles(size: number, pitch: number): Tile[] {
   return out;
 }
 
-export function Field({
+/**
+ * The whole floor as two buffers, one per shade, with every tile's transform baked in.
+ *
+ * <p>A mesh per tile is 36 draw calls to draw 72 triangles, and the shade alternates, so there is
+ * no instancing to be had either — but a checkerboard never moves, so the cheapest thing it can
+ * possibly be is two static buffers. Baking also lets the floor be the only thing under the
+ * robot: the tiles cover the perimeter exactly (see {@link tiles}), so the backing plane they used
+ * to sit a millimetre above was a full-field PBR surface that was never once visible.</p>
+ */
+function floor(grid: Tile[]): { light: THREE.BufferGeometry; dark: THREE.BufferGeometry } {
+  const unit = new THREE.PlaneGeometry(1, 1);
+  const matrix = new THREE.Matrix4();
+  const lieDown = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+  const parts: Record<'light' | 'dark', THREE.BufferGeometry[]> = { light: [], dark: [] };
+
+  for (const tile of grid) {
+    const baked = unit.clone();
+    matrix
+      .makeTranslation(tile.position[0], tile.position[1], tile.position[2])
+      .multiply(lieDown)
+      .multiply(new THREE.Matrix4().makeScale(tile.scale[0], tile.scale[1], 1));
+    baked.applyMatrix4(matrix);
+    parts[tile.light ? 'light' : 'dark'].push(baked);
+  }
+
+  const join = (pieces: THREE.BufferGeometry[]) => {
+    const merged = pieces.length ? (mergeGeometries(pieces) ?? new THREE.BufferGeometry()) : new THREE.BufferGeometry();
+    for (const piece of pieces) piece.dispose();
+    return merged;
+  };
+  const light = join(parts.light);
+  const dark = join(parts.dark);
+  unit.dispose();
+  return { light, dark };
+}
+
+export const Field = memo(function Field({
   field,
   alliance,
   onGroundDown,
@@ -85,23 +122,26 @@ export function Field({
   const { sizeMetres, wallHeightMetres, tileMetres } = field ?? STANDARD_FIELD;
   const half = sizeMetres / 2;
 
-  // One unit plane and two materials for every tile: the floor is 36 draw calls, not 36 uploads.
+  // Two buffers and two materials for the whole floor: 36 tiles, two draw calls, no uploads after
+  // the field's dimensions land.
   const assets = useMemo(() => {
-    const geometry = new THREE.PlaneGeometry(1, 1);
-    const light = new THREE.MeshStandardMaterial({ color: '#22303c', roughness: 0.95 });
-    const dark = new THREE.MeshStandardMaterial({ color: '#18242e', roughness: 0.95 });
-    return { geometry, light, dark };
-  }, []);
+    const { light: lightGeometry, dark: darkGeometry } = floor(tiles(sizeMetres, tileMetres));
+    return {
+      lightGeometry,
+      darkGeometry,
+      light: new THREE.MeshStandardMaterial({ color: '#22303c', roughness: 0.95 }),
+      dark: new THREE.MeshStandardMaterial({ color: '#18242e', roughness: 0.95 }),
+    };
+  }, [sizeMetres, tileMetres]);
   useEffect(
     () => () => {
-      assets.geometry.dispose();
+      assets.lightGeometry.dispose();
+      assets.darkGeometry.dispose();
       assets.light.dispose();
       assets.dark.dispose();
     },
     [assets],
   );
-
-  const grid = useMemo(() => tiles(sizeMetres, tileMetres), [sizeMetres, tileMetres]);
 
   // The stations are on the X axis, red at -X_ftc, audience at -Y_ftc: the field CAD, through
   // BioBuzzField's conversion of it, which is the same authority the tags are placed from.
@@ -135,22 +175,19 @@ export function Field({
 
   return (
     <group>
-      {/* The base under the tiles carries the pointer handler, so any click on the floor lands. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow onPointerDown={onGroundDown}>
-        <planeGeometry args={[sizeMetres, sizeMetres]} />
-        <meshStandardMaterial color="#0c1219" roughness={1} />
-      </mesh>
-      {grid.map((tile) => (
-        <mesh
-          key={tile.key}
-          geometry={assets.geometry}
-          material={tile.light ? assets.light : assets.dark}
-          position={tile.position}
-          rotation={[-Math.PI / 2, 0, 0]}
-          scale={tile.scale}
-          receiveShadow
-        />
-      ))}
+      {/* The floor carries the pointer handler, so any click on it lands. */}
+      <mesh
+        geometry={assets.lightGeometry}
+        material={assets.light}
+        receiveShadow
+        onPointerDown={onGroundDown}
+      />
+      <mesh
+        geometry={assets.darkGeometry}
+        material={assets.dark}
+        receiveShadow
+        onPointerDown={onGroundDown}
+      />
 
       {walls.map((wall) => (
         <group key={wall.key} position={wall.position}>
@@ -200,4 +237,4 @@ export function Field({
       ))}
     </group>
   );
-}
+});

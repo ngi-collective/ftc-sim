@@ -1,7 +1,8 @@
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import { useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CameraMountPayload, DeviceState } from '../protocol';
 import { cameraFrustum, FRUSTUM_LENGTH_METRES } from './cameraMount';
 import type { DeviceLayout, Mount } from './layout';
@@ -71,14 +72,41 @@ function useShaftSpin(device: DeviceState, layout: DeviceLayout) {
   return group;
 }
 
-/** Arc around the motor face showing how much power is commanded, and which way. */
+/**
+ * Segments in a whole turn of the power arc. The arc is shown by drawing a prefix of a full ring
+ * rather than by building a ring of the right length, so this is also how finely the gauge moves:
+ * 3.75 degrees, against a sweep of 342 at full power.
+ */
+const ARC_SEGMENTS = 96;
+
+/**
+ * Arc around the motor face showing how much power is commanded, and which way.
+ *
+ * <p>One ring per motor, built once and then drawn in part. The arc's length changes with the
+ * power, and a {@code <ringGeometry>} whose {@code args} change is a geometry disposed, rebuilt
+ * and re-uploaded — which this page was doing for every motor on every committed frame, twenty
+ * times a second, to move a gauge. {@link THREE.BufferGeometry#setDrawRange} says the same thing
+ * by drawing fewer of the triangles that are already on the GPU: {@code RingGeometry} emits its
+ * segments in order around the ring, so a prefix of the index buffer is an arc from
+ * {@code thetaStart}, and the mesh's own rotation puts that start wherever the power wants it.</p>
+ */
 function PowerArc({ power, stalled }: { power: number; stalled: boolean }) {
+  const geometry = useMemo(
+    () => new THREE.RingGeometry(0.036, 0.045, ARC_SEGMENTS, 1, 0, Math.PI * 2),
+    [],
+  );
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
   const sweep = Math.min(1, Math.abs(power)) * Math.PI * 1.9;
-  if (sweep < 0.01) return null;
   const start = power >= 0 ? Math.PI / 2 : Math.PI / 2 - sweep;
+  const segments = Math.max(1, Math.round((sweep / (Math.PI * 2)) * ARC_SEGMENTS));
+  useLayoutEffect(() => {
+    geometry.setDrawRange(0, segments * 6);
+  }, [geometry, segments]);
+
+  if (sweep < 0.01) return null;
   return (
-    <mesh position={[0, 0, 0.004]}>
-      <ringGeometry args={[0.036, 0.045, 48, 1, start, sweep]} />
+    <mesh position={[0, 0, 0.004]} rotation={[0, 0, start]} geometry={geometry}>
       <meshBasicMaterial
         color={stalled ? STALLED : powerColour(power)}
         side={THREE.DoubleSide}
@@ -89,18 +117,87 @@ function PowerArc({ power, stalled }: { power: number; stalled: boolean }) {
   );
 }
 
-function Spokes({ radius, count, colour }: { radius: number; count: number; colour: string }) {
-  return (
-    <>
-      {Array.from({ length: count }, (_, index) => (
-        <mesh key={index} rotation={[0, 0, (index * Math.PI) / count]}>
-          <boxGeometry args={[radius * 2, 0.006, 0.004]} />
-          <meshStandardMaterial color={colour} metalness={0.3} roughness={0.6} />
-        </mesh>
-      ))}
-    </>
-  );
-}
+/**
+ * The parts of a wheel that are the same on every wheel of every robot, baked once at module load.
+ *
+ * <p>A mecanum drivetrain is four of these, and drawn a mesh at a time a single wheel is thirteen
+ * draw calls — eight tread blocks, three spokes, a tyre and a hub — for a few hundred triangles.
+ * Nothing in the ring moves relative to the rest of it, so the rings are merged into one buffer
+ * each and the whole drivetrain costs twenty draw calls instead of fifty-two, in the camera's pass
+ * and the shadow pass alike.</p>
+ *
+ * <p>Module scope, and deliberately never disposed: these are constants of the drawing, like the
+ * colours above, and there is exactly one of each for as long as the page is open.</p>
+ */
+const WHEEL = (() => {
+  const matrix = new THREE.Matrix4();
+  const turn = new THREE.Matrix4();
+  const bake = (shape: THREE.BufferGeometry, pieces: number, place: (index: number) => void) => {
+    const baked: THREE.BufferGeometry[] = [];
+    for (let index = 0; index < pieces; index += 1) {
+      place(index);
+      const piece = shape.clone();
+      piece.applyMatrix4(matrix);
+      baked.push(piece);
+    }
+    const merged = mergeGeometries(baked) ?? new THREE.BufferGeometry();
+    for (const piece of baked) piece.dispose();
+    return merged;
+  };
+
+  // Eight tread blocks around the tyre. The first is the mark that makes the wheel's angle
+  // readable and is tinted by power, so it is drawn on its own; the other seven are one buffer.
+  const tread = new THREE.BoxGeometry(0.012, 0.014, 0.03);
+  const atTread = (index: number) => {
+    const theta = (index / 8) * Math.PI * 2;
+    matrix
+      .makeTranslation(Math.cos(theta) * 0.043, Math.sin(theta) * 0.043, 0)
+      .multiply(turn.makeRotationZ(theta));
+  };
+  const treads = bake(tread, 7, (index) => atTread(index + 1));
+  atTread(0);
+  const mark = tread.clone().applyMatrix4(matrix);
+  tread.dispose();
+
+  // Three spokes across the hub, at 0, 60 and 120 degrees.
+  const spoke = new THREE.BoxGeometry(0.076, 0.006, 0.004);
+  const spokes = bake(spoke, 3, (index) => matrix.makeRotationZ((index * Math.PI) / 3));
+  spoke.dispose();
+
+  // An omni's rollers, alternating tinted and plain around the same circle.
+  const roller = new THREE.CylinderGeometry(0.011, 0.011, 0.026, 10);
+  const spin = new THREE.Matrix4();
+  const atRoller = (index: number) => {
+    const theta = (index / 8) * Math.PI * 2;
+    // The mesh's own rotation was the Euler (x, y, z) = (pi/2, 0, -theta) in three's default XYZ
+    // order, which composes as Rx * Ry * Rz — so Rx(pi/2) * Rz(-theta) here, and not Ry.
+    matrix
+      .makeTranslation(Math.cos(theta) * 0.042, Math.sin(theta) * 0.042, 0)
+      .multiply(turn.makeRotationX(Math.PI / 2))
+      .multiply(spin.makeRotationZ(-theta));
+  };
+  const tintedRollers = bake(roller, 4, (index) => atRoller(index * 2));
+  const plainRollers = bake(roller, 4, (index) => atRoller(index * 2 + 1));
+  roller.dispose();
+
+  return { treads, mark, spokes, tintedRollers, plainRollers };
+})();
+
+/** The wheel's unchanging colours, shared by every wheel for the same reason the buffers are. */
+const TREAD_MATERIAL = new THREE.MeshStandardMaterial({ color: '#333c46', roughness: 0.8 });
+const SPOKE_MATERIAL = new THREE.MeshStandardMaterial({
+  color: '#b9c6d2',
+  metalness: 0.3,
+  roughness: 0.6,
+});
+const TYRE_MATERIAL = new THREE.MeshStandardMaterial({ color: '#161a1f', roughness: 0.95 });
+const HUB_MATERIAL = new THREE.MeshStandardMaterial({
+  color: METAL,
+  metalness: 0.6,
+  roughness: 0.4,
+});
+const OMNI_BODY_MATERIAL = new THREE.MeshStandardMaterial({ color: '#2c333b', roughness: 0.7 });
+const OMNI_ROLLER_MATERIAL = new THREE.MeshStandardMaterial({ color: '#8d99a6', roughness: 0.5 });
 
 /** Whatever the shaft is driving. Every option carries a mark that makes rotation obvious. */
 function MountMesh({ mount, tint }: { mount: Mount; tint: THREE.Color }) {
@@ -110,58 +207,35 @@ function MountMesh({ mount, tint }: { mount: Mount; tint: THREE.Color }) {
       // any camera position, which a solid disc does not.
       return (
         <group>
-          <mesh>
+          <mesh material={TYRE_MATERIAL}>
             <torusGeometry args={[0.043, 0.011, 10, 28]} />
-            <meshStandardMaterial color="#161a1f" roughness={0.95} />
           </mesh>
-          {Array.from({ length: 8 }, (_, index) => {
-            const theta = (index / 8) * Math.PI * 2;
-            return (
-              <mesh
-                key={index}
-                position={[Math.cos(theta) * 0.043, Math.sin(theta) * 0.043, 0]}
-                rotation={[0, 0, theta]}
-              >
-                <boxGeometry args={[0.012, 0.014, 0.03]} />
-                <meshStandardMaterial
-                  color={index === 0 ? tint : '#333c46'}
-                  emissive={index === 0 ? tint : '#000000'}
-                  emissiveIntensity={index === 0 ? 0.5 : 0}
-                  roughness={0.8}
-                />
-              </mesh>
-            );
-          })}
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <mesh geometry={WHEEL.treads} material={TREAD_MATERIAL} />
+          {/* The one tread block that is tinted by power, and so the mark the angle is read off. */}
+          <mesh geometry={WHEEL.mark}>
+            <meshStandardMaterial
+              color={tint}
+              emissive={tint}
+              emissiveIntensity={0.5}
+              roughness={0.8}
+            />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]} material={HUB_MATERIAL}>
             <cylinderGeometry args={[0.013, 0.013, 0.024, 16]} />
-            <meshStandardMaterial color={METAL} metalness={0.6} roughness={0.4} />
           </mesh>
-          <Spokes radius={0.038} count={3} colour="#b9c6d2" />
+          <mesh geometry={WHEEL.spokes} material={SPOKE_MATERIAL} />
         </group>
       );
     case 'omni':
       return (
         <group>
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <mesh rotation={[Math.PI / 2, 0, 0]} material={OMNI_BODY_MATERIAL}>
             <cylinderGeometry args={[0.032, 0.032, 0.024, 20]} />
-            <meshStandardMaterial color="#2c333b" roughness={0.7} />
           </mesh>
-          {Array.from({ length: 8 }, (_, index) => {
-            const theta = (index / 8) * Math.PI * 2;
-            return (
-              <mesh
-                key={index}
-                position={[Math.cos(theta) * 0.042, Math.sin(theta) * 0.042, 0]}
-                rotation={[Math.PI / 2, 0, -theta]}
-              >
-                <cylinderGeometry args={[0.011, 0.011, 0.026, 10]} />
-                <meshStandardMaterial
-                  color={index % 2 === 0 ? tint : new THREE.Color('#8d99a6')}
-                  roughness={0.5}
-                />
-              </mesh>
-            );
-          })}
+          <mesh geometry={WHEEL.tintedRollers}>
+            <meshStandardMaterial color={tint} roughness={0.5} />
+          </mesh>
+          <mesh geometry={WHEEL.plainRollers} material={OMNI_ROLLER_MATERIAL} />
         </group>
       );
     case 'spool':

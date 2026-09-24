@@ -1,7 +1,8 @@
 import { Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { SceneElement, ScenePayload, SceneStructure, SceneTag } from '../protocol';
 import type { BodyBuffer } from './bodies';
 import { scenePoint } from './frame';
@@ -13,7 +14,7 @@ import {
   type PivotPlacement,
   type PivotSplit,
 } from './pivots';
-import { solidGeometry, solidGeometryKey, solidPose, type SolidPose } from './solids';
+import { solidGeometry, solidGeometryKey, solidPose } from './solids';
 
 /**
  * Everything on the field that is not the robot: the AprilTags the camera can detect, the game
@@ -365,29 +366,27 @@ function GameElements({ elements, bodies }: { elements: SceneElement[]; bodies: 
  */
 const CYLINDER_SIDES = 16;
 
-/** One solid of one structure, already paired with the buffer and material it shares. */
-interface DrawnSolid {
+/** One structure's solids of one colour, already merged into the buffer they are drawn from. */
+interface DrawnBatch {
   key: string;
   /**
-   * Where to draw it. The position is in the structure's hinge frame when it has one, because the
-   * mesh is then a child of that hinge's group; the orientation is the absolute one either way,
-   * since the group's rotation composes onto it rather than replacing it.
+   * Every solid of that colour, baked into one buffer in the frame the mesh is drawn in — the
+   * hinge's when it has one, the scene's otherwise.
    */
-  pose: SolidPose;
   geometry: THREE.BufferGeometry;
   material: THREE.MeshStandardMaterial;
 }
 
 /** Stable empties, for a hinge whose lists are momentarily missing rather than merely short. */
-const NO_SOLIDS: DrawnSolid[] = [];
+const NO_SOLIDS: DrawnBatch[] = [];
 const NO_LABELS: ClusterLabel[] = [];
 
 /** The structure meshes, divided by whether the thing they are part of can swing. */
 interface StructureMeshes {
-  /** Every solid of every bolted-down structure, in one list: nothing joins to an individual one. */
-  fixed: DrawnSolid[];
-  /** Each swinging structure's solids, keyed by the name its hinge is reported under. */
-  swinging: Map<string, DrawnSolid[]>;
+  /** Every batch of every bolted-down structure: nothing joins to an individual one. */
+  fixed: DrawnBatch[];
+  /** Each swinging structure's batches, keyed by the name its hinge is reported under. */
+  swinging: Map<string, DrawnBatch[]>;
 }
 
 /**
@@ -403,30 +402,43 @@ interface StructureMeshes {
  * Boxes are closed, so drawing the whole set double-sided costs them nothing and keeps one
  * material per colour.</p>
  *
- * <p>Buffers and materials are shared and disposed together, because a structure is the same few
- * primitives over and over: the four FLOWERs are two dozen tubes between them, in a handful of
- * sizes and one colour. One geometry and one material per solid would be two dozen uploads of the
- * same ring, and two dozen things to leak on the next scene republish — which arrives on every
- * INIT.</p>
+ * <p>Every solid of one colour is <em>baked into one buffer</em> rather than drawn from a shared
+ * one at its own transform. The field's furniture is around seventy boxes and tubes that never
+ * move relative to the thing they are bolted to, so one mesh each was seventy draw calls in the
+ * camera's pass and seventy more in the shadow pass, to draw a few thousand triangles. Merged,
+ * the same picture is about eight. The duplication is in vertices nobody uploads twice a second:
+ * a box is 24 of them, and the whole field's furniture is smaller than one game element's
+ * sphere.</p>
  *
  * <p>One cache across the whole field, hinged and bolted alike, which is why this is a hook and not
- * a component: a HIVE's shelves are the same boxes in the same colour as its twin's, and a cache
- * per structure would upload each of them twice and dispose them from two places. The
- * {@code sim/scene} identity is the only dependency, so a tip — which never changes it — cannot
- * reach this memo at all.</p>
+ * a component: the colours are shared between the HIVEs and their twin, and a cache per structure
+ * would dispose them from two places. The {@code sim/scene} identity is the only dependency, so a
+ * tip — which never changes it — cannot reach this memo at all.</p>
  */
 function useStructureMeshes(split: PivotSplit): StructureMeshes {
   const { meshes, geometries, materials } = useMemo(() => {
+    // Primitives to clone from, so a FLOWER's dozen identical rings are built once and stamped.
+    // They are never drawn, and are dropped as soon as the batches are baked.
     const byShape = new Map<string, THREE.BufferGeometry>();
     const byColour = new Map<number, THREE.MeshStandardMaterial>();
+    const baked: THREE.BufferGeometry[] = [];
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const unit = new THREE.Vector3(1, 1, 1);
 
-    const draw = (structure: SceneStructure, placement: PivotPlacement | null): DrawnSolid[] =>
-      structure.solids.map((solid, index) => {
+    const draw = (structure: SceneStructure, placement: PivotPlacement | null): DrawnBatch[] => {
+      const byColourHere = new Map<
+        number,
+        { material: THREE.MeshStandardMaterial; pieces: THREE.BufferGeometry[] }
+      >();
+
+      for (const solid of structure.solids) {
         const shape = solidGeometry(solid);
         const shapeKey = solidGeometryKey(shape);
-        let geometry = byShape.get(shapeKey);
-        if (!geometry) {
-          geometry =
+        let primitive = byShape.get(shapeKey);
+        if (!primitive) {
+          primitive =
             shape.shape === 'box'
               ? new THREE.BoxGeometry(...shape.sizeMetres)
               : // Open-ended, with one height segment: the wire's cylinder is a shell, and
@@ -439,7 +451,7 @@ function useStructureMeshes(split: PivotSplit): StructureMeshes {
                   1,
                   true,
                 );
-          byShape.set(shapeKey, geometry);
+          byShape.set(shapeKey, primitive);
         }
 
         const packed = (solid.red << 16) | (solid.green << 8) | solid.blue;
@@ -454,35 +466,55 @@ function useStructureMeshes(split: PivotSplit): StructureMeshes {
         }
 
         const pose = solidPose(solid);
-        // Named by structure and position in its own list: a structure's solids have no ids on the
-        // wire, and none is wanted — nothing joins to an individual solid, and the whole scene
-        // arrives at once whenever any of it changes.
-        return {
-          key: `${structure.name}:${index}`,
-          pose: placement
-            ? { position: pivotLocal(pose.position, placement), quaternion: pose.quaternion }
-            : pose,
-          geometry,
-          material,
-        };
-      });
+        const where = placement ? pivotLocal(pose.position, placement) : pose.position;
+        const piece = primitive.clone();
+        piece.applyMatrix4(
+          matrix.compose(
+            position.set(...where),
+            quaternion.set(...pose.quaternion),
+            unit,
+          ),
+        );
+        const batch = byColourHere.get(packed);
+        if (batch) batch.pieces.push(piece);
+        else byColourHere.set(packed, { material, pieces: [piece] });
+      }
 
-    // Bolted-down solids need no grouping of their own; a hinge's do, because each hinge draws its
-    // own under one transform.
-    const fixed: DrawnSolid[] = [];
+      const batches: DrawnBatch[] = [];
+      byColourHere.forEach(({ material, pieces }, packed) => {
+        const merged = mergeGeometries(pieces);
+        for (const piece of pieces) piece.dispose();
+        if (!merged) return;
+        baked.push(merged);
+        batches.push({
+          // Named by structure and colour: a structure's solids have no ids on the wire, and none
+          // is wanted — the whole scene arrives at once whenever any of it changes.
+          key: `${structure.name}:${packed}`,
+          geometry: merged,
+          material,
+        });
+      });
+      return batches;
+    };
+
+    // Bolted-down structures are batched one by one rather than all together, so that a scene with
+    // two FLOWERs of the same colour standing at opposite ends of the field still frustum-culls
+    // them separately.
+    const fixed: DrawnBatch[] = [];
     for (const structure of split.fixed) fixed.push(...draw(structure, null));
 
-    const swinging = new Map<string, DrawnSolid[]>();
+    const swinging = new Map<string, DrawnBatch[]>();
     for (const group of split.groups) {
       swinging.set(group.name, draw(group.structure, group.placement));
     }
 
-    return { meshes: { fixed, swinging }, geometries: byShape, materials: byColour };
+    for (const primitive of byShape.values()) primitive.dispose();
+    return { meshes: { fixed, swinging }, geometries: baked, materials: byColour };
   }, [split]);
 
   useEffect(
     () => () => {
-      for (const geometry of geometries.values()) geometry.dispose();
+      for (const geometry of geometries) geometry.dispose();
       for (const material of materials.values()) material.dispose();
     },
     [geometries, materials],
@@ -491,17 +523,15 @@ function useStructureMeshes(split: PivotSplit): StructureMeshes {
   return meshes;
 }
 
-/** Solids at the poses {@link useStructureMeshes} worked out, in whichever frame they were built. */
-function Solids({ solids }: { solids: DrawnSolid[] }) {
+/** The batches {@link useStructureMeshes} baked, in whichever frame they were baked in. */
+function Solids({ solids }: { solids: DrawnBatch[] }) {
   return (
     <>
-      {solids.map((solid) => (
+      {solids.map((batch) => (
         <mesh
-          key={solid.key}
-          geometry={solid.geometry}
-          material={solid.material}
-          position={solid.pose.position}
-          quaternion={solid.pose.quaternion}
+          key={batch.key}
+          geometry={batch.geometry}
+          material={batch.material}
           castShadow
           receiveShadow
         />
@@ -536,7 +566,7 @@ function PivotedStructures({
   bodies,
 }: {
   groups: PivotGroup[];
-  solids: Map<string, DrawnSolid[]>;
+  solids: Map<string, DrawnBatch[]>;
   textures: Map<number, THREE.CanvasTexture>;
   bodies: BodyBuffer;
 }) {
@@ -601,7 +631,13 @@ function PivotedStructures({
   );
 }
 
-export function FieldContents({
+/**
+ * Memoised on the two things it draws from. The scene around it re-renders on every committed
+ * pose — twenty times a second — and neither the field's furniture nor its tags change with the
+ * robot's position; {@code contents} is replaced whole when the world is rebuilt, and
+ * {@code bodies} is a buffer read inside the render loop, never a value that changes identity.
+ */
+export const FieldContents = memo(function FieldContents({
   contents,
   bodies,
 }: {
@@ -645,4 +681,4 @@ export function FieldContents({
       <ClusterLabels labels={labels} placement={null} />
     </group>
   );
-}
+});

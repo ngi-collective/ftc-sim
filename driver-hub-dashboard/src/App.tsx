@@ -4,6 +4,7 @@ import {
   type Alliance,
   type DeviceState,
   type GamepadState,
+  type OpModeState,
   type SimScenarios,
   type SimScore,
   type TelemetryFrame,
@@ -114,15 +115,13 @@ export function App() {
             </option>
           ))}
         </select>
-        <button style={button} onClick={() => dashboard.init(selected)} disabled={!selected}>
-          init
-        </button>
-        <button style={button} onClick={dashboard.start} disabled={dashboard.status.state !== 'INIT'}>
-          start
-        </button>
-        <button style={button} onClick={dashboard.stop} disabled={dashboard.status.state === 'STOPPED'}>
-          stop
-        </button>
+        <OpModeControls
+          state={dashboard.status.state}
+          selected={selected}
+          onInit={() => dashboard.init(selected)}
+          onStart={dashboard.start}
+          onStop={dashboard.stop}
+        />
         <label
           style={{
             marginLeft: 'auto',
@@ -232,6 +231,67 @@ export function App() {
       )}
       {view === 'camera' && <CameraView stream={dashboard.cameraStream} pose={dashboard.pose} />}
     </div>
+  );
+}
+
+/**
+ * The OpMode's own controls: one button, then two.
+ *
+ * <p>INIT and START are one slot because they are one decision. An OpMode that has been
+ * initialised cannot be initialised again and one that has not cannot be started, so the pair was
+ * never two choices — it was one live button beside one greyed one, and which was which was the
+ * only thing the strip had to say. The button says it instead: it reads {@code init} when there is
+ * nothing running and {@code start} once there is something waiting for the buzzer, which is the
+ * order the Driver Station puts a driver through.</p>
+ *
+ * <p>STOP is absent, not disabled, until there is something to stop. A greyed control is a claim
+ * that an action exists here and cannot be taken now; a stop with no OpMode is not an action at
+ * all. The cost is that the strip's width changes on INIT, which is the one moment the operator is
+ * looking at these buttons anyway.</p>
+ *
+ * <p>RUNNING keeps the slot filled with a spent {@code start} rather than dropping to a lone stop.
+ * START is the button a driver's hand is already on when the match begins, and a layout that
+ * shuffles under it at that instant would move STOP to where START just was.</p>
+ */
+export function OpModeControls({
+  state,
+  selected,
+  onInit,
+  onStart,
+  onStop,
+}: {
+  state: OpModeState;
+  selected: string;
+  onInit: () => void;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  if (state === 'STOPPED') {
+    return (
+      <button
+        style={button}
+        onClick={onInit}
+        disabled={!selected}
+        title="Builds the robot and runs the OpMode's init, as the Driver Station's INIT does."
+      >
+        init
+      </button>
+    );
+  }
+  return (
+    <>
+      <button
+        style={button}
+        onClick={onStart}
+        disabled={state === 'RUNNING'}
+        title="Starts the initialised OpMode."
+      >
+        start
+      </button>
+      <button style={button} onClick={onStop} title="Stops the OpMode and rebuilds the field.">
+        stop
+      </button>
+    </>
   );
 }
 
