@@ -40,16 +40,33 @@ android {
     }
 
     defaultConfig {
-        // The synthetic camera can only be exercised inside an Android runtime: OpenCV, apriltag
-        // and EasyOpenCV all ship Android-only native libraries. Its acceptance test is therefore
-        // an instrumented test, run against an emulator.
+        // Two of the SDK's four vision natives are stubbed and one is rebuilt from source for the
+        // host, so vision runs on a plain JVM too; see tools/build-vision-natives.sh. What still
+        // needs an emulator is the SDK's own robot start and event loop, which is what
+        // RealEventLoopAcceptanceTest covers.
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     testOptions {
         unitTests.all {
             useJUnitPlatform()
+
+            // AprilTagDetectorJNI and EasyOpenCV both load their natives in a static
+            // initializer, so the libraries have to be findable before any test touches them.
+            // OpenCV is not here: org.openpnp extracts its own.
+            systemProperty 'java.library.path',
+                    rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
+            dependsOn ':buildVisionNatives'
+
+            // An input as well as a dependency: a rebuilt detector is a different detector, and
+            // a test task that stayed up to date across one would be reporting yesterday's run.
+            inputs.dir(rootProject.layout.buildDirectory.dir('vision-natives'))
+                    .withPropertyName('visionNatives')
         }
+
+        // Robolectric reads the merged resource table, which is where the SDK keeps the built-in
+        // camera calibrations that decide whether a tag pose is right or merely present.
+        unitTests.includeAndroidResources = true
     }
 
     // The simulated app runs on a device, where there is no repository checkout to read
@@ -64,6 +81,18 @@ android {
 }
 
 dependencies {
+    // Vision on a plain JVM: OpenCV's desktop builds, the Android framework the SDK reaches for,
+    // and the JUnit 4 engine Robolectric runs under. The rest of the suite stays on JUnit 5, so
+    // the vintage engine has to be there for both to run in one task.
+    //
+    // First in the block on purpose. Two copies of org.opencv end up on this classpath - the
+    // SDK's Android 4.10.0 and openpnp's desktop 4.9.0 - and the Java classes have to be the
+    // pair of the natives that get loaded, which off-device are openpnp's.
+    testImplementation 'org.openpnp:opencv:4.9.0-0'
+    testImplementation 'org.robolectric:robolectric:4.12.2'
+    testImplementation 'junit:junit:4.13.2'
+    testRuntimeOnly 'org.junit.vintage:junit-vintage-engine:5.10.0'
+
     implementation project(':FtcRobotController')
 
     // The simulated build needs the fake hardware inside the app itself.

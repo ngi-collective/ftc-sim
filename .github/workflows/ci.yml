@@ -47,6 +47,20 @@ jobs:
       - name: Verify toolchain
         run: mise run verify-toolchain
 
+      # The AprilTag detector and the two stubs a plain JVM needs to run a vision OpMode. Built
+      # from pinned sources, so the cache key is the script and its shim; a hit skips a clone of
+      # two repositories and about five seconds of compiling.
+      - name: Cache vision natives
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/vision-natives
+            build/vision-natives-src
+          key: vision-natives-${{ runner.os }}-${{ hashFiles('tools/build-vision-natives.sh', 'tools/vision-natives/**') }}
+
+      - name: Build vision natives
+        run: mise run build-vision-natives
+
       - name: Test
         run: mise run test
 

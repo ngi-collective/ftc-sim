@@ -19,11 +19,11 @@ Two remotes, and the distinction matters:
 
 ```bash
 mise run check       # compile TeamCode - fastest correctness check while editing OpModes
-mise run test        # unit tests: TeamCode + TestFramework + Dashboard
+mise run test        # unit tests: TeamCode + TestFramework + Dashboard, vision included
 mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
 mise run simulator   # install + launch the simulated app on a running emulator
-mise run test-vision # vision tests against a running emulator's camera (not in CI)
+mise run test-vision # the two tests that still need an emulator: event loop, physical camera
 mise run dashboard   # local Driver Hub: simulation + browser UI (http://localhost:5183)
 mise run dashboard --scenario tipping-hive   # the same, with a field arrangement loaded
 mise run dashboard --dev                     # ...served by Vite with hot reload, for UI work
@@ -270,12 +270,22 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
 - `WebcamFrameSource` keeps a **physical** camera behind the same `FrameSource` seam, as an
   oracle for "is the detector broken, or is my renderer?". It needs a `google_apis` AVD with
   `hw.camera.back=webcam0`; see `mise.toml`.
-- The acceptance tests are instrumented and deliberately outside CI: `mise run test-acceptance`
-  runs all three, one Gradle invocation each. `RealEventLoopAcceptanceTest` proves the SDK's own
-  lifecycle drives the camera; `SyntheticCameraAcceptanceTest` proves the detections are right by
-  reading an unmodified OpMode's telemetry; `AimedLauncherAcceptanceTest` runs the whole season
-  loop. They cannot share a process: each builds a LiveView portal, and a second portal fails with
-  "Viewport container specified by user is not empty!".
+- **Vision runs on a plain JVM, and therefore in CI.** `SyntheticCameraAcceptanceTest` (detections
+  are right, read off an unmodified OpMode's telemetry) and `AimedLauncherAcceptanceTest` (the
+  whole season loop) are ordinary `mise run test` tests, about 13 s for the pair against 142 s of
+  emulator invocations. `tools/build-vision-natives.sh` rebuilds AprilTag from OpenFTC's sources
+  and stubs `libRobotCore`/`libEasyOpenCV`; OpenCV comes from `org.openpnp` through
+  `VisionNatives.ensureLoaded()`; Robolectric supplies the Android framework, and `PlainJvmVision`
+  the four things it does not — an Activity, the LiveView container, an `OpModeManagerImpl` and
+  a pump for the paused main looper. **Call `PlainJvmVision.pump()` once per control cycle** or a
+  camera that opens asynchronously never finishes opening. See
+  `docs/adr/0007-vision-runs-on-the-plain-jvm.md`.
+- **Two things still need an emulator**, and no native library will change that:
+  `RealEventLoopAcceptanceTest`, which proves the SDK's own robot start and event loop drive the
+  camera, and `WebcamFrameSourceTest`, which needs a physical camera. `mise run test-vision` is
+  those two. Each still wants its own Gradle invocation: a second LiveView portal in one process
+  fails with "Viewport container specified by user is not empty!", which on the plain JVM is
+  avoided instead by Robolectric giving each test class its own sandbox.
 
 ## Aiming, and shooting what you aimed at
 
@@ -287,8 +297,8 @@ plain-JVM testable. See `docs/adr/0006-a-cluster-detection-is-an-aim-point.md`.
 **Auto: sweep and shoot**, drag the robot onto the start square the INIT telemetry names
 (`x -0.55, y -1.43, heading 90`), and press START. Nine seconds later the score reads
 `RED 20 (1 TIP)`. `SweepAndShootAuto` is the routine to read first: five timed steps, no vision,
-no odometry, and `SweepAndShootAutoTest` runs it headlessly on every commit — which the vision
-loop's equivalent cannot do, since it needs an emulator.
+no odometry, and `SweepAndShootAutoTest` runs it headlessly on every commit — as, since
+`docs/adr/0007-vision-runs-on-the-plain-jvm.md`, does the vision loop's equivalent.
 
 - **An AUTO aims off the field drawing, not off a camera.** It starts on a known square facing a
   known direction, so the range is arithmetic before the robot has moved and with no tag in view.

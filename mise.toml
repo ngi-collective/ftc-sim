@@ -64,27 +64,29 @@ done
 adb shell am start -n "$pkg/org.firstinspires.ftc.teamcode.simulated.SimulatedPermissionValidatorWrapper"
 """
 
-# Vision is the one part of the framework that cannot run on a plain JVM: OpenCV and AprilTag ship
-# Android-only native libraries. These are instrumented tests, so they need the emulator above to
-# be running, which is why they are not part of `mise run test` or CI.
+# Vision runs on the plain JVM now, so the two acceptance tests that exercise the SDK's vision
+# stack are part of `mise run test` and of CI. See docs/adr/0007-vision-runs-on-the-plain-jvm.md.
+# What is left here needs an emulator for a reason no native library can fix: a real robot start
+# and a real event loop, and a physical camera behind the FrameSource seam.
 [tasks.test-vision]
-description = "Run every vision test against a running emulator"
+description = "Run the vision tests that still need a running emulator"
 run = """
 mise run test-acceptance
 ./gradlew :TestFramework:connectedDebugAndroidTest
 """
 
-# One Gradle invocation per class, deliberately. Each acceptance test builds a VisionPortal with
-# LiveView, and the second one in a process fails with "Viewport container specified by user is
-# not empty!" -- a portal's viewport is only released when a real OpMode stop tears it down, and
-# a portal that an OpMode never closed keeps the container occupied for the life of the process.
 [tasks.test-acceptance]
-description = "Run unmodified vision OpModes against the simulated camera on an emulator"
+description = "Prove the SDK's own robot start and event loop drive the simulated camera"
 run = """
 ./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.RealEventLoopAcceptanceTest
-./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.SyntheticCameraAcceptanceTest
-./gradlew :TeamCode:connectedSimulatedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.firstinspires.ftc.teamcode.simulated.AimedLauncherAcceptanceTest
 """
+
+# Rebuilt from source rather than downloaded, and pinned; the script does nothing when its
+# output is current. `mise run test` depends on this through Gradle, so it is rarely run by hand
+# -- it is here to name the thing and to give CI something to cache.
+[tasks.build-vision-natives]
+description = "Build the desktop AprilTag and stub native libraries into build/vision-natives"
+run = "./gradlew buildVisionNatives"
 
 # The dashboard is two processes -- a JVM serving the simulated robot over a WebSocket, and a Vite
 # server for the browser UI -- and exactly one way to start them. They were two tasks in

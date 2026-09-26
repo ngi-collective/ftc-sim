@@ -15,7 +15,6 @@ import org.ngicollective.testframework.camera.SceneFrameSource;
 import org.ngicollective.testframework.camera.SimulatedCamera;
 import org.ngicollective.testframework.camera.SyntheticFrame;
 import org.ngicollective.testframework.hardware.FakeWebcam;
-import org.opencv.android.OpenCVLoader;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.openftc.easyopencv.OpenCvCameraBase;
@@ -121,9 +120,7 @@ public class SyntheticWebcam extends OpenCvCameraBase implements OpenCvWebcam {
         // The processors allocate OpenCV Mats in their constructors, so the natives have to be up
         // before any of this. Idempotent, and it turns an UnsatisfiedLinkError thrown from a frame
         // callback into a comprehensible failure here.
-        if (!OpenCVLoader.initDebug()) {
-            throw new IllegalStateException("could not load the OpenCV native library");
-        }
+        VisionNatives.ensureLoaded();
 
         // The renderer must draw through the same lens the pose solver will invert. See
         // WebcamCalibrations for why that means reading the SDK's own calibration back.

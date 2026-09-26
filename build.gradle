@@ -30,4 +30,17 @@ repositories {
     mavenCentral()
 }
 
+// The native libraries a plain JVM needs before it can run a vision OpMode. Cheap to re-run:
+// the script stamps its output and does nothing when it is current. The simulated unit test
+// tasks depend on this, so `mise run test` needs no separate step and neither does CI.
+tasks.register('buildVisionNatives', Exec) {
+    group = 'ftc'
+    description = 'Build the desktop OpenCV/AprilTag native libraries into build/vision-natives'
+    commandLine 'bash', "${rootDir}/tools/build-vision-natives.sh"
+
+    inputs.file("${rootDir}/tools/build-vision-natives.sh")
+    inputs.dir("${rootDir}/tools/vision-natives")
+    outputs.dir(layout.buildDirectory.dir('vision-natives'))
+}
+
 

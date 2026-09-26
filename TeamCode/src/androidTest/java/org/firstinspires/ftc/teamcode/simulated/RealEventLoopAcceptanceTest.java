@@ -14,7 +14,7 @@ import org.junit.runner.RunWith;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.FakeWebcam;
 import org.ngicollective.testframework.sim.Pose2d;
-import org.opencv.android.OpenCVLoader;
+import org.ngicollective.testframework.vision.VisionNatives;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -44,8 +44,9 @@ public class RealEventLoopAcceptanceTest {
     @BeforeClass
     public static void startTheRobot() throws Exception {
         // The processors allocate OpenCV Mats in their constructors, so the natives have to be up
-        // before any of this. The app does it at robot start via the SDK's LibLoader hook.
-        assertTrue("OpenCV native library failed to load", OpenCVLoader.initDebug());
+        // before any of this. The app does it at robot start via the SDK's LibLoader hook; here
+        // and in the plain-JVM vision tests it is the same seam either way.
+        VisionNatives.ensureLoaded();
         RobotUnderTest.start();
     }
 

@@ -19,7 +19,6 @@ import android.util.Size;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.BuiltinCameraDirection;
 import org.ngicollective.testframework.camera.FrameSource;
 import org.ngicollective.testframework.camera.SyntheticFrame;
-import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
 
 import java.util.Collections;
@@ -83,9 +82,7 @@ public final class WebcamFrameSource implements FrameSource, AutoCloseable {
 
         // The YUV to RGBA conversion is OpenCV's, so the natives have to be up. Idempotent, and it
         // turns an UnsatisfiedLinkError thrown from a frame callback into a legible failure here.
-        if (!OpenCVLoader.initDebug()) {
-            throw new IllegalStateException("could not load the OpenCV native library");
-        }
+        VisionNatives.ensureLoaded();
 
         this.converter = new Yuv420Rgba(width, height);
         this.latest = new byte[width * height * 4];
