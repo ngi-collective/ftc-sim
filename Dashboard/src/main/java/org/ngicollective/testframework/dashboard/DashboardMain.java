@@ -58,7 +58,20 @@ public final class DashboardMain {
     private DashboardMain() {
     }
 
+    /**
+     * Starts a session and blocks, which is what a dashboard started from a shell wants.
+     *
+     * <p>{@link #start} is the same session without the blocking, for a caller that has to own
+     * the thread it runs on &mdash; see {@code DashboardHost}, which has an Android main looper
+     * to pump.</p>
+     */
     public static void main(String[] args) throws Exception {
+        start(args);
+        Thread.currentThread().join();
+    }
+
+    /** Everything a session is, started and serving, with nothing blocked. */
+    public static void start(String[] args) throws Exception {
         String packagePrefix = argument(args, "--package", DEFAULT_PACKAGE);
         String host = argument(args, "--host", DEFAULT_HOST);
         int port = Integer.parseInt(argument(args, "--port", String.valueOf(DEFAULT_PORT)));
@@ -133,7 +146,7 @@ public final class DashboardMain {
                 Thread.currentThread().interrupt();
             }
         }));
-        server.run();
+        server.start();
     }
 
     private static SimulatedRobot select(List<SimulatedRobot> robots, String name) {

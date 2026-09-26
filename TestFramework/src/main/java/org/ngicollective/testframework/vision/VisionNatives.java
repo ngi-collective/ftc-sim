@@ -36,18 +36,32 @@ public final class VisionNatives {
     /**
      * Loads OpenCV's natives if they are not up already.
      *
-     * @throws IllegalStateException if neither execution target's loader can supply them
+     * <p>The execution target is decided up front rather than by trying the Android loader and
+     * watching it fail. It does fail cleanly, but it logs a full {@code UnsatisfiedLinkError}
+     * stack trace on the way, and a Dashboard Server that opens with a stack trace it does not
+     * mean is a session everybody learns to distrust.</p>
+     *
+     * @throws IllegalStateException if this target's loader cannot supply them
      */
     public static synchronized void ensureLoaded() {
         if (loaded) {
             return;
         }
-        if (OpenCVLoader.initDebug()) {
-            loaded = true;
-            return;
+        if (onAndroid()) {
+            if (!OpenCVLoader.initDebug()) {
+                throw new IllegalStateException(
+                        "the SDK's OpenCV native library failed to load on a device that should"
+                                + " have it");
+            }
+        } else {
+            loadLocally();
         }
-        loadLocally();
         loaded = true;
+    }
+
+    /** True on a Robot Controller, false on a desktop JVM, Robolectric's included. */
+    private static boolean onAndroid() {
+        return System.getProperty("java.vm.name", "").contains("Dalvik");
     }
 
     /** The desktop path: org.openpnp's own extract-and-load. */

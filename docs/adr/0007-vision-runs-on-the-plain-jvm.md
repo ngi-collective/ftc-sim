@@ -35,8 +35,8 @@ cannot host an arm64 guest, and the arm64 runners have no `/dev/kvm`.
 
 ## Decision
 
-**Give the plain JVM the four natives and the Android framework the SDK reaches for, and run the
-vision acceptance tests there.**
+**Give the plain JVM the four natives and the Android framework the SDK reaches for, and run
+vision there: both acceptance tests, and the Driver Hub Dashboard.**
 
 Natives, in `tools/build-vision-natives.sh`:
 
@@ -84,7 +84,12 @@ Three costs, stated rather than hidden:
 - **Two stub libraries exist**, and they are a lie that is true only for a simulated robot. A
   desktop process that somehow reached `UvcDeviceHandle` would fail at the symbol rather than at
   the library, which is a worse error than the one it replaces.
-- **Robolectric is a JUnit sandbox.** That is fine for tests. It is not yet a way to run the
-  Dashboard Server, which is a long-running `main()` and would have to live inside a test that
-  never returns; the Driver Hub Dashboard therefore still cannot run a vision OpMode. That is the
-  next decision, and it is deliberately not taken here.
+- **The Dashboard Server runs inside a JUnit test.** A Robolectric sandbox is handed out by a
+  JUnit runner, and the Dashboard Server needs one for the same reason the tests do, so
+  `DashboardHost` is a `@Test` method that serves until the process is killed and drains the
+  paused main looper every 5 ms. `DashboardLauncher` is what `mise run dashboard` starts, and
+  `DashboardMain.start` exists so that something other than `main` can own the thread. It is the
+  ugliest thing in the repo and it was still the right trade: a Dashboard that lists eleven
+  OpModes and can run nine of them is a trap, and the alternative was reimplementing Android's
+  resource loader. `DashboardHost` is excluded from the test task by name; a CI run that picked
+  it up would wait forever.

@@ -280,6 +280,12 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
   a pump for the paused main looper. **Call `PlainJvmVision.pump()` once per control cycle** or a
   camera that opens asynchronously never finishes opening. See
   `docs/adr/0007-vision-runs-on-the-plain-jvm.md`.
+- **The Dashboard runs vision too, and that is why it starts through a JUnit runner.** A
+  Robolectric sandbox comes from one, so `mise run dashboard` starts `DashboardLauncher`, which
+  runs `DashboardHost` — a `@Test` method that serves until the process is killed and pumps the
+  main looper every 5 ms. It is excluded from the test task by name; unexclude it and CI waits
+  forever. `DashboardMain.start()` is the non-blocking half that makes this possible, and
+  `DashboardMain.main()` still exists for a session with no vision in it.
 - **Two things still need an emulator**, and no native library will change that:
   `RealEventLoopAcceptanceTest`, which proves the SDK's own robot start and event loop drive the
   camera, and `WebcamFrameSourceTest`, which needs a physical camera. `mise run test-vision` is

@@ -62,6 +62,10 @@ android {
             // a test task that stayed up to date across one would be reporting yesterday's run.
             inputs.dir(rootProject.layout.buildDirectory.dir('vision-natives'))
                     .withPropertyName('visionNatives')
+
+            // DashboardHost is a session, not a test: its one method serves until the process
+            // is killed. A test run that picked it up would never finish.
+            exclude '**/DashboardHost.class'
         }
 
         // Robolectric reads the merged resource table, which is where the SDK keeps the built-in
@@ -117,12 +121,21 @@ dependencies {
 // configuration. Runs on the simulated variant's unit-test runtime classpath, which is what makes
 // the plain-JVM simulation - TeamCode classes, VerityRobot, the framework, the android.* shims and
 // the mockable android.jar - resolvable.
+//
+// The entry point is DashboardLauncher rather than DashboardMain: a session runs inside a
+// Robolectric sandbox so that vision OpModes work, and a sandbox comes from a JUnit runner. See
+// DashboardHost.
 tasks.register('dashboard', JavaExec) {
     group = 'ftc'
     description = 'Run the local Driver Hub dashboard server against TeamCode OpModes'
-    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac'
-    mainClass = 'org.ngicollective.testframework.dashboard.DashboardMain'
+    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac', ':buildVisionNatives'
+    mainClass = 'org.firstinspires.ftc.teamcode.simulated.DashboardLauncher'
     classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
+    systemProperty 'java.library.path',
+            rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
+
+    // Ctrl-C has to reach the JVM, and a session that is serving is not "failing".
+    standardInput = System.in
 }
 
 tasks.register('stageScenarios', Copy) {
