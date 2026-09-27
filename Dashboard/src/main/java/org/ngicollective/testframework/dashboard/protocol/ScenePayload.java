@@ -233,6 +233,11 @@ public final class ScenePayload {
      * has no caps on purpose: every cylinder on this field is a ring or a pipe, and a cap would
      * hide the POLLEN sitting inside a FLOWER, which is the thing anyone looking at one is looking
      * for.</p>
+     *
+     * <p>{@link #alpha} is part of the colour and is usually 255. A CELL's skins are clear
+     * polycarbonate and are published as such, so the browser and the simulated camera draw the
+     * same see-through panel; anything translucent should also skip casting a shadow, which the
+     * browser decides from this field rather than from a list of names.</p>
      */
     public static final class Solid {
 
@@ -258,11 +263,14 @@ public final class ScenePayload {
         public final int green;
         public final int blue;
 
+        /** 0 invisible, 255 opaque. */
+        public final int alpha;
+
         public Solid(String shape, double x, double y, double z,
                      double yawDegrees, double pitchDegrees, double rollDegrees,
                      double lengthX, double lengthY, double lengthZ,
                      double radiusMetres, double lengthMetres,
-                     int red, int green, int blue) {
+                     int red, int green, int blue, int alpha) {
             this.shape = shape;
             this.x = x;
             this.y = y;
@@ -278,6 +286,7 @@ public final class ScenePayload {
             this.red = red;
             this.green = green;
             this.blue = blue;
+            this.alpha = alpha;
         }
     }
 }

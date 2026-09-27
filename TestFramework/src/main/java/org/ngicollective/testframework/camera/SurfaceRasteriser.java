@@ -68,7 +68,8 @@ public final class SurfaceRasteriser {
             // Clipping left every corner at or beyond the near plane, so none of these is null.
             outline[i] = view.projectFromCameraFrame(visible[i]);
         }
-        return fill(frame, outline, surface.red(), surface.green(), surface.blue());
+        return fill(frame, outline, surface.red(), surface.green(), surface.blue(),
+                surface.alpha() / (double) Solid.OPAQUE);
     }
 
     /**
@@ -105,7 +106,7 @@ public final class SurfaceRasteriser {
 
     /** Paints the projected outline, with partial coverage along its edges. */
     private static boolean fill(SyntheticFrame frame, Pixel[] outline, int red, int green,
-                                int blue) {
+                                int blue, double opacity) {
         double area = Pixel.signedAreaOf(outline);
         if (Math.abs(area) < MIN_AREA_PIXELS) {
             return false;
@@ -162,7 +163,7 @@ public final class SurfaceRasteriser {
                         continue;
                     }
                 }
-                frame.blend(x, y, red, green, blue, (double) covered / samples);
+                frame.blend(x, y, red, green, blue, opacity * covered / samples);
                 drew = true;
             }
         }

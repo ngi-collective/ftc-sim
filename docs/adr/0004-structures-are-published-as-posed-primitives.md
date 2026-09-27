@@ -58,6 +58,13 @@ Structures take ids from the same space as the balls, allocated by the world.
 match in detail, by design, and a discrepancy between them is not a bug to fix. What must match is
 the *dimensions they are both derived from*, which is why those live in one place per structure.
 
+**A primitive's colour carries an alpha, because being see-through is geometry's business, not a
+renderer's.** A CELL's skins are polycarbonate; `Solid.translucent` says so once and both
+renderers honour it — the browser blends and stops the panel casting a shadow, the camera
+rasteriser scales its coverage. A browser-side list of "things that should look like glass" would
+be exactly the retyped-CAD-in-TypeScript this ADR exists to prevent, and the camera would go on
+drawing an opaque basket while the field view showed a clear one.
+
 **The camera view and the field view can still disagree about shading, and only shading.** Same
 geometry, same colours, different lighting: the camera has none and the browser has some. That is
 the existing arrangement for tiles and walls, and ADR-0002's rule is about the world, not the

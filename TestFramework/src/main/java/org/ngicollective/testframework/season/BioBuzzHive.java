@@ -197,6 +197,38 @@ public final class BioBuzzHive {
      */
     private static final double PANEL_METRES = 0.25 * INCH;
 
+    /**
+     * CAD: the pentagon a CELL really is, in inches from the interior's centre along its own
+     * left and up.
+     *
+     * <p>A CELL is not a box. {@code am-5866: Goal Rib} is a plate, two of them per CELL, 11.89 in
+     * apart along the CELL's depth &mdash; one behind the closed end and one framing the mouth
+     * &mdash; and its outline is a house: a flat base, two vertical sides up to a shoulder, then
+     * two edges at 34&deg; meeting over the centreline. The manual's "20 &times; 14 in opening"
+     * (&sect;9.7) is the rectangle that fits inside it.</p>
+     *
+     * <p>Alliance-coloured, and drawn as the five bars of its outline rather than as a filled
+     * plate. The real rib is a plate with the middle largely cut away, and more to the point a
+     * solid one across the mouth would hide the contents of the basket &mdash; the same reason a
+     * FLOWER's tube is drawn open.</p>
+     */
+    private static final double RIB_HALF_WIDTH_METRES = 10.5 * INCH;
+    private static final double RIB_BASE_METRES = -8.50 * INCH;
+    private static final double RIB_SHOULDER_METRES = 0.33 * INCH;
+    private static final double RIB_APEX_METRES = 7.53 * INCH;
+
+    /** How thick a rib's bars are drawn: twice a skin, so the skins sit inside the frame. */
+    private static final double RIB_BAR_METRES = 0.50 * INCH;
+
+    /**
+     * How much of a CELL's skins survives being looked through.
+     *
+     * <p>They are clear polycarbonate on the real field (and the reason the balls in a CELL are
+     * countable from the audience), so they are clear here. A third is enough to read the panel
+     * as a surface and still see three NECTAR sitting behind it.</p>
+     */
+    private static final int SKIN_ALPHA = 90;
+
     /** CAD: the frame's legs are 1 in square extrusion, from a foot on the tiles to the apex. */
     private static final double LEG_THICKNESS_METRES = 1.0 * INCH;
 
@@ -517,11 +549,19 @@ public final class BioBuzzHive {
     }
 
     /**
-     * A CELL as the panels around its opening: a floor, two ribs and two ends.
+     * A CELL: two alliance-coloured pentagonal ribs, the clear skins between them, and the box
+     * a ball is actually stopped by.
      *
-     * <p>Open at the mouth, closed everywhere else, which is the whole point of a basket. Each
-     * panel is placed against the measured interior and grows away from it, so the clear opening
-     * is the manual's and the panels are outside it.</p>
+     * <h2>Drawn and collided with are not the same shape here</h2>
+     *
+     * <p>What a ball bounces off is the manual's 20 &times; 14 &times; 12 in opening, grown
+     * outward by {@link #PANEL_METRES}: a floor, two sides, a top and the tagged underside, all
+     * boxes, exactly as before. What is drawn is the part FIRST built &mdash; the pentagon of
+     * {@link #RIB_APEX_METRES} and its skins. They differ only in the two corners above the
+     * shoulder, where the collider is a box and the real CELL has a sloping roof, and nothing
+     * ever rests there: a ball in a raised CELL is at the bottom of it, and a tipping one is on
+     * its way out of the mouth. Drawing the box instead was the thing that made a CELL read as a
+     * crate.</p>
      *
      * <h2>The face the AprilTags are on is collided with but not drawn</h2>
      *
@@ -541,31 +581,100 @@ public final class BioBuzzHive {
         double halfRise = CELL_RISE_METRES / 2.0;
         double outside = halfDepth + PANEL_METRES / 2.0;
 
-        Solid floor = panel(cell, cell.forward().scaled(-outside),
+        collided.add(panel(cell, cell.forward().scaled(-outside),
                 PANEL_METRES, CELL_WIDTH_METRES, CELL_RISE_METRES,
-                WHITE_RED, WHITE_GREEN, WHITE_BLUE);
-        drawn.add(floor);
-        collided.add(floor);
-
+                WHITE_RED, WHITE_GREEN, WHITE_BLUE));
         for (int side = -1; side <= 1; side += 2) {
-            Solid rib = panel(cell,
+            collided.add(panel(cell,
                     cell.left().scaled(side * (halfWidth + PANEL_METRES / 2.0)),
                     CELL_DEPTH_METRES, PANEL_METRES, CELL_RISE_METRES,
-                    ribRed, ribGreen, ribBlue);
-            drawn.add(rib);
-            collided.add(rib);
+                    WHITE_RED, WHITE_GREEN, WHITE_BLUE));
+        }
+        collided.add(panel(cell, cell.up().scaled(halfRise + PANEL_METRES / 2.0),
+                CELL_DEPTH_METRES, CELL_WIDTH_METRES, PANEL_METRES,
+                WHITE_RED, WHITE_GREEN, WHITE_BLUE));
+        collided.add(panel(cell, cell.up().scaled(-(halfRise + PANEL_METRES / 2.0)),
+                CELL_DEPTH_METRES, CELL_WIDTH_METRES, PANEL_METRES,
+                WHITE_RED, WHITE_GREEN, WHITE_BLUE));
+
+        ribs(cell, drawn, ribRed, ribGreen, ribBlue);
+        skins(cell, drawn);
+    }
+
+    /**
+     * The two pentagonal ribs, each as the five bars of its outline.
+     *
+     * <p>One behind the closed end and one around the mouth, which is where the CAD has them and
+     * is also what makes the shape read from any angle: a frame at one end only looks like a box
+     * with a decorated back.</p>
+     */
+    private static void ribs(Pose3d cell, List<Solid> drawn, int red, int green, int blue) {
+        double outside = CELL_DEPTH_METRES / 2.0 + RIB_BAR_METRES / 2.0;
+        for (int end = -1; end <= 1; end += 2) {
+            Vec3 at = cell.position().plus(cell.forward().scaled(end * outside));
+            Vec3[] corners = {
+                    cornerOf(cell, at, -RIB_HALF_WIDTH_METRES, RIB_BASE_METRES),
+                    cornerOf(cell, at, RIB_HALF_WIDTH_METRES, RIB_BASE_METRES),
+                    cornerOf(cell, at, RIB_HALF_WIDTH_METRES, RIB_SHOULDER_METRES),
+                    cornerOf(cell, at, 0.0, RIB_APEX_METRES),
+                    cornerOf(cell, at, -RIB_HALF_WIDTH_METRES, RIB_SHOULDER_METRES),
+            };
+            for (int corner = 0; corner < corners.length; corner++) {
+                drawn.add(Solid.beam(corners[corner], corners[(corner + 1) % corners.length],
+                        RIB_BAR_METRES, red, green, blue));
+            }
+        }
+    }
+
+    /** One corner of a rib: so far along the CELL's own left, so far up it. */
+    private static Vec3 cornerOf(Pose3d cell, Vec3 at, double alongLeft, double alongUp) {
+        return at.plus(cell.left().scaled(alongLeft)).plus(cell.up().scaled(alongUp));
+    }
+
+    /**
+     * The clear panels between the ribs: two sides, the closed end, and the two halves of the
+     * roof.
+     *
+     * <p>Each runs from the rib's base to its shoulder, so the skins stop where the roof starts
+     * and the pentagon is the silhouette rather than a decoration on a box. The roof's two slabs
+     * are the CELL's own frame rolled about its nose by the slope, which puts their outer edges
+     * on the rib's shoulder corners and their inner ones on its apex &mdash; measured off the
+     * same four numbers, so a re-measured rib takes the roof with it.</p>
+     */
+    private static void skins(Pose3d cell, List<Solid> drawn) {
+        double halfWidth = CELL_WIDTH_METRES / 2.0;
+        double wall = RIB_SHOULDER_METRES - RIB_BASE_METRES;
+        double middle = (RIB_SHOULDER_METRES + RIB_BASE_METRES) / 2.0;
+
+        drawn.add(panel(cell,
+                cell.forward().scaled(-(CELL_DEPTH_METRES / 2.0 + PANEL_METRES / 2.0))
+                        .plus(cell.up().scaled(middle)),
+                PANEL_METRES, CELL_WIDTH_METRES, wall,
+                WHITE_RED, WHITE_GREEN, WHITE_BLUE).translucent(SKIN_ALPHA));
+
+        for (int side = -1; side <= 1; side += 2) {
+            drawn.add(panel(cell,
+                    cell.left().scaled(side * (halfWidth + PANEL_METRES / 2.0))
+                            .plus(cell.up().scaled(middle)),
+                    CELL_DEPTH_METRES, PANEL_METRES, wall,
+                    WHITE_RED, WHITE_GREEN, WHITE_BLUE).translucent(SKIN_ALPHA));
         }
 
-        Solid high = panel(cell, cell.up().scaled(halfRise + PANEL_METRES / 2.0),
-                CELL_DEPTH_METRES, CELL_WIDTH_METRES, PANEL_METRES,
-                WHITE_RED, WHITE_GREEN, WHITE_BLUE);
-        drawn.add(high);
-        collided.add(high);
-
-        Solid tagged = panel(cell, cell.up().scaled(-(halfRise + PANEL_METRES / 2.0)),
-                CELL_DEPTH_METRES, CELL_WIDTH_METRES, PANEL_METRES,
-                WHITE_RED, WHITE_GREEN, WHITE_BLUE);
-        collided.add(tagged);
+        double rise = RIB_APEX_METRES - RIB_SHOULDER_METRES;
+        double slope = Math.hypot(RIB_HALF_WIDTH_METRES, rise);
+        double lean = Math.atan2(rise, RIB_HALF_WIDTH_METRES);
+        for (int side = -1; side <= 1; side += 2) {
+            // Rolling by -side * lean tips the CELL's own up toward that side, which is the way
+            // a roof slopes; the slab is then placed at the midpoint of the edge it covers.
+            Pose3d tilted = cell.rotatedAbout(cell.position(), cell.forward(), -side * lean);
+            Vec3 centre = cell.position()
+                    .plus(cell.left().scaled(side * RIB_HALF_WIDTH_METRES / 2.0))
+                    .plus(cell.up().scaled((RIB_APEX_METRES + RIB_SHOULDER_METRES) / 2.0));
+            drawn.add(Solid.box(
+                    Pose3d.of(centre, tilted.yaw(), tilted.pitch(), tilted.roll()),
+                    CELL_DEPTH_METRES, slope, PANEL_METRES,
+                    WHITE_RED, WHITE_GREEN, WHITE_BLUE).translucent(SKIN_ALPHA));
+        }
     }
 
     /** One panel of a shell, offset from the CELL's centre but turned with it. */

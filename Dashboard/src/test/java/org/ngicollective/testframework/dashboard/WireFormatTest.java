@@ -547,7 +547,7 @@ class WireFormatTest {
                         solid.get("radiusMetres").getAsDouble(),
                         solid.get("lengthMetres").getAsDouble(),
                         solid.get("red").getAsInt(), solid.get("green").getAsInt(),
-                        solid.get("blue").getAsInt()));
+                        solid.get("blue").getAsInt(), solid.get("alpha").getAsInt()));
             }
             structures.add(new ScenePayload.Structure(
                     structure.get("name").getAsString(), solids,

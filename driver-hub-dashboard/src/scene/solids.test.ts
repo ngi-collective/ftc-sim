@@ -37,6 +37,7 @@ const UNPLACED: SceneSolid = {
   red: 226,
   green: 178,
   blue: 40,
+  alpha: 255,
 };
 
 function solid(published: Partial<SceneSolid>): SceneSolid {

@@ -147,6 +147,15 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   a robot can hit. The CELL face carrying an AprilTag Cluster is **collided with but not drawn**:
   a panel coplanar with the sticker would take turns painting over it in a renderer that sorts
   whole polygons by depth, and the tags would vanish from some viewpoints only.
+- **A CELL is a pentagon with clear skins, and only the collider is a box.** `am-5866 Goal Rib` is
+  a plate, two per CELL 11.9 in apart along its depth, whose outline is a house: a flat base, two
+  sides up to a shoulder, then two 34° edges meeting over the centreline. It is drawn as the five
+  bars of that outline in the alliance colour — a filled plate across the mouth would hide the
+  balls, the same reason a FLOWER's tube is open — and the panels between the ribs are
+  polycarbonate, so they carry a `Solid.translucent` alpha that the browser and the camera both
+  honour. What a ball bounces off is still the manual's 20 × 14 × 12 in box; the two differ only
+  in the corners above the shoulder, where nothing ever rests. Drawing the collider instead is
+  what made a CELL read as a crate.
 - **A HIVE really tips, on a real hinge, and nothing decides that it has.** The body is hinged on
   the measured pivot axis with hard stops at the two stable states and one explicit bi-stable
   torque; what turns it is the weight of the balls in the raised CELL and the impact of the next

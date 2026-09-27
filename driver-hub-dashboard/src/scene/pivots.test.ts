@@ -201,6 +201,7 @@ describe('dividing the scene into what swings and what does not', () => {
     red: 0,
     green: 0,
     blue: 0,
+    alpha: 255,
   });
 
   const structure = (name: string, pivot?: ScenePivot): SceneStructure => ({

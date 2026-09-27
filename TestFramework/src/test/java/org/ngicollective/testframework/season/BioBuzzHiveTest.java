@@ -157,16 +157,78 @@ class BioBuzzHiveTest {
 
     @Test
     void theTaggedFaceIsCollidedWithButNotDrawn() {
-        // Deliberate, and the one place this structure's two lists differ: a panel coplanar with
-        // the AprilTag sticker would take turns painting over it in a renderer that sorts whole
-        // polygons by depth. The balls still have to be held in, so the face exists to the solver.
+        // Deliberate: a panel coplanar with the AprilTag sticker would take turns painting over it
+        // in a renderer that sorts whole polygons by depth. The balls still have to be held in, so
+        // the face exists to the solver and to nobody else.
         Structure hive = BioBuzzHive.all(UP, DOWN).get(1);
+        Pose3d cell = BioBuzzHive.cell(BioBuzzField.RED_AUDIENCE, UP, DOWN);
+        Vec3 tagged = cell.position()
+                .plus(cell.up().scaled(-(BioBuzzHive.CELL_RISE_METRES / 2.0 + 0.003175)));
 
-        assertEquals(hive.drawn().size() + 2, hive.collided().size(),
-                "one undrawn face per CELL, because each CELL carries a cluster");
-        for (Solid drawn : hive.drawn()) {
-            assertTrue(hive.collided().contains(drawn),
-                    "everything drawn should also be collided with");
+        assertTrue(nearest(hive.collided(), tagged) < 1e-9,
+                "the tagged face should be a collider; nearest is "
+                        + nearest(hive.collided(), tagged) + " m away");
+        assertTrue(nearest(hive.drawn(), tagged) > 0.05,
+                "nothing should be drawn on the face the cluster is stuck to");
+    }
+
+    @Test
+    void aCellIsDrawnAsThePentagonItIsRatherThanAsABox() {
+        // am-5866 Goal Rib, two per CELL: a flat base, two sides up to a shoulder, and two edges
+        // meeting over the centreline. Drawn as the five bars of that outline, so this asserts the
+        // outline closes -- every corner used by exactly two bars, at both ends of the CELL. A bar
+        // placed from the wrong corner leaves two corners with one bar each and still looks
+        // roughly like a pentagon from the one angle anyone checks.
+        Pose3d cell = BioBuzzHive.cell(BioBuzzField.RED_AUDIENCE, UP, DOWN);
+        double[][] corners = {
+                {-10.5, -8.50}, {10.5, -8.50}, {10.5, 0.33}, {0.0, 7.53}, {-10.5, 0.33},
+        };
+
+        for (int end = -1; end <= 1; end += 2) {
+            Vec3 at = cell.position().plus(cell.forward()
+                    .scaled(end * (BioBuzzHive.CELL_DEPTH_METRES / 2.0 + 0.00635)));
+            int[] bars = new int[corners.length];
+            for (Solid solid : ribBarsOf(BioBuzzHive.all(UP, DOWN).get(1))) {
+                for (Vec3 tip : endsOf(solid)) {
+                    for (int corner = 0; corner < corners.length; corner++) {
+                        Vec3 expected = at
+                                .plus(cell.left().scaled(corners[corner][0] * INCH))
+                                .plus(cell.up().scaled(corners[corner][1] * INCH));
+                        if (tip.minus(expected).length() < 0.005) {
+                            bars[corner]++;
+                        }
+                    }
+                }
+            }
+            for (int corner = 0; corner < corners.length; corner++) {
+                assertEquals(2, bars[corner], "corner " + corner + " of the rib at "
+                        + (end < 0 ? "the closed end" : "the mouth")
+                        + " should join two bars, and joins " + bars[corner]);
+            }
+        }
+    }
+
+    @Test
+    void aCellsSkinsAreClearAndStayClearWhenTheHiveTips() {
+        // The panels are polycarbonate on the real field, which is how anyone counts the NECTAR in
+        // a CELL from the audience. The tipped case is the one that can regress on its own: every
+        // solid of a tipped HIVE is a rotated copy, and a copy that dropped the alpha would leave
+        // a HIVE opaque in one of its two stable states only.
+        for (BioBuzzField.HiveTip tip : BioBuzzField.HiveTip.values()) {
+            Structure hive = BioBuzzHive.all(tip, tip).get(1);
+            int clear = 0;
+            for (Solid solid : hive.drawn()) {
+                if (solid.alpha() < Solid.OPAQUE) {
+                    clear++;
+                }
+            }
+            assertEquals(10, clear, "five skins per CELL, whichever way the HIVE is tipped");
+
+            assertEquals(20, ribBarsOf(hive).size(), "ten bars per CELL: two pentagons");
+            for (Solid bar : ribBarsOf(hive)) {
+                assertEquals(Solid.OPAQUE, bar.alpha(),
+                        "a rib is painted sheet, and is what the pentagon is read off");
+            }
         }
     }
 
@@ -192,6 +254,32 @@ class BioBuzzHiveTest {
     /** The centre of the closed end a CELL's contents rest against. */
     private static Vec3 closedEnd(Pose3d cell) {
         return cell.position().plus(cell.forward().scaled(-BioBuzzHive.CELL_DEPTH_METRES / 2.0));
+    }
+
+    /** How close the nearest of these solids' centres comes to a point, in metres. */
+    private static double nearest(List<Solid> solids, Vec3 point) {
+        double closest = Double.MAX_VALUE;
+        for (Solid solid : solids) {
+            closest = Math.min(closest, solid.pose().position().minus(point).length());
+        }
+        return closest;
+    }
+
+    /** The alliance-coloured bars of a HIVE's ribs: everything else it draws is off-white. */
+    private static List<Solid> ribBarsOf(Structure hive) {
+        List<Solid> bars = new ArrayList<>();
+        for (Solid solid : hive.drawn()) {
+            if (solid.red() != solid.green()) {
+                bars.add(solid);
+            }
+        }
+        return bars;
+    }
+
+    /** A bar's two ends: {@link Solid#beam} lays its length along the solid's own up. */
+    private static Vec3[] endsOf(Solid bar) {
+        Vec3 half = bar.pose().up().scaled(bar.lengthZ() / 2.0);
+        return new Vec3[] {bar.pose().position().plus(half), bar.pose().position().minus(half)};
     }
 
     /** {@code minX, maxX, minY, maxY, minZ, maxZ} of everything a structure collides with. */

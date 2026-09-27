@@ -1255,7 +1255,7 @@ public class LocalDashboardBackend implements DashboardBackend {
                 Math.toDegrees(pose.roll()),
                 solid.lengthX(), solid.lengthY(), solid.lengthZ(),
                 solid.radiusMetres(), solid.lengthMetres(),
-                solid.red(), solid.green(), solid.blue());
+                solid.red(), solid.green(), solid.blue(), solid.alpha());
     }
 
     /**

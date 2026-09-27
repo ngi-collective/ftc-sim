@@ -77,7 +77,7 @@ public final class SolidSurfaces {
                 centre.minus(acrossOne).plus(acrossTwo),
                 centre.minus(acrossOne).minus(acrossTwo),
                 centre.plus(acrossOne).minus(acrossTwo),
-        }, solid.red(), solid.green(), solid.blue());
+        }, solid.red(), solid.green(), solid.blue(), solid.alpha());
     }
 
     /**
@@ -103,7 +103,7 @@ public final class SolidSurfaces {
                     end.plus(halfAxis),
                     end.minus(halfAxis),
                     start.minus(halfAxis),
-            }, solid.red(), solid.green(), solid.blue()));
+            }, solid.red(), solid.green(), solid.blue(), solid.alpha()));
         }
         return facets;
     }

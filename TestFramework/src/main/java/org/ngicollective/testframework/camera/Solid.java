@@ -24,8 +24,19 @@ package org.ngicollective.testframework.camera;
  * POLLEN sitting inside, which is the thing anyone looking at a FLOWER is looking for. Nothing here
  * needs a solid cylinder; when something does, it wants a second factory rather than a flag,
  * because a capped cylinder and a tube are not the same collider either.</p>
+ *
+ * <h2>Some of this field is see-through</h2>
+ *
+ * <p>A CELL's skins are clear polycarbonate, so {@link #alpha()} is part of a solid's colour
+ * rather than a renderer's setting: the browser and this package's own rasteriser both have to
+ * know, and a panel that is opaque in one picture and clear in the other is the disagreement
+ * ADR-0002 exists to prevent. It is ignored by the physics world, which is right &mdash; a ball
+ * bounces off glass.</p>
  */
 public final class Solid {
+
+    /** Fully opaque, which everything on this field is unless it says otherwise. */
+    public static final int OPAQUE = 255;
 
     public enum Shape {
         BOX,
@@ -42,9 +53,10 @@ public final class Solid {
     private final int red;
     private final int green;
     private final int blue;
+    private final int alpha;
 
     private Solid(Shape shape, Pose3d pose, double lengthX, double lengthY, double lengthZ,
-                  double radius, double length, int red, int green, int blue) {
+                  double radius, double length, int red, int green, int blue, int alpha) {
         this.shape = shape;
         this.pose = pose;
         this.lengthX = lengthX;
@@ -55,13 +67,15 @@ public final class Solid {
         this.red = red;
         this.green = green;
         this.blue = blue;
+        this.alpha = alpha;
     }
 
     /** A box of these three lengths, centred on {@code pose} and turned with it. */
     public static Solid box(Pose3d pose, double lengthX, double lengthY, double lengthZ,
                             int red, int green, int blue) {
         requirePositive("a box's lengths", lengthX, lengthY, lengthZ);
-        return new Solid(Shape.BOX, pose, lengthX, lengthY, lengthZ, 0.0, 0.0, red, green, blue);
+        return new Solid(Shape.BOX, pose, lengthX, lengthY, lengthZ, 0.0, 0.0,
+                red, green, blue, OPAQUE);
     }
 
     /** A cylindrical shell of this radius and length, on {@code pose}'s local +Z axis. */
@@ -69,7 +83,7 @@ public final class Solid {
                                  int red, int green, int blue) {
         requirePositive("a cylinder's radius and length", radiusMetres, lengthMetres);
         return new Solid(Shape.CYLINDER, pose, 0.0, 0.0, 0.0, radiusMetres, lengthMetres,
-                red, green, blue);
+                red, green, blue, OPAQUE);
     }
 
     /**
@@ -150,20 +164,37 @@ public final class Solid {
     }
 
     /**
+     * The same solid, seen through: 0 is invisible and {@link #OPAQUE} is the default.
+     *
+     * <p>A modifier rather than a parameter on every factory, because being see-through is a
+     * property of a handful of parts &mdash; a CELL's skins &mdash; against the dozens of opaque
+     * ones, and threading an alpha through {@link #beam} and its callers would put the number
+     * nowhere near the part that has it.</p>
+     */
+    public Solid translucent(int alpha) {
+        if (alpha < 0 || alpha > OPAQUE) {
+            throw new IllegalArgumentException("an alpha runs 0 to " + OPAQUE + "; got " + alpha);
+        }
+        return new Solid(shape, pose, lengthX, lengthY, lengthZ, radius, length,
+                red, green, blue, alpha);
+    }
+
+    /**
      * The same solid, moved and turned by a rotation about an axis: one panel of a tipping HIVE.
      *
      * <p>Dimensions and colour survive untouched, which is the whole point of doing this to a
      * primitive rather than to a mesh &mdash; a rotated box is a box, so a structure on a pivot
      * costs nothing to redraw at a new angle and the browser can keep sharing one
-     * {@code BoxGeometry} across every angle it is ever drawn at.</p>
+     * {@code BoxGeometry} across every angle it is ever drawn at. That includes the alpha: a HIVE
+     * that went opaque halfway through a tip would be a swing nobody could see the balls in.</p>
      */
     public Solid rotatedAbout(Vec3 point, Vec3 axis, double radians) {
         Pose3d turned = pose.rotatedAbout(point, axis, radians);
         return shape == Shape.BOX
                 ? new Solid(Shape.BOX, turned, lengthX, lengthY, lengthZ, 0.0, 0.0,
-                        red, green, blue)
+                        red, green, blue, alpha)
                 : new Solid(Shape.CYLINDER, turned, 0.0, 0.0, 0.0, radius, length,
-                        red, green, blue);
+                        red, green, blue, alpha);
     }
 
     public int red() {
@@ -178,10 +209,16 @@ public final class Solid {
         return blue;
     }
 
+    /** How solid it is: 0 invisible, {@link #OPAQUE} opaque. */
+    public int alpha() {
+        return alpha;
+    }
+
     @Override
     public String toString() {
+        String seen = alpha == OPAQUE ? "" : String.format(" alpha=%d", alpha);
         return shape == Shape.BOX
-                ? String.format("box %.3fx%.3fx%.3f at %s", lengthX, lengthY, lengthZ, pose)
-                : String.format("cylinder r=%.3f l=%.3f at %s", radius, length, pose);
+                ? String.format("box %.3fx%.3fx%.3f at %s%s", lengthX, lengthY, lengthZ, pose, seen)
+                : String.format("cylinder r=%.3f l=%.3f at %s%s", radius, length, pose, seen);
     }
 }

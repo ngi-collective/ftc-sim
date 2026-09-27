@@ -14,16 +14,34 @@ public final class Surface {
     private final int red;
     private final int green;
     private final int blue;
+    private final int alpha;
 
+    /** An opaque surface: a tile, a wall, a painted panel. */
     public Surface(Vec3[] corners, int red, int green, int blue) {
+        this(corners, red, green, blue, Solid.OPAQUE);
+    }
+
+    /**
+     * One that can be seen through, for the clear skins of a CELL.
+     *
+     * <p>Blending is why {@link SimulatedScene} sorts back to front at all: with no depth buffer,
+     * painter's order is what makes a panel drawn over a ball show the ball through it rather
+     * than instead of it.</p>
+     */
+    public Surface(Vec3[] corners, int red, int green, int blue, int alpha) {
         if (corners.length < 3) {
             throw new IllegalArgumentException(
                     "a surface needs at least three corners; got " + corners.length);
+        }
+        if (alpha < 0 || alpha > Solid.OPAQUE) {
+            throw new IllegalArgumentException(
+                    "an alpha runs 0 to " + Solid.OPAQUE + "; got " + alpha);
         }
         this.corners = corners.clone();
         this.red = red;
         this.green = green;
         this.blue = blue;
+        this.alpha = alpha;
     }
 
     /** The corners in the field frame, in metres. */
@@ -41,6 +59,11 @@ public final class Surface {
 
     public int blue() {
         return blue;
+    }
+
+    /** How much of what is behind it survives: {@link Solid#OPAQUE} hides it entirely. */
+    public int alpha() {
+        return alpha;
     }
 
     /**

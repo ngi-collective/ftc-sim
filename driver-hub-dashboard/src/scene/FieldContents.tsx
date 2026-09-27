@@ -375,6 +375,8 @@ interface DrawnBatch {
    */
   geometry: THREE.BufferGeometry;
   material: THREE.MeshStandardMaterial;
+  /** Whether the batch is see-through, which is also whether it may cast a shadow. */
+  translucent: boolean;
 }
 
 /** Stable empties, for a hinge whose lists are momentarily missing rather than merely short. */
@@ -454,13 +456,23 @@ function useStructureMeshes(split: PivotSplit): StructureMeshes {
           byShape.set(shapeKey, primitive);
         }
 
-        const packed = (solid.red << 16) | (solid.green << 8) | solid.blue;
+        // Alpha is part of the key, not a second pass: a red rib and a red skin of the same red
+        // are two materials, and merging them into one buffer would make the batch as opaque as
+        // whichever it built first.
+        const packed = solid.alpha * 0x1000000 + (solid.red << 16) + (solid.green << 8) + solid.blue;
         let material = byColour.get(packed);
         if (!material) {
+          const translucent = solid.alpha < 255;
           material = new THREE.MeshStandardMaterial({
             color: new THREE.Color().setStyle(`rgb(${solid.red},${solid.green},${solid.blue})`),
             roughness: 0.6,
             side: THREE.DoubleSide,
+            transparent: translucent,
+            opacity: solid.alpha / 255,
+            // Without this the nearest clear panel writes depth and hides the balls, the far
+            // wall and the other three panels behind it — a basket that is see-through and
+            // empty, which is worse than an opaque one.
+            depthWrite: !translucent,
           });
           byColour.set(packed, material);
         }
@@ -492,6 +504,7 @@ function useStructureMeshes(split: PivotSplit): StructureMeshes {
           key: `${structure.name}:${packed}`,
           geometry: merged,
           material,
+          translucent: material.transparent,
         });
       });
       return batches;
@@ -532,7 +545,7 @@ function Solids({ solids }: { solids: DrawnBatch[] }) {
           key={batch.key}
           geometry={batch.geometry}
           material={batch.material}
-          castShadow
+          castShadow={!batch.translucent}
           receiveShadow
         />
       ))}

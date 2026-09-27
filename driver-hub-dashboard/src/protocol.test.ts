@@ -372,6 +372,7 @@ describe('sim frames', () => {
       'red',
       'green',
       'blue',
+      'alpha',
     ] satisfies (keyof SceneSolid)[];
 
     expect(simSceneFrame.payload.structures.length).toBeGreaterThan(0);

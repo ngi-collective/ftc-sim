@@ -513,6 +513,12 @@ export interface SceneSolid {
   red: number;
   green: number;
   blue: number;
+  /**
+   * 0-255 opacity, and 255 on all but a CELL's clear skins. A translucent solid is drawn with
+   * blending and casts no shadow: a shadow map has no opinion about opacity, so a clear panel
+   * left in it paints a solid black basket onto the tiles.
+   */
+  alpha: number;
 }
 
 /**
