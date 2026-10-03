@@ -45,4 +45,8 @@ dependencies {
 
     // Working stand-ins for the android.* stubs that throw on a plain JVM.
     testImplementation project(':AndroidShims')
+
+    // Score and body publication are asserted against a real season's field. Test scope only:
+    // the dashboard itself learns the season from the robot it serves.
+    testImplementation project(':Season-BioBuzz')
 }

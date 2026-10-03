@@ -9,6 +9,7 @@ pluginManagement {
 include ':FtcRobotController'
 include ':TeamCode'
 include ':TestFramework'
+include ':Season-BioBuzz'
 include ':Dashboard'
 include ':AndroidShims'
 include ':CameraStream'

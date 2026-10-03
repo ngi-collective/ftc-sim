@@ -50,7 +50,8 @@ import {
   type SimPose,
   type SimScenarios,
   type SimScore,
-  type SimScoreCell,
+  type SimScoreTally,
+  type SimScoreVolume,
   type SimStatus,
   type TelemetryFrame,
 } from './protocol';
@@ -477,30 +478,40 @@ describe('sim frames', () => {
     expect(alliances).toContain(simStatusFrame.payload.alliance);
   });
 
-  it('score only the upward-facing CELLs, two points an element', () => {
-    const named = ['redPoints', 'bluePoints', 'cells', 'redTips', 'blueTips'] satisfies (keyof SimScore)[];
-    const cellFields = ['cell', 'alliance', 'holding', 'points'] satisfies (keyof SimScoreCell)[];
+  it('score the volumes in play and the tallies, with totals that add up', () => {
+    const named = ['redPoints', 'bluePoints', 'volumes', 'tallies'] satisfies (keyof SimScore)[];
+    const volumeFields = ['name', 'alliance', 'holding', 'points'] satisfies (keyof SimScoreVolume)[];
+    const tallyFields = ['name', 'alliance', 'count', 'points'] satisfies (keyof SimScoreTally)[];
     expectFields(simScoreFrame.payload, named);
     const alliances: Alliance[] = ['red', 'blue'];
-    for (const cell of simScoreFrame.payload.cells) {
-      expectFields(cell, cellFields);
+    for (const volume of simScoreFrame.payload.volumes) {
+      expectFields(volume, volumeFields);
       // Same enum spelling trap as sim/status: Java's Alliance serialises lowercase, and a RED
       // here would colour red's total as neither alliance rather than failing visibly.
-      expect(alliances).toContain(cell.alliance);
-      // Manual §10.5.1 is two points per POLLEN or NECTAR. The browser prints the server's number
-      // rather than deriving it, so this is the only place the two spellings are compared: a Java
-      // side that started sending points per CELL, or per alliance, would still render.
-      expect(cell.points).toBe(cell.holding * 2);
+      expect(alliances).toContain(volume.alliance);
+      // The capture is BioBuzz, where §10.5.1 is two points per POLLEN or NECTAR. The browser
+      // prints the server's number rather than deriving it, so this is the only place the two
+      // are compared: a Java side that started sending points per CELL would still render.
+      expect(volume.points).toBe(volume.holding * 2);
     }
-    // A downward-facing CELL cannot score and is absent rather than zero, so the totals are a sum
-    // over the CELLs that are here — nothing else on the wire lets the browser check them.
+    for (const tally of simScoreFrame.payload.tallies) {
+      expectFields(tally, tallyFields);
+      expect(alliances).toContain(tally.alliance);
+    }
+    // A volume that cannot score is absent rather than zero, so the totals are a sum over the
+    // volumes and tallies that are here — nothing else on the wire lets the browser check them.
     const total = (alliance: Alliance) =>
-      simScoreFrame.payload.cells
-        .filter((cell) => cell.alliance === alliance)
-        .reduce((sum, cell) => sum + cell.points, 0);
+      [...simScoreFrame.payload.volumes, ...simScoreFrame.payload.tallies]
+        .filter((line) => line.alliance === alliance)
+        .reduce((sum, line) => sum + line.points, 0);
     expect(simScoreFrame.payload.redPoints).toBe(total('red'));
     expect(simScoreFrame.payload.bluePoints).toBe(total('blue'));
     expect(parseSimScore(simScoreFrame.payload)).toEqual(simScoreFrame.payload);
+  });
+
+  it('refuse a score frame missing its tallies rather than break the strip', () => {
+    const { tallies: _dropped, ...withoutTallies } = simScoreFrame.payload;
+    expect(parseSimScore(withoutTallies)).toBeNull();
   });
 });
 

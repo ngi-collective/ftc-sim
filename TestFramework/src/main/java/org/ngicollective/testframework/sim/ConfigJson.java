@@ -28,7 +28,7 @@ import java.util.Set;
  * into a divide-by-zero in the drive model and a NaN pose several hundred ticks later, by which
  * point nothing points at the typo that caused it.</p>
  */
-final class ConfigJson {
+public final class ConfigJson {
 
     // Gson rather than JsonParser: fromJson(String, Class) has been stable across every version the
     // SDK AARs have dragged in, while JsonParser's instance parse() is deprecated in the newer ones.
@@ -52,7 +52,18 @@ final class ConfigJson {
      * @param supportedVersion the only {@code version} this code knows how to read; a file from the
      *                         future is refused rather than half-understood
      */
-    static ConfigJson read(Path file, int supportedVersion) {
+    public static ConfigJson read(Path file, int supportedVersion) {
+        return read(file).requireVersion(supportedVersion);
+    }
+
+    /**
+     * Reads {@code file} as a JSON object without judging its version yet.
+     *
+     * <p>For a document whose schema belongs to somebody else: the simulator finds a scenario file,
+     * but the season that stages it is the one that knows which version it reads, and says so with
+     * {@link #requireVersion}.</p>
+     */
+    public static ConfigJson read(Path file) {
         Path absolute = file.toAbsolutePath().normalize();
         if (!Files.isRegularFile(absolute)) {
             throw new IllegalArgumentException("no configuration file at " + absolute);
@@ -63,14 +74,19 @@ final class ConfigJson {
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read " + absolute, e);
         }
-        return parse(absolute.toString(), text, supportedVersion);
+        return parse(absolute.toString(), text);
     }
 
     /**
      * The same, from a classpath resource: inside an APK there is no file to read, and the config
      * travels as a packaged resource instead. Same bytes, same parser, same complaints.
      */
-    static ConfigJson read(URL resource, int supportedVersion) {
+    public static ConfigJson read(URL resource, int supportedVersion) {
+        return read(resource).requireVersion(supportedVersion);
+    }
+
+    /** The same, from a classpath resource, with the version left to {@link #requireVersion}. */
+    public static ConfigJson read(URL resource) {
         String text;
         try (InputStream stream = resource.openStream()) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -82,10 +98,10 @@ final class ConfigJson {
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read " + resource, e);
         }
-        return parse(resource.toString(), text, supportedVersion);
+        return parse(resource.toString(), text);
     }
 
-    private static ConfigJson parse(String source, String text, int supportedVersion) {
+    private static ConfigJson parse(String source, String text) {
         JsonObject root;
         try {
             root = GSON.fromJson(text, JsonObject.class);
@@ -95,22 +111,31 @@ final class ConfigJson {
         if (root == null) {
             throw new IllegalArgumentException(source + " is empty; expected a JSON object");
         }
-        ConfigJson config = new ConfigJson(source, root, "");
-        double version = config.number("version");
+        return new ConfigJson(source, root, "");
+    }
+
+    /**
+     * This document, provided its {@code version} is the one the caller reads.
+     *
+     * @param supportedVersion the only {@code version} the caller knows how to read; a file from
+     *                         the future is refused rather than half-understood
+     */
+    public ConfigJson requireVersion(int supportedVersion) {
+        double version = number("version");
         if (version != supportedVersion) {
             throw new IllegalArgumentException(source + ": \"version\" is " + version
                     + ", but this build only reads version " + supportedVersion);
         }
-        return config;
+        return this;
     }
 
     /** What to name in a message about this document, whether it was a file or a resource. */
-    String source() {
+    public String source() {
         return source;
     }
 
     /** The nested object under {@code name}. */
-    ConfigJson child(String name) {
+    public ConfigJson child(String name) {
         JsonElement element = require(name);
         if (!element.isJsonObject()) {
             throw new IllegalArgumentException(
@@ -126,7 +151,7 @@ final class ConfigJson {
      * SDK AARs resolve to is not ours to choose, and {@code keySet()} only exists on the newer
      * ones.</p>
      */
-    Set<String> names() {
+    public Set<String> names() {
         Set<String> names = new LinkedHashSet<>();
         for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
             names.add(entry.getKey());
@@ -134,7 +159,7 @@ final class ConfigJson {
         return names;
     }
 
-    String string(String name) {
+    public String string(String name) {
         JsonElement element = require(name);
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
             throw new IllegalArgumentException(
@@ -148,7 +173,7 @@ final class ConfigJson {
     }
 
     /** A true/false fact. Quoted "true" is rejected: it is a typo, not a value. */
-    boolean bool(String name) {
+    public boolean bool(String name) {
         JsonElement element = require(name);
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isBoolean()) {
             throw new IllegalArgumentException(
@@ -157,7 +182,7 @@ final class ConfigJson {
         return element.getAsBoolean();
     }
 
-    double number(String name) {
+    public double number(String name) {
         JsonElement element = require(name);
         if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
             throw new IllegalArgumentException(
@@ -172,7 +197,7 @@ final class ConfigJson {
     }
 
     /** A measurement that physics divides by or draws with, so zero is as wrong as absent. */
-    double positive(String name) {
+    public double positive(String name) {
         double value = number(name);
         if (value <= 0.0) {
             throw new IllegalArgumentException(
@@ -182,7 +207,7 @@ final class ConfigJson {
     }
 
     /** A ratio in (0, 1]: an efficiency above 1 would make the model produce free energy. */
-    double fraction(String name) {
+    public double fraction(String name) {
         double value = number(name);
         if (value <= 0.0 || value > 1.0) {
             throw new IllegalArgumentException(source + ": \"" + qualify(name)

@@ -307,11 +307,11 @@ public final class BioBuzzFlowers {
      */
     private static List<GameElement> stack(Structure flower) {
         Vec3 mouth = flower.drawn().get(0).pose().position();
-        double diameter = GameElement.POLLEN_DIAMETER_METRES;
+        double diameter = BioBuzzElements.POLLEN_DIAMETER_METRES;
 
         List<GameElement> stacked = new ArrayList<>(4);
         for (int ball = 0; ball < 4; ball++) {
-            stacked.add(GameElement.pollenAt(mouth.x(), mouth.y(),
+            stacked.add(BioBuzzElements.pollenAt(mouth.x(), mouth.y(),
                     BASE_HEIGHT + diameter * (0.5 + ball)));
         }
         return stacked;

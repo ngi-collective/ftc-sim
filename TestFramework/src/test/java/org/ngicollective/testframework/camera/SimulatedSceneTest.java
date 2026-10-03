@@ -32,9 +32,9 @@ class SimulatedSceneTest {
         // The contract the colour processors depend on: a red NECTAR has to come out red enough
         // for a threshold to find it, and not so desaturated that it reads as grey floor.
         GameElement[] balls = {
-                GameElement.redNectar(1.0, 0.0),
-                GameElement.blueNectar(1.0, 0.0),
-                GameElement.pollen(1.0, 0.0),
+                TestBalls.redNectar(1.0, 0.0),
+                TestBalls.blueNectar(1.0, 0.0),
+                TestBalls.pollen(1.0, 0.0),
         };
         String[] expected = {"red", "blue", "yellow"};
 
@@ -69,7 +69,7 @@ class SimulatedSceneTest {
         // 91 mm NECTAR at 1 m through a 500 px lens: a radius of 22.75 px, so about 1626 px of
         // red. A blob detector measures area, so an area that drifts is a silently wrong test
         // fixture rather than a cosmetic issue.
-        GameElement nectar = GameElement.redNectar(1.0, 0.0);
+        GameElement nectar = TestBalls.redNectar(1.0, 0.0);
         SimulatedScene scene = new SimulatedScene(
                 Collections.<TagCluster>emptyList(), Collections.singletonList(nectar));
         SyntheticFrame frame = new SyntheticFrame(LENS.width(), LENS.height());

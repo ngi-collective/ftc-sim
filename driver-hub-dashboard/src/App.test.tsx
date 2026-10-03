@@ -7,11 +7,11 @@ import type { OpModeState, SimScenarios, SimScore } from './protocol';
 import { blueChip, redChip } from './ui';
 
 /**
- * The CELL score in the sim strip, rendered, for the two things about it that are not formatting.
+ * The score in the sim strip, rendered, for the things about it that are not formatting.
  *
- * <p>A null score must render nothing: it is the difference between "the CELLs are empty" and "the
- * server has not said", and the second is what a fresh page, a robot with no HIVE, and a dead
- * socket all have. A guard written as {@code score.redPoints ?? 0}, or a call site that forgot the
+ * <p>A null score must render nothing: it is the difference between "the volumes are empty" and
+ * "the server has not said", and the second is what a fresh page, a robot with no season, and a
+ * dead socket all have. A guard written as {@code score.redPoints ?? 0}, or a call site that forgot the
  * conditional, produces a confident 0 – 0 that looks exactly like a real score.</p>
  *
  * <p>And each total must be in its own alliance's colour, because that is the only thing on screen
@@ -28,9 +28,24 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const SCORE: SimScore = {
   redPoints: 6,
   bluePoints: 0,
-  cells: [
-    { cell: 'RED AUDIENCE', alliance: 'red', holding: 3, points: 6 },
-    { cell: 'BLUE SCORING', alliance: 'blue', holding: 0, points: 0 },
+  volumes: [
+    { name: 'RED AUDIENCE', alliance: 'red', holding: 3, points: 6 },
+    { name: 'BLUE SCORING', alliance: 'blue', holding: 0, points: 0 },
+  ],
+  tallies: [
+    { name: 'TIP', alliance: 'red', count: 0, points: 0 },
+    { name: 'TIP', alliance: 'blue', count: 0, points: 0 },
+  ],
+};
+
+/** Red has tipped twice and blue once: 40 and 20 inside the totals. */
+const TIPPED: SimScore = {
+  ...SCORE,
+  redPoints: 46,
+  bluePoints: 20,
+  tallies: [
+    { name: 'TIP', alliance: 'red', count: 2, points: 40 },
+    { name: 'TIP', alliance: 'blue', count: 1, points: 20 },
   ],
 };
 
@@ -46,8 +61,8 @@ function show(score: SimScore | null): void {
   act(() => root.render(<SimScoreReadout score={score} />));
 }
 
-describe('the CELL score readout', () => {
-  it('renders nothing at all before anything has said what the CELLs hold', () => {
+describe('the score readout', () => {
+  it('renders nothing at all before anything has said what the field holds', () => {
     show(null);
     expect(host.textContent).toBe('');
   });
@@ -62,7 +77,17 @@ describe('the CELL score readout', () => {
     expect(coloured(blueChip.color).map((span) => span.textContent)).toEqual(['BLUE 0']);
   });
 
-  it('names every upward-facing CELL and what it holds in the tooltip', () => {
+  it('puts a tally beside its own total once it is above zero, in the word the server sent', () => {
+    show(SCORE);
+    expect(host.textContent).not.toContain('TIP');
+    show(TIPPED);
+    const coloured = (colour: unknown) =>
+      [...host.querySelectorAll('span')].filter((span) => span.style.color === colour);
+    expect(coloured(redChip.color).map((span) => span.textContent)).toEqual(['RED 46 (2 TIPS)']);
+    expect(coloured(blueChip.color).map((span) => span.textContent)).toEqual(['BLUE 20 (1 TIP)']);
+  });
+
+  it('names every volume in play and what it holds in the tooltip', () => {
     // The breakdown is the whole reason the bar itself can stay two numbers wide. Losing it costs
     // nothing visible, so nothing but this notices.
     show(SCORE);

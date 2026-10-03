@@ -585,9 +585,13 @@ class DashboardProtocolTest {
 
     /** One upward-facing CELL per alliance, which is all a real session ever sends. */
     private static ScorePayload someScore() {
-        return new ScorePayload(6, 0, Arrays.asList(
-                new ScorePayload.Cell("RED AUDIENCE", Alliance.RED, 3, 6),
-                new ScorePayload.Cell("BLUE SCORING", Alliance.BLUE, 0, 0)), 0, 0);
+        return new ScorePayload(6, 0,
+                Arrays.asList(
+                        new ScorePayload.Volume("RED AUDIENCE", Alliance.RED, 3, 6),
+                        new ScorePayload.Volume("BLUE SCORING", Alliance.BLUE, 0, 0)),
+                Arrays.asList(
+                        new ScorePayload.Tally("TIP", Alliance.RED, 0, 0),
+                        new ScorePayload.Tally("TIP", Alliance.BLUE, 0, 0)));
     }
 
     /** The three scenarios TeamCode commits, with one of them loaded. */

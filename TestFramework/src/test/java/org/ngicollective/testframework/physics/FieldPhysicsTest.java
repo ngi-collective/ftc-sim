@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Structure;
+import org.ngicollective.testframework.camera.TestBalls;
 import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.sim.FieldConfig;
 
@@ -51,7 +52,7 @@ class FieldPhysicsTest {
 
     @Test
     void aBallLeftAloneStaysWhereItWasPut() {
-        FieldPhysics world = world(GameElement.pollen(0.5, -0.75));
+        FieldPhysics world = world(TestBalls.pollen(0.5, -0.75));
 
         run(world, 5.0);
 
@@ -61,16 +62,16 @@ class FieldPhysicsTest {
         // while nobody is driving -- which would make every autonomous test irreproducible.
         assertEquals(0.5, ball.x(), 1e-4, "a ball nobody touched drifted along X");
         assertEquals(-0.75, ball.y(), 1e-4, "a ball nobody touched drifted along Y");
-        assertEquals(GameElement.POLLEN_DIAMETER_METRES / 2.0, ball.z(), 1e-3,
+        assertEquals(TestBalls.POLLEN_DIAMETER_METRES / 2.0, ball.z(), 1e-3,
                 "a resting ball should sit on the floor, on its own radius");
         assertFalse(world.moving(), "a field nobody has touched should report itself still");
     }
 
     @Test
     void aBallDroppedOnTheFieldSettlesOntoTheFloor() {
-        double radius = GameElement.NECTAR_DIAMETER_METRES / 2.0;
+        double radius = TestBalls.NECTAR_DIAMETER_METRES / 2.0;
         FieldPhysics world = world(new GameElement("RED NECTAR", new Vec3(0.0, 0.0, 0.8),
-                GameElement.NECTAR_DIAMETER_METRES, 200, 30, 40));
+                TestBalls.NECTAR_DIAMETER_METRES, 200, 30, 40));
 
         run(world, 4.0);
 
@@ -85,7 +86,7 @@ class FieldPhysicsTest {
     @Test
     void noBallGainsEnergyOnItsOwn() {
         FieldPhysics world = world(new GameElement("POLLEN", new Vec3(0.2, 0.2, 0.6),
-                GameElement.POLLEN_DIAMETER_METRES, 240, 200, 30));
+                TestBalls.POLLEN_DIAMETER_METRES, 240, 200, 30));
 
         // Per unit mass, so the nominal ball density never enters the assertion: gh + v^2/2, with
         // the speed taken from how far the ball moved between two published frames -- which is the
@@ -122,7 +123,7 @@ class FieldPhysicsTest {
         // 20 ms is five 4 ms substeps and 200 ms is fifty, so all three of these worlds must run
         // the same 250 substeps over the same simulated second.
         GameElement dropped = new GameElement("POLLEN", new Vec3(0.3, -0.3, 0.7),
-                GameElement.POLLEN_DIAMETER_METRES, 240, 200, 30);
+                TestBalls.POLLEN_DIAMETER_METRES, 240, 200, 30);
 
         FieldPhysics oneSecond = world(dropped);
         FieldPhysics fiftyTicks = world(dropped);
@@ -158,11 +159,11 @@ class FieldPhysicsTest {
         // each other as well as off the floor: the perimeter is the thing under test.
         FieldPhysics world = world(
                 new GameElement("POLLEN", new Vec3(1.7, 1.7, 0.4),
-                        GameElement.POLLEN_DIAMETER_METRES, 240, 200, 30),
+                        TestBalls.POLLEN_DIAMETER_METRES, 240, 200, 30),
                 new GameElement("POLLEN", new Vec3(1.72, 1.66, 0.6),
-                        GameElement.POLLEN_DIAMETER_METRES, 240, 200, 30),
+                        TestBalls.POLLEN_DIAMETER_METRES, 240, 200, 30),
                 new GameElement("RED NECTAR", new Vec3(-1.7, -1.7, 0.5),
-                        GameElement.NECTAR_DIAMETER_METRES, 200, 30, 40));
+                        TestBalls.NECTAR_DIAMETER_METRES, 200, 30, 40));
 
         run(world, 5.0);
 
@@ -179,7 +180,7 @@ class FieldPhysicsTest {
         // The licence escape hatch, exercised directly rather than by deleting a jar: a team that
         // wants no LGPL in the build at all gets a field whose balls do not move, which is what
         // this simulator did before physics existed and is still enough to test vision against.
-        List<GameElement> arrangement = Collections.singletonList(GameElement.pollen(0.4, 0.4));
+        List<GameElement> arrangement = Collections.singletonList(TestBalls.pollen(0.4, 0.4));
         FieldPhysics still = new StillFieldPhysics(arrangement, FieldConfig.standard(), null);
 
         still.advance(10.0);

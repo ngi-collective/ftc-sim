@@ -19,6 +19,7 @@ import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzField;
 import org.ngicollective.testframework.season.BioBuzzHive;
 
@@ -197,7 +198,7 @@ class BodyPublicationTest {
         for (int ball = 0; ball < 6; ball++) {
             Vec3 at = mouth.plus(cell.left().scaled(((ball % 3) - 1) * 0.12))
                     .plus(new Vec3(0.0, 0.0, 0.10 + 0.09 * (ball / 3)));
-            balls.add(GameElement.pollenAt(at.x(), at.y(), at.z()));
+            balls.add(BioBuzzElements.pollenAt(at.x(), at.y(), at.z()));
         }
         return balls;
     }
@@ -215,7 +216,7 @@ class BodyPublicationTest {
     /** One POLLEN ball, already on the floor. */
     private static SimulatedScene restingBall() {
         return new SimulatedScene(Collections.emptyList(),
-                Collections.singletonList(GameElement.pollen(0.3, -0.4)));
+                Collections.singletonList(BioBuzzElements.pollen(0.3, -0.4)));
     }
 
     /** The same ball, held in the air, so gravity has something to do. */
@@ -223,7 +224,7 @@ class BodyPublicationTest {
         return new SimulatedScene(Collections.emptyList(),
                 Arrays.asList(new GameElement("POLLEN",
                         new Vec3(0.3, -0.4, DROP_HEIGHT_METRES),
-                        GameElement.POLLEN_DIAMETER_METRES, 240, 200, 30)));
+                        BioBuzzElements.POLLEN_DIAMETER_METRES, 240, 200, 30)));
     }
 
     /**

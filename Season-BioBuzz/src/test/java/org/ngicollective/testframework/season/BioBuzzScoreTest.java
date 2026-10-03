@@ -50,7 +50,7 @@ class BioBuzzScoreTest {
     private static GameElement pollenIn(String cellName, BioBuzzField.HiveTip red,
                                         BioBuzzField.HiveTip blue) {
         Vec3 at = BioBuzzHive.cell(cellName, red, blue).position();
-        return GameElement.pollenAt(at.x(), at.y(), at.z());
+        return BioBuzzElements.pollenAt(at.x(), at.y(), at.z());
     }
 
     @Test
@@ -124,7 +124,7 @@ class BioBuzzScoreTest {
         Vec3 at = BioBuzzHive.cell(BioBuzzField.RED_AUDIENCE, UP, DOWN).position();
 
         BioBuzzScore score = scoreOf(official(), Collections.singletonList(
-                GameElement.blueNectarAt(at.x(), at.y(), at.z())));
+                BioBuzzElements.blueNectarAt(at.x(), at.y(), at.z())));
 
         assertEquals(2, score.redPoints(), "a blue NECTAR in red's CELL is red's two points");
         assertEquals(0, score.bluePoints());
@@ -158,10 +158,10 @@ class BioBuzzScoreTest {
         Vec3 justInside = cell.position().plus(cell.forward().scaled(halfDepth - 0.001));
 
         assertEquals(0, scoreOf(official(), Collections.singletonList(
-                GameElement.pollenAt(justOutside.x(), justOutside.y(), justOutside.z())))
+                BioBuzzElements.pollenAt(justOutside.x(), justOutside.y(), justOutside.z())))
                 .redPoints(), "a millimetre past the mouth is not in the CELL");
         assertEquals(2, scoreOf(official(), Collections.singletonList(
-                GameElement.pollenAt(justInside.x(), justInside.y(), justInside.z())))
+                BioBuzzElements.pollenAt(justInside.x(), justInside.y(), justInside.z())))
                 .redPoints(), "a millimetre inside it is");
     }
 
@@ -171,7 +171,7 @@ class BioBuzzScoreTest {
         // are not a CELL. A volume centred on the pivot instead of on the interior, or extents
         // taken as half rather than full, would both show up as points for a ball on the floor.
         BioBuzzScore score = scoreOf(official(),
-                Collections.singletonList(GameElement.pollen(0.0, 0.0)));
+                Collections.singletonList(BioBuzzElements.pollen(0.0, 0.0)));
 
         assertEquals(0, score.redPoints());
         assertEquals(0, score.bluePoints());

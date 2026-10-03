@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.behavior.ImuBehaviors;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Structure;
+import org.ngicollective.testframework.camera.TestBalls;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
@@ -139,7 +140,7 @@ class IntakeTest {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
         // Just touching the mouth, which spans 0.19 m to 0.27 m ahead of centre.
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.26, 0.0));
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.26, 0.0));
         double startedAt = world.bodies().get(0).x();
 
         hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
@@ -163,7 +164,7 @@ class IntakeTest {
     void aBallSweptUpWhileDrivingTravelsWithTheRobot() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.8, 0.0));
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.8, 0.0));
 
         // Driving at a ball with the intake running is the ordinary way a driver picks one up, and
         // it is a different problem from picking up a ball while parked: the roller's surface has to
@@ -201,7 +202,7 @@ class IntakeTest {
     void aBallHeldInARunningIntakeStopsBeingReportedAsMoving() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.30, 0.0));
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.30, 0.0));
 
         hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
         run(hardware, 2.0);
@@ -232,8 +233,8 @@ class IntakeTest {
     void aBallHeldAgainstTheChassisIsNotCrushedIntoTheFloorOrTheRobot() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.30, 0.0));
+        double radius = TestBalls.POLLEN_DIAMETER_METRES / 2.0;
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.30, 0.0));
 
         hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
         run(hardware, 5.0);
@@ -251,7 +252,7 @@ class IntakeTest {
     void aReversedIntakeSpitsTheBallBackOut() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.26, 0.0));
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.26, 0.0));
 
         hardware.get(com.qualcomm.robotcore.hardware.CRServo.class, "intake").setPower(1.0);
         run(hardware, 1.0);
@@ -270,7 +271,7 @@ class IntakeTest {
     void theTouchSensorReportsABallTheIntakeIsHolding() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        worldWith(hardware, GameElement.pollen(0.23, 0.0));
+        worldWith(hardware, TestBalls.pollen(0.23, 0.0));
 
         run(hardware, 0.1);
 
@@ -283,7 +284,7 @@ class IntakeTest {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
         // A metre away: in front of the robot, nowhere near the intake.
-        worldWith(hardware, GameElement.pollen(1.2, 0.0));
+        worldWith(hardware, TestBalls.pollen(1.2, 0.0));
 
         run(hardware, 0.1);
 
@@ -295,7 +296,7 @@ class IntakeTest {
     void theColorSensorTellsPollenFromNectar() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        worldWith(hardware, GameElement.blueNectar(0.23, 0.0));
+        worldWith(hardware, TestBalls.blueNectar(0.23, 0.0));
 
         run(hardware, 0.1);
 
@@ -328,8 +329,8 @@ class IntakeTest {
     void theDistanceSensorMeasuresTheBallInFrontOfIt() {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
-        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
-        worldWith(hardware, GameElement.pollen(0.9, 0.0));
+        double radius = TestBalls.POLLEN_DIAMETER_METRES / 2.0;
+        worldWith(hardware, TestBalls.pollen(0.9, 0.0));
 
         run(hardware, 0.1);
 
@@ -428,7 +429,7 @@ class IntakeTest {
     @Test
     void aVolumeIsMeasuredFromTheRobotRatherThanTheField() {
         FakeHardwareMap hardware = hardware();
-        FieldPhysics world = worldWith(hardware, GameElement.pollen(0.0, 1.0));
+        FieldPhysics world = worldWith(hardware, TestBalls.pollen(0.0, 1.0));
 
         // The ball is a metre along field +Y. Turned to face it, the robot's intake is over it;
         // facing +X, the same ball is off to one side. A volume that had been left in field

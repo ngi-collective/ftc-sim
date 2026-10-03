@@ -305,16 +305,21 @@ class WireFormatTest {
     /**
      * The score frame, written out by hand because it is small enough to read.
      *
-     * <p>Two CELLs and not four: only an upward-facing CELL can score, so a downward-facing one is
+     * <p>Two volumes and not four: only an upward-facing CELL can score, so a downward-facing one is
      * absent rather than present with a zero, and that is a shape the browser is built around. The
      * numbers are the capture's, which is the manual's own match setup &mdash; three NECTAR staged
-     * in each upward-facing CELL, six points each before anyone has driven.</p>
+     * in each upward-facing CELL, six points each before anyone has driven &mdash; and each
+     * alliance's TIP tally is there at zero.</p>
      */
     @Test
     void simScoreFrameMatchesTheCapturedFixture() {
-        ScorePayload score = new ScorePayload(6, 6, Arrays.asList(
-                new ScorePayload.Cell("RED AUDIENCE", Alliance.RED, 3, 6),
-                new ScorePayload.Cell("BLUE SCORING", Alliance.BLUE, 3, 6)), 0, 0);
+        ScorePayload score = new ScorePayload(6, 6,
+                Arrays.asList(
+                        new ScorePayload.Volume("RED AUDIENCE", Alliance.RED, 3, 6),
+                        new ScorePayload.Volume("BLUE SCORING", Alliance.BLUE, 3, 6)),
+                Arrays.asList(
+                        new ScorePayload.Tally("TIP", Alliance.RED, 0, 0),
+                        new ScorePayload.Tally("TIP", Alliance.BLUE, 0, 0)));
 
         assertMatchesFixture("sim-score", protocol().envelope("sim", "score", score));
     }

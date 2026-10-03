@@ -107,8 +107,8 @@ class BioBuzzFlowersTest {
 
         double window = (middleBottom - lowerTop) / INCH;
         assertEquals(3.55, window, 0.25, "the Retrieval Opening's height, in inches");
-        assertTrue(window * INCH > GameElement.POLLEN_DIAMETER_METRES,
-                "a POLLEN is " + GameElement.POLLEN_DIAMETER_METRES / INCH
+        assertTrue(window * INCH > BioBuzzElements.POLLEN_DIAMETER_METRES,
+                "a POLLEN is " + BioBuzzElements.POLLEN_DIAMETER_METRES / INCH
                         + " in and the window it comes out of is " + window);
     }
 
@@ -129,9 +129,9 @@ class BioBuzzFlowersTest {
         // Four uprights on a 2 in radius leave a 2.33 in gap, and the smallest ball is 2.8 in.
         // Thinner pipes or a wider ring and the staged POLLEN roll onto the tiles at the start of
         // every session, which reads as a physics bug rather than a geometry one.
-        assertTrue(BioBuzzFlowers.SIDE_GAP_METRES < GameElement.POLLEN_DIAMETER_METRES,
+        assertTrue(BioBuzzFlowers.SIDE_GAP_METRES < BioBuzzElements.POLLEN_DIAMETER_METRES,
                 "the gap between uprights is " + BioBuzzFlowers.SIDE_GAP_METRES
-                        + " m and a POLLEN is " + GameElement.POLLEN_DIAMETER_METRES + " m");
+                        + " m and a POLLEN is " + BioBuzzElements.POLLEN_DIAMETER_METRES + " m");
     }
 
     @Test

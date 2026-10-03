@@ -635,36 +635,56 @@ export interface SimBodies {
 }
 
 /**
- * One upward-facing CELL of the HIVE, and what it is currently worth. Java
- * {@code ScorePayload.Cell}.
+ * One scoring volume in play, and what it is currently worth. Java {@code ScorePayload.Volume}.
  *
- * <p>{@link cell} is the CELL's name as the field spells it — {@code RED SCORING},
- * {@code RED AUDIENCE}, {@code BLUE AUDIENCE}, {@code BLUE SCORING}. It is a label to show a
- * driver, not a key: which alliance the CELL scores for is {@link alliance}, and reading it back
- * out of the name would be a second, weaker copy of a fact the server already sent.</p>
+ * <p>{@link name} is the volume's name as the season spells it — {@code RED AUDIENCE} for a
+ * BioBuzz CELL. It is a label to show a driver, not a key: which alliance the volume scores for is
+ * {@link alliance}, and reading it back out of the name would be a second, weaker copy of a fact
+ * the server already sent.</p>
  *
- * <p>{@link holding} counts the game elements in the CELL, POLLEN and NECTAR alike, and
- * {@link points} is twice it — the manual's two points per element. Both are sent rather than one
- * derived here, so a rule change moves in the Java that owns it instead of in a browser that
- * guessed the multiplier.</p>
+ * <p>{@link holding} counts the game elements in it and {@link points} is what they are worth.
+ * Both are sent rather than one derived here, so a rule change moves in the Java season that owns
+ * it instead of in a browser that guessed the multiplier.</p>
  */
-export interface SimScoreCell {
-  cell: string;
+export interface SimScoreVolume {
+  name: string;
   alliance: Alliance;
   holding: number;
   points: number;
 }
 
 /**
- * What the HIVE is holding right now, and what it would score. Java {@code ScorePayload}.
+ * Something the season counts that is not an element in a place, for one alliance. Java
+ * {@code ScorePayload.Tally}: a BioBuzz HIVE TIP is {@code {name: 'TIP', count, points}}.
  *
- * <p>{@link cells} lists only the upward-facing CELLs — normally one per alliance. Game manual
- * §10.5.1 scores "any POLLEN and/or NECTAR left in an upward-facing CELL", so a CELL turned the
- * other way cannot score and is absent from the list entirely rather than present as a zero: a
- * zero would read as an empty CELL still waiting to be filled.</p>
+ * <p>{@link name} is singular, in the manual's word; the readout pluralises it. {@link points} is
+ * the whole tally's worth, already inside the alliance's total.</p>
+ */
+export interface SimScoreTally {
+  name: string;
+  alliance: Alliance;
+  count: number;
+  points: number;
+}
+
+/**
+ * What the field would score if the match ended now, as the robot's season counts it. Java
+ * {@code ScorePayload}.
+ *
+ * <p>Season-neutral: the browser shows names it is sent and never learns what a CELL or a TIP is,
+ * so a new game needs no change here.</p>
+ *
+ * <p>{@link volumes} lists only the volumes that can score now. BioBuzz scores "any POLLEN and/or
+ * NECTAR left in an upward-facing CELL" (§10.5.1), so a CELL turned the other way is absent rather
+ * than present as a zero: a zero would read as an empty CELL still waiting to be filled.</p>
+ *
+ * <p>{@link tallies} carries each alliance's counts even at zero, so "none yet" and "not counted"
+ * differ. They are sent beside the totals because a total alone is ambiguous at the moment a
+ * driver cares about: a BioBuzz TIP empties the CELL that earned it, so six POLLEN worth 12
+ * becoming one TIP is a total that went up by 8 and a CELL that went to zero.</p>
  *
  * <p>Unlike {@code sim/bodies} this one is in the connect greeting. Nothing else on the wire lets
- * the browser work a score out for itself — the body stream says where balls are, not which CELL
+ * the browser work a score out for itself — the body stream says where balls are, not which volume
  * they are resting in — so a browser that only learned the score on the next change would show
  * nothing through a whole match that scored early. It arrives again on OpMode init, on a scenario
  * load, and on the control cycles where the numbers actually moved, which is nothing like the
@@ -673,32 +693,22 @@ export interface SimScoreCell {
 export interface SimScore {
   redPoints: number;
   bluePoints: number;
-  cells: SimScoreCell[];
-  /**
-   * Completed HIVE TIPs, cumulative over the match, worth 20 each inside the totals above.
-   *
-   * <p>Sent beside the totals because a total alone is ambiguous at the moment a driver cares
-   * about: a TIP empties the CELL that earned it, so six POLLEN worth 12 becoming one TIP is a
-   * total that went up by 8 and a CELL that went to zero. Optional because a server from before
-   * the HIVE could tip sends neither, and a readout showing a dash is better than one showing
-   * zero TIPs it was never told about.</p>
-   */
-  redTips?: number;
-  blueTips?: number;
+  volumes: SimScoreVolume[];
+  tallies: SimScoreTally[];
 }
 
 /**
  * The score out of a {@code sim/score} payload, or null when the frame does not carry one.
  *
  * <p>Checked rather than asserted, unlike the sim frames beside it. The strip maps over
- * {@link SimScore.cells} to build its tooltip, and it is drawn in every view, so a frame from a
- * server that renamed or dropped the key would land as {@code undefined.map} and take the whole
- * page down — the same failure a {@code device/state} without its devices used to cause, and the
- * reason {@link parseDeviceStates} exists. The totals are checked for finiteness for
+ * {@link SimScore.volumes} and {@link SimScore.tallies}, and it is drawn in every view, so a frame
+ * from a server that renamed or dropped a key would land as {@code undefined.map} and take the
+ * whole page down — the same failure a {@code device/state} without its devices used to cause, and
+ * the reason {@link parseDeviceStates} exists. The totals are checked for finiteness for
  * {@link parseCameraMount}'s reason: a {@code NaN} that reaches the readout stays on screen
  * reading "NaN" until the next change, where keeping the last honest score costs nothing.</p>
  *
- * <p>Only the wrapper is checked, not each CELL, as with {@link parseOpModeList}: the rows are
+ * <p>Only the wrapper is checked, not each row, as with {@link parseOpModeList}: the rows are
  * composed by the same tick that builds the Java record, and a bad one shows as a blank tooltip
  * line rather than a dead page.</p>
  */
@@ -708,18 +718,16 @@ export function parseSimScore(payload: unknown): SimScore | null {
     !message ||
     !Number.isFinite(message.redPoints) ||
     !Number.isFinite(message.bluePoints) ||
-    !Array.isArray(message.cells)
+    !Array.isArray(message.volumes) ||
+    !Array.isArray(message.tallies)
   ) {
     return null;
   }
   return {
     redPoints: message.redPoints as number,
     bluePoints: message.bluePoints as number,
-    cells: message.cells as SimScoreCell[],
-    // Passed through only when they are numbers, so an older server's absent pair stays absent
-    // rather than becoming a zero the readout cannot tell from "no tips yet".
-    ...(Number.isFinite(message.redTips) ? { redTips: message.redTips as number } : {}),
-    ...(Number.isFinite(message.blueTips) ? { blueTips: message.blueTips as number } : {}),
+    volumes: message.volumes as SimScoreVolume[],
+    tallies: message.tallies as SimScoreTally[],
   };
 }
 

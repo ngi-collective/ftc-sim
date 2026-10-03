@@ -1,0 +1,41 @@
+//
+// build.gradle in Season-BioBuzz
+//
+// The 2026-2027 game, BIOBUZZ, as a Season the simulator plays: the field's structures and tags,
+// how a scenario file stages it, and how it scores. Depends on TestFramework and never the other
+// way round, so a new season is a new module beside this one rather than an edit to the core.
+// Android library for the same reason as TestFramework: the SDK ships as AARs.
+//
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'org.ngicollective.testframework.season'
+
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        //noinspection ExpiredTargetSdkVersion
+        targetSdkVersion 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+        }
+    }
+}
+
+apply from: '../build.dependencies.gradle'
+
+dependencies {
+    api project(':TestFramework')
+
+    testImplementation project(':AndroidShims')
+}

@@ -117,7 +117,7 @@ public final class SimulatedScene {
      * scene a camera cannot see, and they ride along on it anyway because the scene is what every
      * consumer already receives: the Dashboard needs to know which CELL is the raised one to put a
      * score on screen, and the tip state that decides it lives in a scenario file that nothing
-     * downstream of {@code ScenarioConfig.scene()} ever sees.</p>
+     * downstream of {@code SimConfigFiles.scenario()} ever sees.</p>
      */
     public List<ScoringVolume> scoringVolumes() {
         return volumes;
@@ -128,7 +128,7 @@ public final class SimulatedScene {
      *
      * <p>Separate from the constructors because a structure is the field's, not a scenario's: the
      * competition FLOWERs are bolted to the wall and nobody chooses where they go, while a
-     * scenario chooses every ball. {@link org.ngicollective.testframework.season.BioBuzzField} is
+     * scenario chooses every ball. {@code BioBuzzField} is
      * what puts them here, once, and everything derived from that scene carries them along.</p>
      */
     public SimulatedScene withStructures(List<Structure> added) {

@@ -4,21 +4,33 @@
   "payload": {
     "redPoints": 6,
     "bluePoints": 6,
-    "cells": [
+    "volumes": [
       {
-        "cell": "RED AUDIENCE",
+        "name": "RED AUDIENCE",
         "alliance": "red",
         "holding": 3,
         "points": 6
       },
       {
-        "cell": "BLUE SCORING",
+        "name": "BLUE SCORING",
         "alliance": "blue",
         "holding": 3,
         "points": 6
       }
     ],
-    "redTips": 0,
-    "blueTips": 0
+    "tallies": [
+      {
+        "name": "TIP",
+        "alliance": "red",
+        "count": 0,
+        "points": 0
+      },
+      {
+        "name": "TIP",
+        "alliance": "blue",
+        "count": 0,
+        "points": 0
+      }
+    ]
   }
 }

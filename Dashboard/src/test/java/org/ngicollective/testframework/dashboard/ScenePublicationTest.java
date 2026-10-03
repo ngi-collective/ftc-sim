@@ -22,6 +22,7 @@ import org.ngicollective.testframework.dashboard.protocol.OpModeStatus;
 import org.ngicollective.testframework.dashboard.protocol.ScenePayload;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.ngicollective.testframework.season.BioBuzzElements;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -337,7 +338,7 @@ class ScenePublicationTest {
     /** Two balls where {@code practice-balls.json} puts them, on the same plate of tags. */
     private static SimulatedScene arrangement() {
         return new SimulatedScene(scene().clusters(),
-                Arrays.asList(GameElement.pollen(-0.4, -0.9), GameElement.redNectar(-0.6, -1.15)));
+                Arrays.asList(BioBuzzElements.pollen(-0.4, -0.9), BioBuzzElements.redNectar(-0.6, -1.15)));
     }
 
     /**

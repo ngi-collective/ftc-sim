@@ -30,10 +30,12 @@ purpose, so a bolted-down structure carries the key with a null rather than drop
 `sim-score.json` comes from a third session, `--scenario match-staging`, which is the manual's own
 match setup: three NECTAR in each upward-facing CELL and nothing else on the field. So the capture
 is 6-6 before anyone has driven, which is a figure the game manual can be checked against rather
-than one this repository chose. It holds two CELLs and not four because only an upward-facing CELL
-can score, and it is in the connect greeting &mdash; unlike `sim-bodies.json` &mdash; because
-nothing else on the wire lets the browser work a score out for itself. `redTips` and `blueTips`
-are zero for the same reason the pivots are at their stops: nobody has shot at anything.
+than one this repository chose. It holds two volumes and not four because only an upward-facing
+CELL can score, and it is in the connect greeting &mdash; unlike `sim-bodies.json` &mdash; because
+nothing else on the wire lets the browser work a score out for itself. The two `TIP` tallies are
+zero for the same reason the pivots are at their stops: nobody has shot at anything. The shape is
+season-neutral (`volumes` and `tallies`, named by the season). This file was rewritten in that shape
+and checked identical to a live `match-staging` greeting on 2026-10-03.
 
 These files are the **only** shared vocabulary between
 `Dashboard/src/main/java/org/ngicollective/testframework/dashboard/protocol/` and

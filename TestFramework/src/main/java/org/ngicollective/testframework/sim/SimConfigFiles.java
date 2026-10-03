@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.sim;
 
+import org.ngicollective.testframework.camera.SimulatedScene;
+
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
@@ -61,22 +63,31 @@ public final class SimConfigFiles {
     }
 
     /**
-     * The scenario described by {@code scenarios/<name>.json}, or by the packaged resource.
+     * The field described by {@code scenarios/<name>.json}, or by the packaged resource, staged by
+     * {@code season}.
      *
-     * <p>No default, deliberately. A caller that wants the competition field asks
-     * {@code BioBuzzField.official()} for it and gets the published geometry; a caller that named
-     * a scenario meant that scenario, and quietly substituting the official field for a
-     * misspelled name would make a test pass against the wrong arrangement.</p>
+     * <p>No default, deliberately. A caller that wants the competition field asks its season for
+     * it and gets the published geometry; a caller that named a scenario meant that scenario, and
+     * quietly substituting the official field for a misspelled name would make a test pass against
+     * the wrong arrangement.</p>
      */
-    public static ScenarioConfig scenario(String name) {
+    public static SimulatedScene scenario(String name, Season season) {
+        return season.scenario(scenarioFile(name));
+    }
+
+    /**
+     * The scenario file itself, parsed but with its version not yet checked: a scenario's schema,
+     * version included, belongs to the season that reads it.
+     */
+    public static ConfigJson scenarioFile(String name) {
         String fileName = name + EXTENSION;
         Path file = scenarioDirectory().resolve(fileName);
         if (Files.isRegularFile(file)) {
-            return ScenarioConfig.load(file);
+            return ConfigJson.read(file);
         }
         URL resource = resource(SCENARIO_DIRECTORY, fileName);
         if (resource != null) {
-            return ScenarioConfig.load(resource);
+            return ConfigJson.read(resource);
         }
         throw new IllegalArgumentException("no scenario \"" + name + "\": there is no file at "
                 + file + " and no classpath resource \"" + SCENARIO_DIRECTORY + "/" + fileName
@@ -84,7 +95,7 @@ public final class SimConfigFiles {
     }
 
     /**
-     * Every scenario on disk, by the name {@link #scenario(String)} takes, sorted.
+     * Every scenario on disk, by the name {@link #scenario(String, Season)} takes, sorted.
      *
      * <p>Files only, unlike every other read here, and the asymmetry is deliberate: a classpath
      * cannot be enumerated portably &mdash; a jar can be walked, a directory can be listed, an

@@ -101,11 +101,13 @@ dependencies {
 
     // The simulated build needs the fake hardware inside the app itself.
     simulatedImplementation project(':TestFramework')
+    simulatedImplementation project(':Season-BioBuzz')
 
     // Unit tests additionally need the JVM stand-ins for android.* stubs and the dashboard server.
     // All test scope: nothing here reaches the competition APK.
     testImplementation project(':AndroidShims')
     testImplementation project(':TestFramework')
+    testImplementation project(':Season-BioBuzz')
     testImplementation project(':Dashboard')
 
     // The instrumented acceptance test drives an unmodified OpMode against the simulated robot,

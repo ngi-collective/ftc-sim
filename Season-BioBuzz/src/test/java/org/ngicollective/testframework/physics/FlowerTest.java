@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.camera.Vec3;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzFlowers;
 import org.ngicollective.testframework.sim.FieldConfig;
 
@@ -60,7 +61,7 @@ class FlowerTest {
 
         run(world, 4.0);
 
-        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
+        double radius = BioBuzzElements.POLLEN_DIAMETER_METRES / 2.0;
         double highest = 0.0;
         double lowest = Double.MAX_VALUE;
         for (BodyState ball : world.bodies()) {
@@ -73,7 +74,7 @@ class FlowerTest {
 
         // Four balls of one diameter each cannot all be resting on the floor: a stack that
         // collapsed would mean they had passed through one another.
-        assertTrue(highest - lowest > 2.0 * GameElement.POLLEN_DIAMETER_METRES,
+        assertTrue(highest - lowest > 2.0 * BioBuzzElements.POLLEN_DIAMETER_METRES,
                 "four stacked POLLEN should span most of the cage; they span "
                         + (highest - lowest) + " m");
     }
@@ -81,7 +82,7 @@ class FlowerTest {
     @Test
     void aPollenDroppedDownTheMouthEndsUpInside() {
         FieldPhysics world = worldWith(
-                GameElement.pollenAt(MOUTH.x(), MOUTH.y(), MOUTH.z() + 0.10));
+                BioBuzzElements.pollenAt(MOUTH.x(), MOUTH.y(), MOUTH.z() + 0.10));
 
         run(world, 3.0);
 
@@ -106,13 +107,13 @@ class FlowerTest {
         // is outside the opening, which is a miss by the only definition that matters.
         double missedBy = 0.075;
         FieldPhysics world = worldWith(
-                GameElement.pollenAt(MOUTH.x() + missedBy, MOUTH.y(), MOUTH.z() + 0.10));
+                BioBuzzElements.pollenAt(MOUTH.x() + missedBy, MOUTH.y(), MOUTH.z() + 0.10));
         run(world, 3.0);
         BodyState struck = world.bodies().get(0);
 
         FieldPhysics bare = FieldPhysics.of(
                 Collections.singletonList(
-                        GameElement.pollenAt(MOUTH.x() + missedBy, MOUTH.y(), MOUTH.z() + 0.10)),
+                        BioBuzzElements.pollenAt(MOUTH.x() + missedBy, MOUTH.y(), MOUTH.z() + 0.10)),
                 Collections.<Structure>emptyList(), FieldConfig.standard(), null);
         run(bare, 3.0);
         BodyState fell = bare.bodies().get(0);
@@ -123,7 +124,7 @@ class FlowerTest {
         assertTrue(offAxis(struck) > offAxis(fell) * 1.5,
                 "the rim should have thrown the ball clear: it reached " + offAxis(struck)
                         + " m off the axis, against " + offAxis(fell) + " m with no FLOWER there");
-        assertEquals(GameElement.POLLEN_DIAMETER_METRES / 2.0, struck.z(), 3e-3,
+        assertEquals(BioBuzzElements.POLLEN_DIAMETER_METRES / 2.0, struck.z(), 3e-3,
                 "a missed shot should end up on the tiles, not perched on the rim");
     }
 }

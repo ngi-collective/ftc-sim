@@ -8,6 +8,7 @@ import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.camera.Vec3;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzField;
 import org.ngicollective.testframework.season.BioBuzzHive;
 import org.ngicollective.testframework.season.BioBuzzScore;
@@ -59,10 +60,10 @@ class HiveTipTest {
         for (int ball = 0; ball < count; ball++) {
             int step = (ball + 1) / 2 * (ball % 2 == 0 ? -1 : 1);
             Vec3 at = cell.position()
-                    .plus(cell.left().scaled(step * GameElement.NECTAR_DIAMETER_METRES));
+                    .plus(cell.left().scaled(step * BioBuzzElements.NECTAR_DIAMETER_METRES));
             balls.add(pollen
-                    ? GameElement.pollenAt(at.x(), at.y(), at.z())
-                    : GameElement.redNectarAt(at.x(), at.y(), at.z()));
+                    ? BioBuzzElements.pollenAt(at.x(), at.y(), at.z())
+                    : BioBuzzElements.redNectarAt(at.x(), at.y(), at.z()));
         }
         return balls;
     }
@@ -76,8 +77,8 @@ class HiveTipTest {
             Vec3 at = mouth.plus(cell.left().scaled(((ball % 3) - 1) * 0.12))
                     .plus(new Vec3(0.0, 0.0, 0.10 + 0.09 * (ball / 3)));
             balls.add(pollen
-                    ? GameElement.pollenAt(at.x(), at.y(), at.z())
-                    : GameElement.redNectarAt(at.x(), at.y(), at.z()));
+                    ? BioBuzzElements.pollenAt(at.x(), at.y(), at.z())
+                    : BioBuzzElements.redNectarAt(at.x(), at.y(), at.z()));
         }
         return balls;
     }
@@ -176,7 +177,7 @@ class HiveTipTest {
         // Straight in through the mouth at 6 m/s, which is about what a legal launcher can throw
         // from the nearest a ROBOT can stand.
         List<GameElement> one = new ArrayList<>();
-        one.add(GameElement.redNectarAt(mouth.x(), mouth.y() - 0.3, mouth.z() - 0.1));
+        one.add(BioBuzzElements.redNectarAt(mouth.x(), mouth.y() - 0.3, mouth.z() - 0.1));
         FieldPhysics world = worldWith(one);
 
         run(world, 2.0);

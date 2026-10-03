@@ -19,7 +19,7 @@ Two remotes, and the distinction matters:
 
 ```bash
 mise run check       # compile TeamCode - fastest correctness check while editing OpModes
-mise run test        # unit tests: TeamCode + TestFramework + Dashboard, vision included
+mise run test        # unit tests: TeamCode + TestFramework + Season-BioBuzz + Dashboard, vision included
 mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
 mise run simulator   # install + launch the simulated app on a running emulator
@@ -177,6 +177,14 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   ten POLLEN would make tipping pointless. Measure it on a real field by putting POLLEN into a
   raised CELL one at a time and counting; `HiveTipTest` states what the current figure implies
   rather than enshrining it.
+- **The season is a module, and the core never names it.** Everything BioBuzz-specific lives in
+  `:Season-BioBuzz` (`org.ngicollective.testframework.season`), which depends on `:TestFramework`;
+  nothing in `TestFramework` or `Dashboard` main may import it, and the Gradle dependency direction
+  is what enforces that. The seam is `sim.Season`: it reads a scenario file into a scene and scores
+  a field as a `FieldScore` of volumes and tallies. A robot names its game with
+  `SimulatedRobot.season()`, which defaults to `Season.none()` (refuses scenarios, has no score);
+  `VerityRobot` returns `BioBuzz.SEASON`. POLLEN and NECTAR come from `BioBuzzElements`; the core's
+  own physics tests use same-sized `TestBalls`. See `docs/adr/0008-the-season-is-a-module.md`.
 - **Scoring is a containment test against a posed box**, not a flag on a structure. A
   `ScoringVolume` is the manual's own term (§10.5.2) for a region where an element counts, it is
   invisible, and it rides on `SimulatedScene` beside the structures, swinging with the HIVE it is
@@ -191,7 +199,8 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   rose by 8 while a CELL went to zero would be unreadable. A downward-facing CELL is absent from
   the list rather than present with a zero, which is also how `sim/score` reaches the browser —
   and unlike `sim/bodies` it is in the connect greeting, because nothing else on that socket lets
-  the browser derive a score.
+  the browser derive a score. On the wire the TIPs are a `tally` and the CELLs are `volumes`, both
+  named by the season, so the page never learns what a CELL or a TIP is.
 - A CELL counts **any** POLLEN or NECTAR, of either colour: points follow the basket, not the ball
   (manual §10.5.1, and the same rule as GARDEN and FLOWER). Containment is of the ball's
   **centre**, not "at least partially", which is the CELL rule and not the FLOWER one.

@@ -7,6 +7,7 @@ import {
   type OpModeState,
   type SimScenarios,
   type SimScore,
+  type SimScoreTally,
   type TelemetryFrame,
 } from './protocol';
 import { CameraView } from './camera/CameraView';
@@ -296,58 +297,73 @@ export function OpModeControls({
 }
 
 /**
- * The live CELL score, in the strip every view already shows.
+ * The live score, in the strip every view already shows.
  *
  * <p>Null renders nothing at all, which is the point of taking a nullable prop rather than being
- * guarded at the call site: a session whose robot has no scene-backed HIVE never receives a
- * {@code sim/score}, and a disconnect throws the last one away, so "RED 0 – BLUE 0" there would be
- * a claim that the CELLs are empty rather than an admission that nobody has said. An empty strip
- * is the difference between a zero and a silence, and only one of those is knowledge.</p>
+ * guarded at the call site: a session whose robot plays no season, or whose field has nowhere to
+ * score, never receives a {@code sim/score}, and a disconnect throws the last one away, so
+ * "RED 0 – BLUE 0" there would be a claim that the volumes are empty rather than an admission
+ * that nobody has said. An empty strip is the difference between a zero and a silence, and only
+ * one of those is knowledge.</p>
  *
- * <p>The per-CELL breakdown goes in the tooltip rather than the bar. Mid-match the driver wants
+ * <p>The per-volume breakdown goes in the tooltip rather than the bar. Mid-match the driver wants
  * two numbers at a glance; "which CELL is that 6 sitting in" is a question asked between matches,
  * and a {@code title} answers it for no pixels. A panel for it was the alternative and would cost
  * the 3D view height in every session, scoring or not.</p>
  *
- * <p>TIPs are the exception, and they earn their pixels: the totals include 20 for each one, and a
- * tip empties the CELL that earned it, so the moment a driver most wants to read this strip is the
- * moment the totals alone are least legible — 12 points of POLLEN becoming a 20-point TIP is a
- * total that rose by 8 and a CELL that went to zero. They appear only once one has happened, since
- * a permanent "0 TIPS" is noise on the field's most common state.</p>
+ * <p>Tallies are the exception, and they earn their pixels: the totals include them, and a
+ * BioBuzz TIP empties the CELL that earned it, so the moment a driver most wants to read this strip
+ * is the moment the totals alone are least legible — 12 points of POLLEN becoming a 20-point TIP is
+ * a total that rose by 8 and a CELL that went to zero. Each appears beside its alliance's total
+ * only once it is above zero, since a permanent "0 TIPS" is noise on the field's most common
+ * state.</p>
+ *
+ * <p>Every word here comes off the wire. The season names its volumes and tallies, so this strip
+ * reads the same for a game it has never heard of.</p>
  */
 export function SimScoreReadout({ score }: { score: SimScore | null }) {
   if (!score) return null;
-  // Only upward-facing CELLs are on the wire, so this names exactly the CELLs that can score right
-  // now; a HIVE turned the other way simply drops out of the list rather than appearing as a zero.
-  const breakdown = score.cells
-    .map((cell) => `${cell.cell}: ${cell.holding} holding, ${cell.points} points`)
-    .join('\n');
-  const redTips = score.redTips ?? 0;
-  const blueTips = score.blueTips ?? 0;
-  const tips = redTips + blueTips > 0;
+  // Only volumes that can score are on the wire, so this names exactly those; a BioBuzz CELL turned
+  // the other way simply drops out of the list rather than appearing as a zero.
+  const breakdown = [
+    ...score.volumes.map(
+      (volume) => `${volume.name}: ${volume.holding} holding, ${volume.points} points`,
+    ),
+    ...score.tallies
+      .filter((tally) => tally.count > 0)
+      .map((tally) => `${tally.alliance.toUpperCase()} ${counted(tally)}: ${tally.points} points`),
+  ].join('\n');
+  const beside = (alliance: Alliance) =>
+    score.tallies
+      .filter((tally) => tally.alliance === alliance && tally.count > 0)
+      .map((tally) => ` (${counted(tally)})`)
+      .join('');
   return (
     <span
       style={scoreReadout}
       title={
-        'What the HIVE is holding right now: 2 points for every POLLEN or NECTAR left in an ' +
-        'upward-facing CELL at the end of the match, plus 20 for every HIVE TIP. Live — this is ' +
-        'what would score if the match ended now.' +
-        (tips ? `\n\nTIPS: red ${redTips}, blue ${blueTips}` : '') +
+        'What would score if the match ended now. Live — a ball knocked out takes its points ' +
+        'with it.' +
         (breakdown ? `\n\n${breakdown}` : '')
       }
     >
-      <span style={controlLabel}>CELLS</span>
+      <span style={controlLabel}>SCORE</span>
       <span style={redPoints}>
         RED {score.redPoints}
-        {redTips > 0 ? ` (${redTips} TIP${redTips > 1 ? 'S' : ''})` : ''}
+        {beside('red')}
       </span>
       <span style={controlLabel}>–</span>
       <span style={bluePoints}>
         BLUE {score.bluePoints}
-        {blueTips > 0 ? ` (${blueTips} TIP${blueTips > 1 ? 'S' : ''})` : ''}
+        {beside('blue')}
       </span>
     </span>
   );
+}
+
+/** "1 TIP", "2 TIPS": a tally's count and its name, which the server sends singular. */
+function counted(tally: SimScoreTally): string {
+  return `${tally.count} ${tally.name}${tally.count === 1 ? '' : 'S'}`;
 }
 
 /**

@@ -13,6 +13,7 @@ import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.Structure;
 import org.ngicollective.testframework.camera.Vec3;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzField;
 import org.ngicollective.testframework.season.BioBuzzHive;
 import org.ngicollective.testframework.season.BioBuzzScore;
@@ -199,7 +200,7 @@ class LauncherTest {
         FakeHardwareMap hardware = hardware(robot);
         hardware.drive().setPose(new Pose2d(0.0, -0.24, Math.PI / 2.0));
         FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(0.0, 0.0)),
+                Arrays.asList(BioBuzzElements.pollen(0.0, 0.0)),
                 Collections.<Structure>emptyList(), FieldConfig.standard(), robot);
         hardware.setPhysics(world);
 
@@ -210,7 +211,7 @@ class LauncherTest {
         // notice the one at the top of an arc that stops in mid-air.
         assertEquals(0.0, world.bodies().get(0).x(), 1e-3, "an idle launcher moved a ball sideways");
         assertEquals(0.0, world.bodies().get(0).y(), 1e-3, "an idle launcher moved a ball");
-        assertEquals(GameElement.POLLEN_DIAMETER_METRES / 2.0, world.bodies().get(0).z(), 1e-3,
+        assertEquals(BioBuzzElements.POLLEN_DIAMETER_METRES / 2.0, world.bodies().get(0).z(), 1e-3,
                 "an idle launcher lifted a ball off the floor");
     }
 
@@ -219,7 +220,7 @@ class LauncherTest {
         RobotConfig robot = robot(SLINGER_JSON);
         FakeHardwareMap hardware = hardware(robot);
         FieldPhysics world = spunUpOver(hardware, 1.0, 0.0, 0.0,
-                Arrays.asList(GameElement.pollen(0.0, 0.0)),
+                Arrays.asList(BioBuzzElements.pollen(0.0, 0.0)),
                 Collections.<Structure>emptyList(), robot);
 
         // Horizontal rather than total speed, because gravity is already working on the vertical
@@ -246,7 +247,7 @@ class LauncherTest {
         FakeHardwareMap hardware = hardware(robot);
         hardware.drive().setPose(new Pose2d(0.0, -0.24, Math.PI / 2.0));
         FieldPhysics world = FieldPhysics.of(
-                Arrays.asList(GameElement.pollen(0.0, 0.0)),
+                Arrays.asList(BioBuzzElements.pollen(0.0, 0.0)),
                 Collections.<Structure>emptyList(), FieldConfig.standard(), robot);
         hardware.setPhysics(world);
 
@@ -278,7 +279,7 @@ class LauncherTest {
         // A NECTAR, which is twice a POLLEN's mass, thrown flat: the most momentum this robot can
         // put into the floor's own plane, which is the only plane its chassis can move in.
         FieldPhysics world = spunUpOver(hardware, 1.0, 0.0, 0.0,
-                Arrays.asList(GameElement.redNectar(0.0, 0.0)),
+                Arrays.asList(BioBuzzElements.redNectar(0.0, 0.0)),
                 Collections.<Structure>emptyList(), robot);
 
         double stoodAt = hardware.drive().pose().y();
@@ -324,7 +325,7 @@ class LauncherTest {
         // shooting along +Y at the CELL whose mouth faces the audience.
         double shotFrom = -BioBuzzHive.HIVE_OFFSET_METRES;
         FieldPhysics world = spunUpOver(hardware, 0.35, shotFrom, -1.26,
-                Arrays.asList(GameElement.pollen(shotFrom, -1.26)),
+                Arrays.asList(BioBuzzElements.pollen(shotFrom, -1.26)),
                 BioBuzzHive.all(red, blue), robot);
 
         run(hardware, 3.0);
@@ -365,12 +366,12 @@ class LauncherTest {
         for (int staged = 0; staged < 3; staged++) {
             int step = (staged + 1) / 2 * (staged % 2 == 0 ? -1 : 1);
             Vec3 at = cell.position()
-                    .plus(cell.left().scaled(step * GameElement.NECTAR_DIAMETER_METRES));
-            balls.add(GameElement.redNectarAt(at.x(), at.y(), at.z()));
+                    .plus(cell.left().scaled(step * BioBuzzElements.NECTAR_DIAMETER_METRES));
+            balls.add(BioBuzzElements.redNectarAt(at.x(), at.y(), at.z()));
         }
         // And three POLLEN in the mouth, across its 0.20 m width.
         for (int loaded = -1; loaded <= 1; loaded++) {
-            balls.add(GameElement.pollen(shotFrom + loaded * 0.075, -1.26));
+            balls.add(BioBuzzElements.pollen(shotFrom + loaded * 0.075, -1.26));
         }
 
         FieldPhysics world = spunUpOver(hardware, 0.35, shotFrom, -1.26, balls,

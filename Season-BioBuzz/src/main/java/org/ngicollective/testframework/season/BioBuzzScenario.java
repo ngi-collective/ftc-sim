@@ -1,13 +1,13 @@
-package org.ngicollective.testframework.sim;
+package org.ngicollective.testframework.season;
 
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.SimulatedScene;
 import org.ngicollective.testframework.camera.Vec3;
-import org.ngicollective.testframework.season.BioBuzzField;
-import org.ngicollective.testframework.season.BioBuzzHive;
+import org.ngicollective.testframework.sim.ConfigJson;
+import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.SimConfigFiles;
 
-import java.net.URL;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,7 +28,7 @@ import java.util.Map;
  * field's geometry to do it. Everything else follows {@link ConfigJson}'s rule that a missing
  * value is an error rather than a zero.</p>
  */
-public final class ScenarioConfig {
+public final class BioBuzzScenario {
 
     /** The only schema this build understands; bumping it is how a breaking change announces itself. */
     private static final int VERSION = 1;
@@ -38,7 +38,7 @@ public final class ScenarioConfig {
     private final BioBuzzField.HiveTip blueHive;
     private final List<GameElement> elements;
 
-    private ScenarioConfig(String name, BioBuzzField.HiveTip redHive,
+    private BioBuzzScenario(String name, BioBuzzField.HiveTip redHive,
                            BioBuzzField.HiveTip blueHive, List<GameElement> elements) {
         this.name = name;
         this.redHive = redHive;
@@ -47,16 +47,18 @@ public final class ScenarioConfig {
     }
 
     /** Reads a scenario, failing with the file and field name if anything is wrong. */
-    public static ScenarioConfig load(Path file) {
-        return from(ConfigJson.read(file, VERSION));
+    public static BioBuzzScenario load(Path file) {
+        return from(ConfigJson.read(file));
     }
 
-    /** The same, from a classpath resource, for a build that runs from inside an APK. */
-    static ScenarioConfig load(URL resource) {
-        return from(ConfigJson.read(resource, VERSION));
+    /** The scenario named {@code name}, from {@code scenarios/} or the packaged resources. */
+    public static BioBuzzScenario named(String name) {
+        return from(SimConfigFiles.scenarioFile(name));
     }
 
-    private static ScenarioConfig from(ConfigJson json) {
+    /** The scenario a parsed file describes, once its version is one this build reads. */
+    public static BioBuzzScenario from(ConfigJson file) {
+        ConfigJson json = file.requireVersion(VERSION);
         BioBuzzField.HiveTip red = BioBuzzField.HiveTip.AUDIENCE_UP;
         BioBuzzField.HiveTip blue = BioBuzzField.HiveTip.AUDIENCE_DOWN;
         if (json.names().contains("hives")) {
@@ -76,7 +78,7 @@ public final class ScenarioConfig {
             }
         }
 
-        return new ScenarioConfig(json.string("name"), red, blue, elements);
+        return new BioBuzzScenario(json.string("name"), red, blue, elements);
     }
 
     private static BioBuzzField.HiveTip tip(ConfigJson hives, String alliance,
@@ -132,16 +134,16 @@ public final class ScenarioConfig {
                 : new Vec3(json.number("xMetres"), json.number("yMetres"), 0.0);
 
         if ("POLLEN".equalsIgnoreCase(kind)) {
-            return GameElement.pollenAt(at.x(), at.y(),
-                    inCell ? at.z() : GameElement.POLLEN_DIAMETER_METRES / 2.0);
+            return BioBuzzElements.pollenAt(at.x(), at.y(),
+                    inCell ? at.z() : BioBuzzElements.POLLEN_DIAMETER_METRES / 2.0);
         }
         if ("RED_NECTAR".equalsIgnoreCase(kind)) {
-            return GameElement.redNectarAt(at.x(), at.y(),
-                    inCell ? at.z() : GameElement.NECTAR_DIAMETER_METRES / 2.0);
+            return BioBuzzElements.redNectarAt(at.x(), at.y(),
+                    inCell ? at.z() : BioBuzzElements.NECTAR_DIAMETER_METRES / 2.0);
         }
         if ("BLUE_NECTAR".equalsIgnoreCase(kind)) {
-            return GameElement.blueNectarAt(at.x(), at.y(),
-                    inCell ? at.z() : GameElement.NECTAR_DIAMETER_METRES / 2.0);
+            return BioBuzzElements.blueNectarAt(at.x(), at.y(),
+                    inCell ? at.z() : BioBuzzElements.NECTAR_DIAMETER_METRES / 2.0);
         }
         throw new IllegalArgumentException(json.source() + ": element \"" + label + "\" is a \""
                 + kind + "\", which is not a BioBuzz scoring element; use POLLEN, RED_NECTAR or"
@@ -178,7 +180,7 @@ public final class ScenarioConfig {
         // be staged. Five fit across the manual's 20 in opening before this runs out of CELL.
         int step = (index + 1) / 2 * (index % 2 == 0 ? -1 : 1);
         return cell.position().plus(
-                cell.left().scaled(step * GameElement.NECTAR_DIAMETER_METRES));
+                cell.left().scaled(step * BioBuzzElements.NECTAR_DIAMETER_METRES));
     }
 
     /** The scenario's name, as a failure message or a dashboard would show it. */

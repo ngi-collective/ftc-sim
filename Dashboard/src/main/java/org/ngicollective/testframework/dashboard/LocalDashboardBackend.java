@@ -47,13 +47,13 @@ import org.ngicollective.testframework.harness.OpModeHarness;
 import org.ngicollective.testframework.physics.BodyState;
 import org.ngicollective.testframework.physics.FieldPhysics;
 import org.ngicollective.testframework.physics.PivotState;
-import org.ngicollective.testframework.season.BioBuzzScore;
 import org.ngicollective.testframework.sim.CameraMount;
 import org.ngicollective.testframework.sim.ChassisConfig;
 import org.ngicollective.testframework.sim.ChassisVelocity;
 import org.ngicollective.testframework.sim.DriveModel;
 import org.ngicollective.testframework.sim.DrivetrainConfig;
 import org.ngicollective.testframework.sim.FieldConfig;
+import org.ngicollective.testframework.sim.FieldScore;
 import org.ngicollective.testframework.sim.Pose2d;
 import org.ngicollective.testframework.sim.RobotConfig;
 import org.ngicollective.testframework.sim.RobotConfigFile;
@@ -457,7 +457,7 @@ public class LocalDashboardBackend implements DashboardBackend {
     public void loadScenario(String name) {
         // Read outside the lock: parsing a file is the slow part, and a bad name must fail without
         // having touched the session at all. A misspelling here leaves the field as it was.
-        SimulatedScene loaded = name == null ? null : SimConfigFiles.scenario(name).scene();
+        SimulatedScene loaded = name == null ? null : SimConfigFiles.scenario(name, robot.season());
         synchronized (lock) {
             activeScenario = name;
             applyLoadedSceneLocked(loaded);
@@ -1059,21 +1059,30 @@ public class LocalDashboardBackend implements DashboardBackend {
      * <p>Compared field by field rather than by {@code equals}, which a payload does not
      * implement: these are wire shapes, built fresh each time they are asked for, and giving one
      * value semantics purely so a de-duplication check could use it would put the reason for the
-     * method a long way from the method. The CELLs are compared in order because the order is
-     * fixed &mdash; red's raised CELL, then blue's.</p>
+     * method a long way from the method. Volumes and tallies are compared in order because the
+     * season fixes it: BioBuzz lists red's raised CELL, then blue's, then each alliance's TIPs.</p>
      */
     private static boolean same(ScorePayload published, ScorePayload next) {
         if (published == null) {
             return false;
         }
         if (published.redPoints != next.redPoints || published.bluePoints != next.bluePoints
-                || published.cells.size() != next.cells.size()) {
+                || published.volumes.size() != next.volumes.size()
+                || published.tallies.size() != next.tallies.size()) {
             return false;
         }
-        for (int cell = 0; cell < next.cells.size(); cell++) {
-            ScorePayload.Cell was = published.cells.get(cell);
-            ScorePayload.Cell is = next.cells.get(cell);
-            if (!was.cell.equals(is.cell) || was.holding != is.holding) {
+        for (int index = 0; index < next.volumes.size(); index++) {
+            ScorePayload.Volume was = published.volumes.get(index);
+            ScorePayload.Volume is = next.volumes.get(index);
+            if (!was.name.equals(is.name) || was.holding != is.holding) {
+                return false;
+            }
+        }
+        for (int index = 0; index < next.tallies.size(); index++) {
+            ScorePayload.Tally was = published.tallies.get(index);
+            ScorePayload.Tally is = next.tallies.get(index);
+            if (!was.name.equals(is.name) || was.alliance != is.alliance
+                    || was.count != is.count) {
                 return false;
             }
         }
@@ -1171,7 +1180,7 @@ public class LocalDashboardBackend implements DashboardBackend {
     }
 
     /**
-     * The CELL score for whatever is on the field now, or null when nothing on it can score.
+     * The season's score for whatever is on the field now, or null when nothing on it can score.
      *
      * <p>Balls come from the physics world rather than from the scene, so what is scored is where
      * the solver has the ball this instant &mdash; the scene's own copy is refreshed a step later
@@ -1179,8 +1188,8 @@ public class LocalDashboardBackend implements DashboardBackend {
      * stale.</p>
      *
      * <p>The volumes come from the scene, because a CELL swings with the HIVE it is cut in and the
-     * scene is what carries that. Which of them score is {@code BioBuzzScore}'s business: it reads
-     * the way each mouth faces, which is the only question with an answer while a HIVE is halfway
+     * scene is what carries that. Which of them score is the season's business: BioBuzz reads the
+     * way each mouth faces, which is the only question with an answer while a HIVE is halfway
      * through a tip.</p>
      */
     private ScorePayload scoreLocked() {
@@ -1194,16 +1203,27 @@ public class LocalDashboardBackend implements DashboardBackend {
             // score on a field that has nowhere to put a ball.
             return null;
         }
-        BioBuzzScore score = BioBuzzScore.of(volumes, physics.elements(),
+        FieldScore score = robot.season().score(volumes, physics.elements(),
                 PivotState.swingsOf(physics.pivots()));
-        List<ScorePayload.Cell> cells = new ArrayList<>(score.cells().size());
-        for (BioBuzzScore.Scored cell : score.cells()) {
-            cells.add(new ScorePayload.Cell(cell.cellName(),
-                    cell.isRed() ? Alliance.RED : Alliance.BLUE,
-                    cell.holding().size(), cell.points()));
+        if (score == null) {
+            // A robot that plays no season, looking at a field that has volumes on it.
+            return null;
         }
-        return new ScorePayload(score.redPoints(), score.bluePoints(), cells,
-                score.redTips(), score.blueTips());
+        List<ScorePayload.Volume> published = new ArrayList<>(score.volumes().size());
+        for (FieldScore.Volume volume : score.volumes()) {
+            published.add(new ScorePayload.Volume(volume.name(), alliance(volume.alliance()),
+                    volume.holding(), volume.points()));
+        }
+        List<ScorePayload.Tally> tallies = new ArrayList<>(score.tallies().size());
+        for (FieldScore.Tally tally : score.tallies()) {
+            tallies.add(new ScorePayload.Tally(tally.name(), alliance(tally.alliance()),
+                    tally.count(), tally.points()));
+        }
+        return new ScorePayload(score.redPoints(), score.bluePoints(), published, tallies);
+    }
+
+    private static Alliance alliance(FieldScore.Alliance alliance) {
+        return alliance == FieldScore.Alliance.RED ? Alliance.RED : Alliance.BLUE;
     }
 
     /**

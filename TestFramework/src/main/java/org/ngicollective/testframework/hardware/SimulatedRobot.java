@@ -1,5 +1,7 @@
 package org.ngicollective.testframework.hardware;
 
+import org.ngicollective.testframework.sim.Season;
+
 import java.nio.file.Path;
 
 /**
@@ -39,5 +41,15 @@ public interface SimulatedRobot {
      */
     default Path configurationFile() {
         return null;
+    }
+
+    /**
+     * The game this robot is practising: how its scenario files read and how its field scores.
+     *
+     * <p>{@link Season#none()} by default, which is a robot in a gym. A team's robot names the
+     * season it is built for; a test robot only does when the test is about scoring.</p>
+     */
+    default Season season() {
+        return Season.none();
     }
 }

@@ -19,8 +19,12 @@ import org.ngicollective.testframework.dashboard.protocol.OpModeInfo;
 import org.ngicollective.testframework.dashboard.protocol.ScorePayload;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
+import org.ngicollective.testframework.season.BioBuzz;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzField;
 import org.ngicollective.testframework.season.BioBuzzHive;
+import org.ngicollective.testframework.season.BioBuzzScore;
+import org.ngicollective.testframework.sim.Season;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,12 +69,24 @@ class ScorePublicationTest {
         assertNotNull(greeting, "a session on the season's field has CELLs, so it has a score");
         assertEquals(0, greeting.redPoints);
         assertEquals(0, greeting.bluePoints);
-        assertEquals(2, greeting.cells.size(),
+        assertEquals(2, greeting.volumes.size(),
                 "one upward-facing CELL per alliance, and the two facing down are not in play");
-        assertEquals(BioBuzzField.RED_AUDIENCE, greeting.cells.get(0).cell);
-        assertEquals(Alliance.RED, greeting.cells.get(0).alliance);
-        assertEquals(BioBuzzField.BLUE_SCORING, greeting.cells.get(1).cell);
-        assertEquals(Alliance.BLUE, greeting.cells.get(1).alliance);
+        assertEquals(BioBuzzField.RED_AUDIENCE, greeting.volumes.get(0).name);
+        assertEquals(Alliance.RED, greeting.volumes.get(0).alliance);
+        assertEquals(BioBuzzField.BLUE_SCORING, greeting.volumes.get(1).name);
+        assertEquals(Alliance.BLUE, greeting.volumes.get(1).alliance);
+        assertEquals(0, tips(greeting, Alliance.RED),
+                "each alliance's TIPs are sent at zero, so 'none yet' is not 'not counted'");
+        assertEquals(0, tips(greeting, Alliance.BLUE));
+    }
+
+    /** The season is the robot's, so a robot that plays none has no score on any field. */
+    @Test
+    void aRobotThatPlaysNoSeasonHasNoScoreEvenOnASeasonsField() {
+        session(BioBuzzField.scene(UP, DOWN), Season.none());
+
+        assertNull(backend.score(),
+                "with no season there is nobody to say what a CELL is worth");
     }
 
     /** A robot whose camera renders nothing has no CELLs, and a 0-0 would be a claim about one. */
@@ -97,7 +113,7 @@ class ScorePublicationTest {
         ScorePayload scored = published.get(published.size() - 1);
         assertEquals(2, scored.redPoints, "one NECTAR in red's raised CELL is two points");
         assertEquals(0, scored.bluePoints);
-        assertEquals(1, scored.cells.get(0).holding);
+        assertEquals(1, scored.volumes.get(0).holding);
     }
 
     @Test
@@ -139,13 +155,14 @@ class ScorePublicationTest {
         }
 
         ScorePayload scored = published.get(published.size() - 1);
-        assertEquals(1, scored.redTips, "six POLLEN should have tipped red's HIVE: " + published);
-        assertEquals(0, scored.blueTips);
+        assertEquals(1, tips(scored, Alliance.RED),
+                "six POLLEN should have tipped red's HIVE: " + published);
+        assertEquals(0, tips(scored, Alliance.BLUE));
         assertEquals(20, scored.redPoints,
                 "twenty for the TIP, and nothing left in the basket that earned it");
-        assertEquals(BioBuzzField.RED_SCORING, scored.cells.get(0).cell,
+        assertEquals(BioBuzzField.RED_SCORING, scored.volumes.get(0).name,
                 "the CELL facing up is the other one now");
-        assertEquals(0, scored.cells.get(0).holding);
+        assertEquals(0, scored.volumes.get(0).holding);
     }
 
     /** Enough POLLEN dropped in through a CELL's mouth to tip the HIVE it is cut in. */
@@ -157,7 +174,7 @@ class ScorePublicationTest {
         for (int ball = 0; ball < count; ball++) {
             Vec3 at = mouth.plus(cell.left().scaled(((ball % 3) - 1) * 0.12))
                     .plus(new Vec3(0.0, 0.0, 0.10 + 0.09 * (ball / 3)));
-            balls.add(GameElement.pollenAt(at.x(), at.y(), at.z()));
+            balls.add(BioBuzzElements.pollenAt(at.x(), at.y(), at.z()));
         }
         return balls;
     }
@@ -174,25 +191,44 @@ class ScorePublicationTest {
         Vec3 at = cell.position()
                 .plus(cell.forward().scaled(BioBuzzHive.CELL_DEPTH_METRES / 2.0))
                 .plus(new Vec3(0.0, 0.0, 0.10));
-        return GameElement.redNectarAt(at.x(), at.y(), at.z());
+        return BioBuzzElements.redNectarAt(at.x(), at.y(), at.z());
+    }
+
+    /** How many TIPs {@code alliance} has, read off the tallies the way the browser reads them. */
+    private static int tips(ScorePayload score, Alliance alliance) {
+        for (ScorePayload.Tally tally : score.tallies) {
+            if (tally.name.equals(BioBuzzScore.TIP) && tally.alliance == alliance) {
+                return tally.count;
+            }
+        }
+        throw new AssertionError("no " + alliance + " TIP tally in " + score.tallies);
     }
 
     private void session(SimulatedScene scene) {
+        session(scene, BioBuzz.SEASON);
+    }
+
+    private void session(SimulatedScene scene, Season season) {
         ticks = new ManualTicks();
         OpModeInfo info = new OpModeInfo(
                 "Ticking TeleOp", "", "TeleOp", TickingTeleOp.class.getName());
         Supplier<com.qualcomm.robotcore.eventloop.opmode.OpMode> factory = TickingTeleOp::new;
-        backend = new LocalDashboardBackend(robotShowing(scene),
+        backend = new LocalDashboardBackend(robotShowing(scene, season),
                 Collections.singletonList(new OpModeEntry(info, factory)), ticks);
         backend.subscribeScore(published::add);
     }
 
     /** A robot with a camera rendering {@code scene} and no drivetrain; see BodyPublicationTest. */
-    private static SimulatedRobot robotShowing(SimulatedScene scene) {
+    private static SimulatedRobot robotShowing(SimulatedScene scene, Season season) {
         return new SimulatedRobot() {
             @Override
             public String name() {
                 return "ScoreBot";
+            }
+
+            @Override
+            public Season season() {
+                return season;
             }
 
             @Override

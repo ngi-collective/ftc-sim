@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.ngicollective.testframework.behavior.ImuBehaviors;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Structure;
+import org.ngicollective.testframework.camera.TestBalls;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.sim.FieldConfig;
 import org.ngicollective.testframework.sim.Pose2d;
@@ -138,7 +139,7 @@ class RobotPushTest {
         // Half a metre ahead, dead on the nose: the chassis is 0.40 m long, so its bumper starts
         // 0.20 m out and reaches the ball a quarter of a second in.
         FieldPhysics world = worldWith(hardware,
-                Arrays.asList(GameElement.pollen(0.5, 0.0)));
+                Arrays.asList(TestBalls.pollen(0.5, 0.0)));
 
         drive(hardware, world, 1.0, 0.6);
 
@@ -158,7 +159,7 @@ class RobotPushTest {
         FakeHardwareMap hardware = hardware();
         hardware.drive().setPose(Pose2d.ORIGIN);
         FieldPhysics world = worldWith(hardware,
-                Arrays.asList(GameElement.pollen(0.5, 0.0)));
+                Arrays.asList(TestBalls.pollen(0.5, 0.0)));
 
         drive(hardware, world, 1.0, 0.5);
         // Wheels off. Whatever the ball does now is the floor's doing, not the robot's.
@@ -202,10 +203,10 @@ class RobotPushTest {
         // is given arrives on the far side of a ball no contact was ever evaluated for, and the
         // ball is left sitting untouched behind it.
         List<GameElement> line = Arrays.asList(
-                GameElement.pollen(-0.6, 0.0),
-                GameElement.pollen(0.0, 0.02),
-                GameElement.pollen(0.6, -0.02),
-                GameElement.pollen(1.2, 0.0));
+                TestBalls.pollen(-0.6, 0.0),
+                TestBalls.pollen(0.0, 0.02),
+                TestBalls.pollen(0.6, -0.02),
+                TestBalls.pollen(1.2, 0.0));
         FieldPhysics world = worldWith(hardware, line);
 
         drive(hardware, world, 1.0, 2.56, 0.16);
@@ -248,9 +249,9 @@ class RobotPushTest {
     @Test
     void aRobotPlacedOnTopOfABallPushesItOutRatherThanFightingIt() {
         FakeHardwareMap hardware = hardware();
-        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
+        double radius = TestBalls.POLLEN_DIAMETER_METRES / 2.0;
         FieldPhysics world = worldWith(hardware,
-                Arrays.asList(GameElement.pollen(0.0, 0.0)));
+                Arrays.asList(TestBalls.pollen(0.0, 0.0)));
 
         // Dead centre of the footprint, the worst case: every side face is equally far away.
         hardware.drive().setPose(Pose2d.ORIGIN);
@@ -311,11 +312,11 @@ class RobotPushTest {
     void aBallCrushedAgainstThePerimeterIsNeverPushedThroughIt() {
         FakeHardwareMap hardware = hardware();
         double half = FieldConfig.standard().halfExtentMetres();
-        double radius = GameElement.POLLEN_DIAMETER_METRES / 2.0;
+        double radius = TestBalls.POLLEN_DIAMETER_METRES / 2.0;
         hardware.drive().setPose(new Pose2d(half - 0.6, 0.0, 0.0));
 
         FieldPhysics world = worldWith(hardware,
-                Arrays.asList(GameElement.pollen(half - 0.1, 0.0)));
+                Arrays.asList(TestBalls.pollen(half - 0.1, 0.0)));
 
         drive(hardware, world, 1.0, 3.0);
         drive(hardware, world, -1.0, 1.0);

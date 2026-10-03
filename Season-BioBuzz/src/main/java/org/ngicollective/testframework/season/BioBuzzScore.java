@@ -2,6 +2,7 @@ package org.ngicollective.testframework.season;
 
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.ScoringVolume;
+import org.ngicollective.testframework.sim.FieldScore;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -43,6 +44,9 @@ public final class BioBuzzScore {
 
     /** Manual Table 10-2: a HIVE TIP is worth twenty, in AUTO and in TELEOP alike. */
     public static final int POINTS_PER_TIP = 20;
+
+    /** The tally a TIP is reported under, in the manual's word for it. */
+    public static final String TIP = "TIP";
 
     private final List<Scored> scored;
     private final int redTips;
@@ -160,6 +164,28 @@ public final class BioBuzzScore {
 
     public int blueTips() {
         return blueTips;
+    }
+
+    /**
+     * The same score in the simulator's own terms: each CELL a volume, and each alliance's TIPs a
+     * tally, present even at zero so a reader can tell "none yet" from "not counted".
+     */
+    public FieldScore asFieldScore() {
+        List<FieldScore.Volume> volumes = new ArrayList<>(scored.size());
+        for (Scored cell : scored) {
+            volumes.add(new FieldScore.Volume(cell.cellName(), alliance(cell.isRed()),
+                    cell.holding().size(), cell.points()));
+        }
+        List<FieldScore.Tally> tallies = new ArrayList<>(2);
+        tallies.add(new FieldScore.Tally(TIP, FieldScore.Alliance.RED, redTips,
+                redTips * POINTS_PER_TIP));
+        tallies.add(new FieldScore.Tally(TIP, FieldScore.Alliance.BLUE, blueTips,
+                blueTips * POINTS_PER_TIP));
+        return new FieldScore(redPoints, bluePoints, volumes, tallies);
+    }
+
+    private static FieldScore.Alliance alliance(boolean red) {
+        return red ? FieldScore.Alliance.RED : FieldScore.Alliance.BLUE;
     }
 
     private List<String> names() {

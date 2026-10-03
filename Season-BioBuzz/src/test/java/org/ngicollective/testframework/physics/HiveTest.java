@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.ngicollective.testframework.camera.GameElement;
 import org.ngicollective.testframework.camera.Pose3d;
 import org.ngicollective.testframework.camera.Vec3;
+import org.ngicollective.testframework.season.BioBuzzElements;
 import org.ngicollective.testframework.season.BioBuzzField;
 import org.ngicollective.testframework.season.BioBuzzHive;
 import org.ngicollective.testframework.season.BioBuzzScore;
@@ -58,7 +59,7 @@ class HiveTest {
             // one another, which is a different thing to test.
             Vec3 at = mouth.plus(cell.left().scaled((ball * 2 - 1) * 0.12))
                     .plus(new Vec3(0.0, 0.0, 0.10));
-            balls.add(GameElement.redNectarAt(at.x(), at.y(), at.z()));
+            balls.add(BioBuzzElements.redNectarAt(at.x(), at.y(), at.z()));
         }
         return balls;
     }
@@ -111,7 +112,7 @@ class HiveTest {
 
         run(world, 3.0);
 
-        double resting = GameElement.NECTAR_DIAMETER_METRES;
+        double resting = BioBuzzElements.NECTAR_DIAMETER_METRES;
         for (BodyState ball : world.bodies()) {
             assertTrue(ball.z() < resting,
                     ball + " is being held up by a CELL whose mouth faces the floor");
@@ -135,10 +136,10 @@ class HiveTest {
                 30.0 * 0.0254);
 
         FieldPhysics bare = FieldPhysics.of(
-                Arrays.asList(GameElement.pollenAt(against.x(), against.y(), against.z())),
+                Arrays.asList(BioBuzzElements.pollenAt(against.x(), against.y(), against.z())),
                 new ArrayList<>(), FieldConfig.standard(), null);
         FieldPhysics framed = worldWith(
-                Arrays.asList(GameElement.pollenAt(against.x(), against.y(), against.z())));
+                Arrays.asList(BioBuzzElements.pollenAt(against.x(), against.y(), against.z())));
 
         run(bare, 1.5);
         run(framed, 1.5);
@@ -149,7 +150,7 @@ class HiveTest {
 
         assertEquals(0.0, Math.hypot(fell.x() - against.x(), fell.y() - against.y()), 1e-6,
                 "with nothing there a dropped ball lands where it started, which is the control");
-        assertTrue(moved > GameElement.POLLEN_DIAMETER_METRES / 2.0,
+        assertTrue(moved > BioBuzzElements.POLLEN_DIAMETER_METRES / 2.0,
                 "the leg should have pushed the ball at least its own radius aside; it moved "
                         + moved + " m");
     }

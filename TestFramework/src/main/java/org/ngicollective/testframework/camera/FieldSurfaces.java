@@ -27,7 +27,7 @@ import java.util.List;
  *
  * <p>Red is the end at <b>-X</b> and blue the end at <b>+X</b>, with the audience at -Y. The
  * authority is the field CAD, via
- * {@link org.ngicollective.testframework.season.BioBuzzField}'s conversion of it: the alliances
+ * {@code BioBuzzField}'s conversion of it: the alliances
  * are on the X axis and the audience watches from -Y. The tags placed from that CAD and the walls
  * drawn here therefore describe one field rather than two rotated a quarter turn from each
  * other.</p>
