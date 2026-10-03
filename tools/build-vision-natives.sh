@@ -84,6 +84,15 @@ clone_at() {
 clone_at "$plugin_repo" "$plugin_commit" "$src/plugin"
 clone_at "$apriltag_repo" "$apriltag_commit" "$src/plugin/apriltag/apriltag"
 
+# MinGW-w64 has real POSIX threads (winpthreads), and its C++ library includes <pthread.h> through
+# <iostream>. AprilTag's pthreads_cross.h instead defines its own pthread types whenever _WIN32 is
+# set, so the two collide in every JNI source. On MinGW, take the header's POSIX branch. Applied to
+# the scratch checkout only, and idempotent: a second run finds nothing left to change.
+if [[ $suffix == dll ]]; then
+  sed -i 's/^#ifdef _WIN32$/#if defined(_WIN32) \&\& !defined(__MINGW32__)/' \
+    "$src/plugin/apriltag/apriltag/common/pthreads_cross.h"
+fi
+
 work="$out/obj"
 rm -rf "$work"
 mkdir -p "$work"
