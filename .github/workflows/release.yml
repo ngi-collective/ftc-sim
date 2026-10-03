@@ -1,0 +1,98 @@
+name: Release
+
+# Publishes to Maven Central from a tag (ADR 0009):
+#   v12.x.y             the core set: core, dashboard, camera-stream, android-shims, testing, app,
+#                       vision-natives and the Gradle plugin, all at the version in ftc-sim.version
+#   season-<game>/vX.Y.Z  one season, at the version in Season-<Game>/season.version
+#
+# Uploads wait in the Central Portal for a manual Publish. The secrets live in the `release`
+# environment, which only these tags may deploy from and which a maintainer must approve; see
+# tools/setup-publishing.sh, which created them.
+
+on:
+  push:
+    tags: ['v*', 'season-*/v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  natives:
+    if: startsWith(github.ref_name, 'v')
+    uses: ./.github/workflows/vision-natives.yml
+
+  publish:
+    name: Publish ${{ github.ref_name }}
+    needs: natives
+    # A season tag skips the natives, and a skipped `needs` would otherwise skip this job too.
+    if: always() && (needs.natives.result == 'success' || needs.natives.result == 'skipped')
+    runs-on: ubuntu-24.04
+    environment: release
+    env:
+      ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+      ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      SIGNING_KEY_FINGERPRINT: ${{ secrets.SIGNING_KEY_FINGERPRINT }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install toolchain
+        uses: jdx/mise-action@v4.3.0
+
+      - name: Install Android SDK packages
+        run: mise run setup-sdk
+
+      # A release must say what it is: the tag and the version file are the same number, or
+      # nothing is published.
+      - name: Check the tag against the version file
+        id: what
+        run: |
+          tag='${{ github.ref_name }}'
+          case "$tag" in
+            v*)
+              want="${tag#v}"; have=$(tr -d '[:space:]' < ftc-sim.version)
+              echo "kind=core" >> "$GITHUB_OUTPUT" ;;
+            season-*/v*)
+              game="${tag%%/*}"; game="${game#season-}"; want="${tag#*/v}"
+              dir=$(ls -d Season-* | while read -r d; do
+                [[ "$(echo "$d" | tr '[:upper:]' '[:lower:]')" == "season-$game" ]] && echo "$d"; done || true)
+              [[ -n "$dir" ]] || { echo "no season module for '$game'" >&2; exit 1; }
+              have=$(tr -d '[:space:]' < "$dir/season.version")
+              echo "kind=season" >> "$GITHUB_OUTPUT"; echo "project=:$dir" >> "$GITHUB_OUTPUT" ;;
+            *) echo "not a release tag: $tag" >&2; exit 1 ;;
+          esac
+          [[ "$want" == "$have" ]] || { echo "tag says $want, the version file says $have" >&2; exit 1; }
+          # Gradle's signing wants the short id; the primary key is the signer (no subkeys).
+          echo "ORG_GRADLE_PROJECT_signingInMemoryKeyId=${SIGNING_KEY_FINGERPRINT: -8}" >> "$GITHUB_ENV"
+
+      - name: Collect the natives built on each platform
+        if: steps.what.outputs.kind == 'core'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: vision-natives-*
+          path: build/vision-natives-dist
+          merge-multiple: true
+
+      - name: Test
+        run: mise run test
+
+      # Without the configuration cache, so the Central credentials and signing key in the
+      # environment are never written into a cache entry.
+      - name: Upload the core set
+        if: steps.what.outputs.kind == 'core'
+        run: |
+          ls build/vision-natives-dist
+          ./gradlew --no-configuration-cache \
+            :TestFramework:publishToMavenCentral :Dashboard:publishToMavenCentral \
+            :CameraStream:publishToMavenCentral :AndroidShims:publishToMavenCentral \
+            :SimulatedApp-Testing:publishToMavenCentral :publishing-app:publishToMavenCentral \
+            :publishing-vision-natives:publishToMavenCentral :build-logic:publishToMavenCentral
+
+      - name: Upload the season
+        if: steps.what.outputs.kind == 'season'
+        run: ./gradlew --no-configuration-cache ${{ steps.what.outputs.project }}:publishToMavenCentral

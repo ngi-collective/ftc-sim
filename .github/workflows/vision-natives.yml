@@ -5,9 +5,12 @@ name: Vision natives
 # when it is given one (-PvisionNativesJar=... or libs/vision-natives/), and compiles only when it
 # is not. See build.gradle and tools/build-vision-natives.sh.
 #
-# The jars are workflow artifacts for now. Publishing them with the rest of the simulator is #31.
+# The jars are uploaded as workflow artifacts; release.yml calls this workflow, collects them, and
+# publishes them as classifiers of org.ngi-collective.ftc-sim:vision-natives.
 
 on:
+  # Called by release.yml, which publishes the jars with everything else at one version.
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [master]
@@ -27,14 +30,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, classifier: linux-x86_64 }
-          - { runner: ubuntu-24.04-arm, classifier: linux-aarch64 }
-          - { runner: macos-latest, classifier: osx-aarch64 }
-          - { runner: windows-latest, classifier: windows-x86_64 }
+          - { runner: ubuntu-24.04, classifier: linux-x86_64, shell: bash }
+          - { runner: ubuntu-24.04-arm, classifier: linux-aarch64, shell: bash }
+          - { runner: macos-latest, classifier: osx-aarch64, shell: bash }
+          # MSYS2's bash, whose MinGW-w64 compiler the script uses.
+          - { runner: windows-latest, classifier: windows-x86_64, shell: 'msys2 {0}' }
     defaults:
       run:
-        # bash everywhere; on Windows that is MSYS2's, whose MinGW-w64 compiler the script uses.
-        shell: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
+        # From the matrix: the `runner` context is not available in defaults.
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v7
 
