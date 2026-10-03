@@ -50,6 +50,17 @@ Supervised processes: `hub ps` before starting anything, one name per service, a
 - Avoid making changes in `FtcRobotController` - that is managed upstream and will make conflicts more painful as the official SDK gets updated.
 - Run `mise run test` for tests and `mise run lint` before considering any work done.
 
+## Build setup
+
+TeamCode's simulator setup is a Gradle plugin, `org.ngicollective.ftc-sim` (placeholder id until
+#30), built from the included build `build-logic/`. `TeamCode/build.gradle` is the plugin id, an
+`ftcSim { season = 'Season-BioBuzz' }` block and the SDK's own lines. The plugin adds the
+`robot`/`simulated` flavours, the simulator's modules (projects here, Maven coordinates in a team's
+build, where `ftcSim.version` is required), unit-test setup, the staged `robot-config/` and
+`scenarios/`, and the `dashboard` task. It declares `org.openpnp:opencv` before the SDK on
+purpose, and `OpenCvClasspathOrderTest` fails if that order flips. Its TestKit tests run in
+`mise run test` as `:build-logic:test`.
+
 ## OpMode model
 
 OpModes are discovered by annotation (`@TeleOp` / `@Autonomous`, optionally `@Disabled`).

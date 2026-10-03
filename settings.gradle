@@ -1,4 +1,7 @@
 pluginManagement {
+    // The simulator's own Gradle plugin, applied by TeamCode as org.ngicollective.ftc-sim.
+    includeBuild('build-logic')
+
     repositories {
         google()
         mavenCentral()

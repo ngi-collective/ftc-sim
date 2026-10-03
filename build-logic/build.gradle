@@ -1,0 +1,53 @@
+//
+// build.gradle in build-logic
+//
+// The ftc-sim Gradle plugin: everything a team's TeamCode needs to build, test and serve its
+// OpModes against the simulator, applied with one plugin id. Java rather than Groovy so a renamed
+// AGP or Gradle API fails here at compile time instead of in a team's build.
+//
+
+plugins {
+    id 'java-gradle-plugin'
+}
+
+// Release 17 on whatever JDK runs Gradle (mise supplies 21): AGP 8 needs 17, and a toolchain
+// request would have Gradle hunt for a second JDK.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+}
+
+configurations {
+    // AGP for the TestKit fixtures only. Under TestKit the plugin is loaded from an isolated
+    // classpath that cannot see a fixture's own buildscript, so AGP rides on that classpath and
+    // the fixture applies Android from it: one copy, shared with the plugin.
+    agpUnderTest
+}
+
+dependencies {
+    // The Android DSL the plugin configures. compileOnly: a team's build already has AGP, from the
+    // root project's plugins block, and two copies of it in one build would not share types.
+    compileOnly 'com.android.tools.build:gradle:8.13.2'
+
+    agpUnderTest 'com.android.tools.build:gradle:8.13.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+}
+
+gradlePlugin {
+    plugins {
+        ftcSim {
+            // Placeholder id and group until #30 settles the published coordinates.
+            id = 'org.ngicollective.ftc-sim'
+            implementationClass = 'org.ngicollective.ftcsim.gradle.FtcSimPlugin'
+        }
+    }
+}
+
+tasks.named('pluginUnderTestMetadata') {
+    pluginClasspath.from(configurations.agpUnderTest)
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

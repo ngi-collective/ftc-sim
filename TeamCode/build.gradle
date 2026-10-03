@@ -1,3 +1,9 @@
+// The simulator: flavours, test setup, staged config and the dashboard task. See
+// build-logic/src/main/java/org/ngicollective/ftcsim/gradle/FtcSimPlugin.java.
+plugins {
+    id 'org.ngicollective.ftc-sim'
+}
+
 apply plugin: 'com.android.application'
 
 //
@@ -22,142 +28,12 @@ android {
     packagingOptions {
         jniLibs.useLegacyPackaging true
     }
+}
 
-    // Two builds of the same OpModes. `robot` is what goes to a competition; `simulated` swaps the
-    // hardware layer for fakes so the whole app can run on an emulator with no robot attached.
-    flavorDimensions 'target'
-    productFlavors {
-        robot {
-            dimension 'target'
-            isDefault = true
-        }
-        simulated {
-            dimension 'target'
-            // A distinct package so both can sit on one device at once.
-            applicationIdSuffix '.simulated'
-            versionNameSuffix '-simulated'
-        }
-    }
-
-    defaultConfig {
-        // Two of the SDK's four vision natives are stubbed and one is rebuilt from source for the
-        // host, so vision runs on a plain JVM too; see tools/build-vision-natives.sh. What still
-        // needs an emulator is the SDK's own robot start and event loop, which is what
-        // RealEventLoopAcceptanceTest covers.
-        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-    }
-
-    testOptions {
-        unitTests.all {
-            useJUnitPlatform()
-
-            // AprilTagDetectorJNI and EasyOpenCV both load their natives in a static
-            // initializer, so the libraries have to be findable before any test touches them.
-            // OpenCV is not here: org.openpnp extracts its own.
-            systemProperty 'java.library.path',
-                    rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
-            dependsOn ':buildVisionNatives'
-
-            // An input as well as a dependency: a rebuilt detector is a different detector, and
-            // a test task that stayed up to date across one would be reporting yesterday's run.
-            inputs.dir(rootProject.layout.buildDirectory.dir('vision-natives'))
-                    .withPropertyName('visionNatives')
-
-            // No DashboardHost exclusion: it lives in SimulatedApp-Testing now, and a test task
-            // only scans its own module's test classes, never a dependency's.
-        }
-
-        // Robolectric reads the merged resource table, which is where the SDK keeps the built-in
-        // camera calibrations that decide whether a tag pose is right or merely present.
-        unitTests.includeAndroidResources = true
-    }
-
-    // The simulated app runs on a device, where there is no repository checkout to read
-    // `robot-config/` out of. Stage those files as Java resources so the same JSON that the
-    // dashboard and the headless tests read off disk is also inside the APK. Nested one level
-    // deep so the resource path matches the on-disk path and SimConfigFiles can try both.
-    sourceSets {
-        simulated {
-            resources.srcDirs += layout.buildDirectory.dir('generated/robotConfig')
-        }
-    }
+ftcSim {
+    season = 'Season-BioBuzz'
 }
 
 dependencies {
-    // Vision on a plain JVM: OpenCV's desktop builds, the Android framework the SDK reaches for,
-    // and the JUnit 4 engine Robolectric runs under. The rest of the suite stays on JUnit 5, so
-    // the vintage engine has to be there for both to run in one task.
-    //
-    // First in the block on purpose. Two copies of org.opencv end up on this classpath - the
-    // SDK's Android 4.10.0 and openpnp's desktop 4.9.0 - and the Java classes have to be the
-    // pair of the natives that get loaded, which off-device are openpnp's.
-    testImplementation 'org.openpnp:opencv:4.9.0-0'
-    testImplementation 'org.robolectric:robolectric:4.12.2'
-    testImplementation 'junit:junit:4.13.2'
-    testRuntimeOnly 'org.junit.vintage:junit-vintage-engine:5.10.0'
-
     implementation project(':FtcRobotController')
-
-    // The simulated build needs the fake hardware inside the app itself.
-    simulatedImplementation project(':TestFramework')
-    simulatedImplementation project(':Season-BioBuzz')
-    simulatedImplementation project(':SimulatedApp')
-
-    // Unit tests additionally need the JVM stand-ins for android.* stubs and the dashboard server.
-    // All test scope: nothing here reaches the competition APK.
-    testImplementation project(':AndroidShims')
-    testImplementation project(':TestFramework')
-    testImplementation project(':Season-BioBuzz')
-    testImplementation project(':Dashboard')
-    testImplementation project(':SimulatedApp-Testing')
-
-    // The instrumented acceptance test drives an unmodified OpMode against the simulated robot,
-    // so it needs the framework on the simulated variant's test classpath. JUnit 4, which is what
-    // the Android test runner drives; the plain-JVM tests above stay on JUnit 5.
-    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
-    androidTestImplementation 'androidx.test:runner:1.5.2'
-    androidTestImplementation 'androidx.test:rules:1.5.0'
-    androidTestImplementation 'androidx.test:core:1.5.0'
-}
-
-// Serves the local Driver Hub dashboard against this module's OpModes and its VerityRobot
-// configuration. Runs on the simulated variant's unit-test runtime classpath, which is what makes
-// the plain-JVM simulation - TeamCode classes, VerityRobot, the framework, the android.* shims and
-// the mockable android.jar - resolvable.
-//
-// The entry point is DashboardLauncher rather than DashboardMain: a session runs inside a
-// Robolectric sandbox so that vision OpModes work, and a sandbox comes from a JUnit runner. See
-// DashboardHost.
-tasks.register('dashboard', JavaExec) {
-    group = 'ftc'
-    description = 'Run the local Driver Hub dashboard server against TeamCode OpModes'
-    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac', ':buildVisionNatives',
-            ':buildDashboardUi'
-    mainClass = 'org.ngicollective.testframework.app.DashboardLauncher'
-    // The built UI rides on the classpath, so the session serves the page itself on its one port.
-    classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath },
-            rootProject.layout.buildDirectory.dir('dashboard-ui'))
-    systemProperty 'java.library.path',
-            rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
-
-    // Ctrl-C has to reach the JVM, and a session that is serving is not "failing".
-    standardInput = System.in
-}
-
-tasks.register('stageScenarios', Copy) {
-    group = 'ftc'
-    description = 'Stage TeamCode/scenarios as Java resources for the simulated APK'
-    from 'scenarios'
-    into layout.buildDirectory.dir('generated/robotConfig/scenarios')
-}
-
-tasks.register('stageRobotConfig', Copy) {
-    group = 'ftc'
-    description = 'Stage TeamCode/robot-config as Java resources for the simulated APK'
-    from 'robot-config'
-    into layout.buildDirectory.dir('generated/robotConfig/robot-config')
-}
-
-tasks.named('preBuild') {
-    dependsOn 'stageRobotConfig', 'stageScenarios'
 }

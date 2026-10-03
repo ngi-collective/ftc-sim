@@ -1,0 +1,11 @@
+// The simulator's Gradle plugin, built as an included build so TeamCode can apply it by id.
+// See ../settings.gradle (pluginManagement) and docs on the plugin class.
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'build-logic'
