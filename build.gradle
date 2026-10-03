@@ -43,4 +43,29 @@ tasks.register('buildVisionNatives', Exec) {
     outputs.dir(layout.buildDirectory.dir('vision-natives'))
 }
 
+// The Driver Hub UI, built and staged under dashboard-ui/ so the dashboard JVM can serve it from
+// its classpath on the same port as the simulation socket. Needs bun, which mise supplies; Gradle
+// skips both steps while the UI sources are unchanged.
+def dashboardUi = "${rootDir}/driver-hub-dashboard"
+tasks.register('buildDashboardUiBundle', Exec) {
+    group = 'ftc'
+    description = 'Build the Driver Hub UI into driver-hub-dashboard/dist'
+    workingDir dashboardUi
+    commandLine 'bash', '-c', 'bun install --silent && bun run build'
+
+    inputs.dir("${dashboardUi}/src")
+    inputs.files("${dashboardUi}/index.html", "${dashboardUi}/package.json",
+            "${dashboardUi}/bun.lock", "${dashboardUi}/vite.config.ts",
+            "${dashboardUi}/tsconfig.json")
+    outputs.dir("${dashboardUi}/dist")
+}
+
+tasks.register('buildDashboardUi', Sync) {
+    group = 'ftc'
+    description = 'Stage the built Driver Hub UI into build/dashboard-ui as classpath resources'
+    dependsOn 'buildDashboardUiBundle'
+    from "${dashboardUi}/dist"
+    into layout.buildDirectory.dir('dashboard-ui/dashboard-ui')
+}
+
 

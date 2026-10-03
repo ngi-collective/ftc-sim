@@ -24,7 +24,7 @@ mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
 mise run simulator   # install + launch the simulated app on a running emulator
 mise run test-vision # the two tests that still need an emulator: event loop, physical camera
-mise run dashboard   # local Driver Hub: simulation + browser UI (http://localhost:5183)
+mise run dashboard   # local Driver Hub: simulation + browser UI, one process (http://localhost:8765)
 mise run dashboard --scenario tipping-hive   # the same, with a field arrangement loaded
 mise run dashboard --dev                     # ...served by Vite with hot reload, for UI work
 mise run dashboard-headless  # the simulation socket alone, for scripts (ws://localhost:8765)
@@ -68,15 +68,21 @@ physical velocity, hands the four speeds to the chassis before the world steps, 
 resulting heading to the IMU after. See `docs/adr/0003-the-world-owns-the-robots-pose.md`.
 `mise run dashboard` streams the pose at 50 Hz and the 3D view drives the robot from it.
 
-**The dashboard is one command, on one port.** `tools/dashboard.sh` builds the UI, serves it and
-starts the JVM, deciding the port once; the page connects to its own origin at `/ws` and Vite
-proxies that to the simulation, so the browser never names a port and the two halves cannot
-disagree. Move both with `DASHBOARD_PORT=9000 mise run dashboard` — a bare `--port` is refused,
-because a port only the JVM knows about is exactly the bug this replaced: the UI silently
-connected to whatever else was on 8765, green indicator and all. Scripts that drive the socket
-directly want `mise run dashboard-headless`, which has no UI to point anywhere.
+**The dashboard is one process, on one port.** `:buildDashboardUi` builds the UI with bun and
+stages it under `build/dashboard-ui/dashboard-ui/`, which the `dashboard` task puts on the
+classpath. `DashboardFront` then owns the port: a request with `Upgrade: websocket` is spliced to
+the `DashboardServer` on a loopback port of its own, whatever its path, and anything else is a file
+from the UI. The page connects to its own origin at `/ws`, and a script can still use the bare
+`ws://localhost:8765`. Neither library on the classpath does both jobs: Java-WebSocket cannot
+answer a GET, and the JDK's `HttpServer` cannot hand a connection to a WebSocket. With no UI on the
+classpath the socket takes the port itself, as before. Move the port with
+`DASHBOARD_PORT=9000 mise run dashboard`; a bare `--port` is still refused, because in `--dev` the
+script points Vite's proxy at that port, and a port only the JVM knows about is the bug this
+replaced: the UI silently connected to whatever else was on 8765, green indicator and all. The
+camera stream keeps its own port (8766), since the browser reads its URL off the socket.
 
-**It serves a production build**, and `--dev` is the opt-out for anyone editing the UI. React's
+**It serves a production build**, and `--dev` is the opt-out for anyone editing the UI: Vite on
+5183 with hot reload, proxying `/ws` to the JVM. React's
 development build emits a `performance.measure` per component per commit and this page commits at
 20 Hz: profiled at 6× CPU throttle, the dev build spent 28% of the main thread in `clearMeasures`
 and 20% in `jsxDEV`, ran at 27–30 fps and stalled for 100 ms at a time, where the production

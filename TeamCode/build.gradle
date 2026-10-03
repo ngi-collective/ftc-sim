@@ -131,9 +131,12 @@ dependencies {
 tasks.register('dashboard', JavaExec) {
     group = 'ftc'
     description = 'Run the local Driver Hub dashboard server against TeamCode OpModes'
-    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac', ':buildVisionNatives'
+    dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac', ':buildVisionNatives',
+            ':buildDashboardUi'
     mainClass = 'org.ngicollective.testframework.app.DashboardLauncher'
-    classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
+    // The built UI rides on the classpath, so the session serves the page itself on its one port.
+    classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath },
+            rootProject.layout.buildDirectory.dir('dashboard-ui'))
     systemProperty 'java.library.path',
             rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
 

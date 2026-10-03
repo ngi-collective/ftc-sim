@@ -9,6 +9,8 @@ import org.ngicollective.testframework.dashboard.protocol.Envelope;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Serves the dashboard's single WebSocket.
@@ -51,6 +53,9 @@ public class DashboardServer extends WebSocketServer {
 
     private final DashboardProtocol protocol;
 
+    /** Counted down once the socket is bound, which is when {@link #getPort()} is the real one. */
+    private final CountDownLatch started = new CountDownLatch(1);
+
     /**
      * @param host address to bind. It must be a concrete address, not the unspecified wildcard:
      *             the JDK gives a wildcard bind a dual-stack IPv6 socket, and an IPv4 client
@@ -85,7 +90,7 @@ public class DashboardServer extends WebSocketServer {
         protocol.subscribe(this::broadcast);
     }
 
-    private static InetAddress resolve(String host) {
+    static InetAddress resolve(String host) {
         InetAddress address;
         try {
             address = InetAddress.getByName(host);
@@ -135,6 +140,12 @@ public class DashboardServer extends WebSocketServer {
     public void onStart() {
         System.out.println("[dashboard] listening on ws://" + getAddress().getHostString()
                 + ":" + getPort());
+        started.countDown();
+    }
+
+    /** Waits for the bind, so a caller can hand {@link #getPort()} to someone else. */
+    boolean awaitStarted(long timeout, TimeUnit unit) throws InterruptedException {
+        return started.await(timeout, unit);
     }
 
     private DashboardProtocol.Replies repliesTo(WebSocket connection) {

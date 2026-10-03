@@ -4,8 +4,11 @@ import org.ngicollective.camerastream.MjpegServer;
 import org.ngicollective.testframework.dashboard.protocol.CameraStreamInfo;
 import org.ngicollective.testframework.hardware.SimulatedRobot;
 
+import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * Starts a dashboard session from the command line: discover the team's OpModes and simulated robot
@@ -54,6 +57,9 @@ public final class DashboardMain {
     // Loopback, and a concrete address rather than the wildcard: see DashboardServer's constructor
     // for what a dual-stack bind does to this WebSocket library on macOS.
     private static final String DEFAULT_HOST = "127.0.0.1";
+
+    /** Where the socket listens when the front owns the public port: reachable only through it. */
+    private static final String LOOPBACK = "127.0.0.1";
 
     private DashboardMain() {
     }
@@ -133,20 +139,42 @@ public final class DashboardMain {
                     + " declares no webcam)");
         }
 
-        DashboardServer server = new DashboardServer(backend, layouts, host, port, cameraStream);
+        // With the UI built in, the page and the socket share the asked-for port: the front
+        // serves the page there and hands WebSocket upgrades to the socket on a loopback port of
+        // its own. Without it, the socket takes the port itself, which is what a script expects.
+        Function<String, byte[]> ui = DashboardFront.classpathUi(DashboardMain.class.getClassLoader());
+        DashboardServer server = ui == null
+                ? new DashboardServer(backend, layouts, host, port, cameraStream)
+                : new DashboardServer(backend, layouts, LOOPBACK, 0, cameraStream);
         final MjpegServer cameraToClose = camera;
+        final DashboardFront[] front = new DashboardFront[1];
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             backend.close();
             if (cameraToClose != null) {
                 cameraToClose.close();
             }
             try {
+                if (front[0] != null) {
+                    front[0].close();
+                }
                 server.stop(1000);
+            } catch (IOException e) {
+                System.err.println("[dashboard] closing the front: " + e);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
         }));
         server.start();
+        if (ui == null) {
+            return;
+        }
+        if (!server.awaitStarted(10, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("the simulation socket did not bind within 10 s");
+        }
+        front[0] = new DashboardFront(DashboardServer.resolve(host), port, server::getPort, ui);
+        front[0].start();
+        System.out.println("[dashboard] open http://" + host + ":" + front[0].port()
+                + "/  (simulation on ws://" + host + ":" + front[0].port() + "/ws)");
     }
 
     private static SimulatedRobot select(List<SimulatedRobot> robots, String name) {

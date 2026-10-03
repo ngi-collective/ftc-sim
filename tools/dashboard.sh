@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# The Driver Hub as one command: the JVM that simulates the robot, and the Vite dev server that
-# serves the browser UI.
+# The Driver Hub as one command. By default that is one process: the JVM simulates the robot and
+# serves the built browser UI on the same port as its socket. With --dev it is two, the JVM and
+# Vite's dev server, for hot reload while editing the UI.
 #
-# They are two processes because they are two languages, but they are never independently useful,
-# and starting them separately was a trap. The UI could only ever reach the socket on one port, so
-# a JVM started on any other one left the page connected to whatever else was listening -- green
-# indicator, wrong field, no error. This script is the fix: one port, decided here, handed to both
-# halves, with the page reaching the socket through the dev server's own origin.
+# Two processes used to be the default, and starting them separately was a trap. The UI could
+# only ever reach the socket on one port, so a JVM started on any other one left the page connected
+# to whatever else was listening -- green indicator, wrong field, no error. Now the page is served
+# from the socket's own port, and in --dev the port is decided here and handed to both halves.
 #
 # Usage:
 #   tools/dashboard.sh                                  # official empty field
@@ -15,12 +15,12 @@
 #   tools/dashboard.sh --dev                            # Vite dev server, for working on the UI
 #   DASHBOARD_PORT=9000 tools/dashboard.sh              # both halves move together
 #
-# The UI is served as a production build, because the development build is half the cost of
-# running it. React's development build emits a `performance.measure` per component per commit and
-# this page commits at 20 Hz: profiled at 6x CPU throttle, the dev build spent 28% of the main
-# thread in `clearMeasures` and 20% in `jsxDEV`, ran at 27-30 fps and stalled for 100 ms at a
-# time, while the production build of the same commit held 60 fps with a 16.7 ms p95. `--dev`
-# brings back hot reload for anyone actually editing the UI.
+# The UI is a production build, because the development build is half the cost of running it.
+# React's development build emits a `performance.measure` per component per commit and this page
+# commits at 20 Hz: profiled at 6x CPU throttle, the dev build spent 28% of the main thread in
+# `clearMeasures` and 20% in `jsxDEV`, ran at 27-30 fps and stalled for 100 ms at a time, while the
+# production build of the same commit held 60 fps with a 16.7 ms p95. `--dev` brings back hot
+# reload for anyone actually editing the UI.
 #
 # Everything else passed here goes on to DashboardMain; see its javadoc for the rest of the flags.
 set -euo pipefail
@@ -58,28 +58,20 @@ if [[ $wanted == next ]]; then
 fi
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
 
-# The UI first, because it is the slow one to become useful and it tolerates a socket that is not
-# up yet: the page retries every second until the JVM answers.
+if [[ -z $dev ]]; then
+  # One process: the JVM serves the built UI and the socket on the same port.
+  echo "[dashboard] open http://127.0.0.1:$port"
+  exec ./gradlew :TeamCode:dashboard --args="--port $port$forwarded"
+fi
+
+# --dev: Vite on its own port with hot reload, proxying /ws to the JVM.
 cd "$root/driver-hub-dashboard"
 bun install --silent
-if [[ -n $dev ]]; then
-  DASHBOARD_PORT="$port" bun run dev --clearScreen false &
-else
-  # `preview` serves what `build` just wrote, and it proxies `/ws` exactly as the dev server does,
-  # so the page still names no port of its own.
-  bun run build
-  DASHBOARD_PORT="$port" bunx vite preview --port "$ui_port" --strictPort &
-fi
+DASHBOARD_PORT="$port" bun run dev --clearScreen false &
 ui=$!
-
-# Either half dying takes the other with it. A UI left running against a dead simulation is the
-# half-started state all of this is about, and a JVM nobody can reach is no better.
 trap 'kill "$ui" 2>/dev/null || true' EXIT
-
-echo "[dashboard] open http://127.0.0.1:$ui_port  (simulation on ws://127.0.0.1:$port)"
-
-# The JVM in the foreground so that Ctrl-C reaches it directly: Gradle runs it as a child JavaExec,
-# and signalling a backgrounded Gradle is not reliably the same as signalling the JVM it started.
+echo "[dashboard] open http://127.0.0.1:$ui_port  (dev server; simulation on ws://127.0.0.1:$port)"
 cd "$root"
 ./gradlew :TeamCode:dashboard --args="--port $port$forwarded"
