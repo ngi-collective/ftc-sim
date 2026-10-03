@@ -37,8 +37,8 @@ dependencies {
 gradlePlugin {
     plugins {
         ftcSim {
-            // Placeholder id and group until #30 settles the published coordinates.
-            id = 'org.ngicollective.ftc-sim'
+            // ADR 0009: the plugin id is the Maven group.
+            id = 'org.ngi-collective.ftc-sim'
             implementationClass = 'org.ngicollective.ftcsim.gradle.FtcSimPlugin'
         }
     }

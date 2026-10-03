@@ -1,6 +1,7 @@
 package org.ngicollective.ftcsim.gradle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.gradle.testkit.runner.BuildResult;
@@ -27,59 +28,100 @@ class FtcSimPluginTest {
     @TempDir
     Path project;
 
+    private static final String CONFIGURED =
+            "version = '12.0.0'\n    season = 'biobuzz'\n    seasonVersion = '1.0.0'";
+
     @Test
     void addsTheFlavoursTheStagingAndTheDashboard() throws IOException {
-        fixture("season = 'Season-BioBuzz'\n    version = '0.1.0'");
+        fixture(CONFIGURED);
 
-        BuildResult result = run("tasks", "--all");
+        String out = run("tasks", "--all").getOutput();
 
-        String out = result.getOutput();
         assertTrue(out.contains("assembleSimulatedDebug"), out);
         assertTrue(out.contains("assembleRobotDebug"), out);
         assertTrue(out.contains("stageRobotConfig"), out);
+        assertTrue(out.contains("unpackFtcSimApp"), out);
+        assertTrue(out.contains("unpackFtcSimVisionNatives"), out);
         assertTrue(out.contains("dashboard"), out);
     }
 
     @Test
-    void resolvesTheSimulatorAndTheSeasonFromMavenOutsideItsOwnRepository() throws IOException {
-        fixture("season = 'Season-BioBuzz'\n    version = '0.1.0'");
+    void resolvesTheCoreAndTheSeasonEachAtItsOwnVersion() throws IOException {
+        fixture(CONFIGURED);
 
         String out = run(":app:dependencies", "--configuration", "simulatedDebugRuntimeClasspath")
                 .getOutput();
 
-        assertTrue(out.contains("org.ngicollective.ftcsim:testframework:0.1.0"), out);
-        assertTrue(out.contains("org.ngicollective.ftcsim:simulatedapp:0.1.0"), out);
-        assertTrue(out.contains("org.ngicollective.ftcsim:season-biobuzz:0.1.0"), out);
+        assertTrue(out.contains("org.ngi-collective.ftc-sim:core:12.0.0"), out);
+        assertTrue(out.contains("org.ngi-collective.ftc-sim:season-biobuzz:1.0.0"), out);
+        // The app is compiled from source into the flavour, never put on the classpath as a jar.
+        assertFalse(out.contains("org.ngi-collective.ftc-sim:app"), out);
+    }
+
+    @Test
+    void theAppAndTheNativesAreFetchedAtTheSimulatorsVersion() throws IOException {
+        fixture(CONFIGURED);
+
+        String app = run(":app:dependencies", "--configuration", "ftcSimApp").getOutput();
+        String natives = run(":app:dependencies", "--configuration", "ftcSimVisionNatives")
+                .getOutput();
+
+        assertTrue(app.contains("org.ngi-collective.ftc-sim:app:12.0.0"), app);
+        assertTrue(natives.contains("org.ngi-collective.ftc-sim:vision-natives:12.0.0"), natives);
+    }
+
+    @Test
+    void theSimulatedFlavourCompilesTheUnpackedAppAndItsManifest() throws IOException {
+        fixture(CONFIGURED);
+        write("app/print.gradle", ""
+                + "tasks.register('printSimulated') {\n"
+                + "    def java = android.sourceSets.simulated.java.srcDirs\n"
+                + "    def manifest = android.sourceSets.simulated.manifest.srcFile\n"
+                + "    doLast { println \"java=$java\"; println \"manifest=$manifest\" }\n"
+                + "}\n");
+        append("app/build.gradle", "apply from: 'print.gradle'\n");
+
+        String out = run(":app:printSimulated").getOutput();
+
+        assertTrue(out.contains("ftc-sim/app/java"), out);
+        assertTrue(out.contains("ftc-sim/app/AndroidManifest.xml"), out);
     }
 
     @Test
     void aBuildThatResolvesTheSimulatorMustSayWhichVersion() throws IOException {
-        fixture("season = 'Season-BioBuzz'");
+        fixture("season = 'biobuzz'\n    seasonVersion = '1.0.0'");
 
-        BuildResult result = runner(":app:dependencies", "--configuration",
-                "simulatedDebugRuntimeClasspath").buildAndFail();
-
-        assertTrue(result.getOutput().contains("ftcSim.version is not set"), result.getOutput());
+        assertFailsWith("ftcSim.version is not set");
     }
 
     @Test
     void aMissingSeasonIsNamedWhenTheClasspathIsResolved() throws IOException {
-        fixture("version = '0.1.0'");
+        fixture("version = '12.0.0'");
 
-        BuildResult result = runner(":app:dependencies", "--configuration",
-                "simulatedDebugRuntimeClasspath").buildAndFail();
+        assertFailsWith("ftcSim.season is not set");
+    }
 
-        assertTrue(result.getOutput().contains("ftcSim.season is not set"), result.getOutput());
+    @Test
+    void aSeasonNeedsItsOwnVersion() throws IOException {
+        fixture("version = '12.0.0'\n    season = 'biobuzz'");
+
+        assertFailsWith("ftcSim.seasonVersion is not set");
     }
 
     @Test
     void aTeamWithNoRobotConfigDirectoryStillBuilds() throws IOException {
-        fixture("season = 'Season-BioBuzz'\n    version = '0.1.0'");
+        fixture(CONFIGURED);
 
         BuildResult result = run("stageRobotConfig", "stageScenarios");
 
         assertEquals(TaskOutcome.NO_SOURCE, result.task(":app:stageRobotConfig").getOutcome());
         assertEquals(TaskOutcome.NO_SOURCE, result.task(":app:stageScenarios").getOutcome());
+    }
+
+    private void assertFailsWith(String message) {
+        BuildResult result = runner(":app:dependencies", "--configuration",
+                "simulatedDebugRuntimeClasspath").buildAndFail();
+        assertTrue(result.getOutput().contains(message), result.getOutput());
     }
 
     private BuildResult run(String... arguments) {
@@ -105,7 +147,7 @@ class FtcSimPluginTest {
         }
         write("app/build.gradle", ""
                 + "plugins {\n"
-                + "    id 'org.ngicollective.ftc-sim'\n"
+                + "    id 'org.ngi-collective.ftc-sim'\n"
                 + "    id 'com.android.application'\n"
                 + "}\n"
                 + "android {\n"
@@ -116,6 +158,11 @@ class FtcSimPluginTest {
                 + "ftcSim {\n"
                 + "    " + ftcSim + "\n"
                 + "}\n");
+    }
+
+    private void append(String path, String content) throws IOException {
+        Files.write(project.resolve(path), content.getBytes(StandardCharsets.UTF_8),
+                java.nio.file.StandardOpenOption.APPEND);
     }
 
     private void write(String path, String content) throws IOException {

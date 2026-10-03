@@ -52,14 +52,22 @@ Supervised processes: `hub ps` before starting anything, one name per service, a
 
 ## Build setup
 
-TeamCode's simulator setup is a Gradle plugin, `org.ngicollective.ftc-sim` (placeholder id until
-#30), built from the included build `build-logic/`. `TeamCode/build.gradle` is the plugin id, an
-`ftcSim { season = 'Season-BioBuzz' }` block and the SDK's own lines. The plugin adds the
-`robot`/`simulated` flavours, the simulator's modules (projects here, Maven coordinates in a team's
-build, where `ftcSim.version` is required), unit-test setup, the staged `robot-config/` and
-`scenarios/`, and the `dashboard` task. It declares `org.openpnp:opencv` before the SDK on
-purpose, and `OpenCvClasspathOrderTest` fails if that order flips. Its TestKit tests run in
-`mise run test` as `:build-logic:test`.
+TeamCode's simulator setup is a Gradle plugin, `org.ngi-collective.ftc-sim`, built from the
+included build `build-logic/`. `TeamCode/build.gradle` is the plugin id, `ftcSim { season =
+'biobuzz' }` and the SDK's own lines. The plugin adds:
+
+- the `robot`/`simulated` flavours
+- the simulator's modules: projects here, `org.ngi-collective.ftc-sim:<artifact>` at
+  `ftcSim.version` in a team's build, with the season at its own `ftcSim.seasonVersion`
+- the app sources compiled into `simulated`
+- unit-test setup and the natives: `:buildVisionNatives` here, the `vision-natives` jar for the
+  host elsewhere
+- the staged `robot-config/` and `scenarios/`, and the `dashboard` task
+
+It declares `org.openpnp:opencv` before the SDK on purpose, and `OpenCvClasspathOrderTest` fails if
+that order flips. Its TestKit tests run in `mise run test` as `:build-logic:test`. Artifact ids and
+the project each comes from are in `FtcSimPlugin.PROJECTS`. Publishing decisions are in
+`docs/adr/0009-publishing-ftc-sim.md`.
 
 ## OpMode model
 
@@ -122,16 +130,18 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
 - **Instrumented tests cannot use the app's robot.** The test runner stops any activity it did not
   start, and the SDK shuts a robot down with its activity, so the tests start their own through
   the same `SimulatedRobotStart`. See `RobotUnderTest`.
-- **The app wiring is library code; the robot is the team's.** `SimulatedRobotStart`, the
+- **The app wiring is the simulator's; the robot is the team's.** `SimulatedRobotStart`, the
   activity, the hardware factory, the clock and the permission wrapper live in `:SimulatedApp`
-  (`org.ngicollective.ftcsim.app`), whose manifest declares the simulated launcher and
-  merges into TeamCode's `simulated` flavour. The activity finds the robot with `ServiceLoader`, so
-  TeamCode registers `VerityRobot` in
+  (`org.ngicollective.ftcsim.app`), but nothing depends on that module as a library. The plugin
+  compiles its `src/main/java` and `AndroidManifest.xml` straight into TeamCode's `simulated`
+  flavour, against TeamCode's own `FtcRobotController`. A team's build does the same from the
+  unpacked `app` artifact, because FIRST publishes no artifact for the activity it extends
+  (ADR 0009). The module itself exists for its unit tests and to be packaged. The activity finds
+  the robot with `ServiceLoader`, so TeamCode registers `VerityRobot` in
   `src/simulated/resources/META-INF/services/org.ngicollective.ftcsim.hardware.SimulatedRobot`
   and exactly one entry is allowed. `PlainJvmVision`, `DashboardHost` and `DashboardLauncher` are
   test support in `:SimulatedApp-Testing`. The plain-JVM dashboard still finds robots by scanning
   the classpath; only an APK needs the registration.
-
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
   track width, strafe efficiency, grip coefficient, chassis dimensions and mass, encoder
   resolution, per-motor mounting mirror, launcher wheel and aim. `VerityRobot` reads it; do not
