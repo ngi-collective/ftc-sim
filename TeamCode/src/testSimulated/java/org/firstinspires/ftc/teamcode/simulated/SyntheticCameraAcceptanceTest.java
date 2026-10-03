@@ -69,7 +69,7 @@ public class SyntheticCameraAcceptanceTest {
         assertTrue("the simulated camera factory should be installed",
                 SyntheticCameras.isInstalled());
 
-        FakeHardwareMap hardware = new VerityRobot().create();
+        FakeHardwareMap hardware = new ExampleRobot().create();
         assertNotNull("the simulated robot should declare Webcam 1",
                 hardware.tryGet(WebcamName.class, "Webcam 1"));
 

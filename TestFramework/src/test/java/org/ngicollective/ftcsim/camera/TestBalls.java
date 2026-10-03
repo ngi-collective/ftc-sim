@@ -4,7 +4,7 @@ package org.ngicollective.ftcsim.camera;
  * Balls for the core's own tests: a 71 mm yellow one and a 91 mm one in either alliance colour.
  *
  * <p>BioBuzz's POLLEN and NECTAR sizes, because the intake and push tests were tuned against them
- * and Verity's 6 cm intake gap only makes sense for a ball that size. Copied here rather than
+ * and the example robot's 6 cm intake gap only makes sense for a ball that size. Copied here rather than
  * imported, since the core cannot depend on a season; the season's own tests use
  * {@code BioBuzzElements}.</p>
  */

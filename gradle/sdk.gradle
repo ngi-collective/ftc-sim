@@ -6,7 +6,7 @@
 // team's wins at runtime. The tests here still need it, so it is on the test classpaths too.
 //
 // Deliberately not build.dependencies.gradle. That is TeamCode's list, and carries the robot's own
-// libraries (Pedro Pathing, Panels) that no simulator module uses and no team should inherit
+// libraries that no simulator module uses and no team should inherit
 // from one.
 //
 

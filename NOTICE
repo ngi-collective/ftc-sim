@@ -1,0 +1,27 @@
+ftc-sim
+Copyright (c) 2026, NextGen Inventor's Collective. BSD-3-Clause; see LICENSE-ftc-sim.
+
+ftc-sim is not affiliated with or endorsed by FIRST. FIRST Tech Challenge and FTC are trademarks
+of FIRST.
+
+Which licence covers what:
+
+- The simulator modules (TestFramework, Dashboard, CameraStream, AndroidShims, SimulatedApp,
+  SimulatedApp-Testing, Season-*, build-logic, publishing, driver-hub-dashboard) and the example
+  TeamCode: BSD-3-Clause, LICENSE-ftc-sim.
+- FtcRobotController/ and the other files of the FTC SDK this repository is a fork of: FIRST's
+  licence, LICENSE. Files that carry a Qualcomm Technologies or FIRST copyright header keep it.
+- SimulatedApp's activity and robot start mirror the SDK's own start-up sequence. They keep the
+  conditions of the SDK licence, and neither FIRST's name nor Qualcomm's endorses this project.
+
+Third-party work this project builds on or redistributes:
+
+- AprilTag (AprilRobotics/apriltag), BSD-2-Clause, Copyright (C) 2013-2016 The Regents of The
+  University of Michigan. Compiled into the vision-natives artifacts.
+- EOCV-AprilTag-Plugin JNI sources (OpenFTC), MIT, Copyright (c) 2021 OpenFTC Team. Compiled into
+  the vision-natives artifacts.
+- ode4j (org.ode4j:core), dual-licensed LGPL-2.1 / BSD-3-Clause, Copyright (c) 2009-2015 Tilmann
+  Zaeschke. ftc-sim uses ode4j under its BSD-3-Clause option. Its published POM declares only the
+  LGPL, so licence scanners may report that instead.
+- Java-WebSocket (TooTallNate), MIT, used from the copy inside the FTC SDK.
+- Robolectric, MIT, and org.openpnp:opencv, BSD, are dependencies of the testing artifact.

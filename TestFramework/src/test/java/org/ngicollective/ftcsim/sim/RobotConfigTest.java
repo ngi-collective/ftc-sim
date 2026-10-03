@@ -20,7 +20,7 @@ import java.util.Arrays;
  * What a robot description is allowed to say, and what happens when it says it wrongly.
  *
  * <p>Every configuration here is written into a temporary directory by the test itself, never read
- * from {@code TeamCode/robot-config/verity.json}. Two reasons, and the second is the one that
+ * from {@code TeamCode/robot-config/example.json}. Two reasons, and the second is the one that
  * matters: TeamCode's configuration is not on this module's path at all, and a test pinned to the
  * competition robot would start failing the day someone moves the intake a centimetre, which is a
  * fact about the robot and not about the loader.</p>

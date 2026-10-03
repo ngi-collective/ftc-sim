@@ -87,5 +87,3 @@ driver-hub-dashboard/*.tsbuildinfo
 
 # Season field CAD: 34 MB, never diffed, and re-fetchable from a stable FIRST URL.
 # The numbers we need are extracted into version-controlled config instead.
-# See docs/reference/README.md for the fetch command.
-docs/reference/*.step

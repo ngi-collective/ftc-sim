@@ -15,7 +15,7 @@ import java.nio.file.Path;
 /**
  * Putting a camera mount back into the file it came from without wrecking the file.
  *
- * <p>The fixture is deliberately formatted the way {@code TeamCode/robot-config/verity.json} is:
+ * <p>The fixture is deliberately formatted the way {@code TeamCode/robot-config/example.json} is:
  * compact one-line blocks for the small things and a motor table with its columns lined up by
  * hand. That formatting is the point. Someone nudging a camera slider gets a diff of six numbers,
  * and an implementation that reads the document into Gson and writes it back would instead

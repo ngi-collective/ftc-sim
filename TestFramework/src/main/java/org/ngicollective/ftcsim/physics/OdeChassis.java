@@ -66,7 +66,7 @@ final class OdeChassis implements Chassis {
      * {@code robot-config}: it sets how quickly slip is taken up, and the physical answer &mdash;
      * how much force a wheel can apply at all &mdash; is the friction cap below it. Stiff enough
      * that the robot tracks its wheels closely (the contact settles with a time constant of about
-     * 23&nbsp;ms at Verity's mass), soft enough to be stable: the explicit force is stable while
+     * 23&nbsp;ms at the example robot's mass), soft enough to be stable: the explicit force is stable while
      * {@code 4k·h/m} stays well under 2, which at a 4&nbsp;ms step and 14&nbsp;kg means anything
      * under about 1750. This is 300.</p>
      */

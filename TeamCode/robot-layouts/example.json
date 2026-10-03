@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "devices": {
+    "imu": {
+      "position": [0, 0.115, 0],
+      "rotation": [0, 0, 0],
+      "scale": 1,
+      "mount": "bare",
+      "ratio": 1,
+      "outputOffset": [0, 0, 0.034],
+      "outputRotation": [0, 0, 0],
+      "ticksPerRev": 537.7
+    },
+    "FL": {
+      "position": [-0.16, 0.07, -0.15],
+      "rotation": [0, 90, 0],
+      "scale": 1,
+      "mount": "wheel",
+      "ratio": 1,
+      "outputOffset": [-0.07, 0, 0.01],
+      "outputRotation": [-90, 0, 0],
+      "ticksPerRev": 537.7
+    },
+    "FR": {
+      "position": [0.16, 0.07, -0.14],
+      "rotation": [0, 90, 0],
+      "scale": 1,
+      "mount": "wheel",
+      "ratio": -1,
+      "outputOffset": [0.07, 0, 0.01],
+      "outputRotation": [90, 0, 0],
+      "ticksPerRev": 537.7
+    },
+    "BL": {
+      "position": [-0.16, 0.07, 0.145],
+      "rotation": [0, 90, 0],
+      "scale": 1,
+      "mount": "wheel",
+      "ratio": 1,
+      "outputOffset": [-0.07, 0, 0.01],
+      "outputRotation": [-90, 0, 0],
+      "ticksPerRev": 537.7
+    },
+    "BR": {
+      "position": [0.16, 0.07, 0.145],
+      "rotation": [0, 90, 0],
+      "scale": 1,
+      "mount": "wheel",
+      "ratio": -1,
+      "outputOffset": [0.07, 0, 0.01],
+      "outputRotation": [90, 0, 0],
+      "ticksPerRev": 537.7
+    }
+  }
+}

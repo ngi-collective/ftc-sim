@@ -16,7 +16,7 @@ itself.**
 `TestFramework` and must work with no dashboard attached at all — instrumented tests and the
 Simulated Robot Controller on a device both render frames with nothing listening. So it cannot
 consume geometry from the wire. And the browser cannot compute it: the HIVE and FLOWER coordinates
-are CAD measurements (`docs/reference/README.md`), and retyping thirty inch-denominated numbers
+are CAD measurements (FIRST's published field CAD), and retyping thirty inch-denominated numbers
 into TypeScript is the same class of mistake as a mirrored tag — plausible on screen, wrong
 everywhere it matters.
 

@@ -343,7 +343,7 @@ class ScenePublicationTest {
 
     /**
      * A robot that builds a fresh {@code SceneFrameSource} on every {@code create()}, the way
-     * {@code VerityRobot} does.
+     * {@code ExampleRobot} does.
      *
      * <p>{@link #sceneRobot()}'s shared source would carry a scene across an init by accident,
      * and hide the bug {@code aLoadedArrangementSurvivesAnInit} exists to catch.</p>

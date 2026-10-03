@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import shipped from '../../../TeamCode/robot-layouts/vertical-shafts.json';
+import shipped from '../../../TeamCode/robot-layouts/example.json';
 import type { DeviceState } from '../protocol';
 import {
   CHASSIS,

@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * Writes a number back into a robot description without disturbing the file around it.
  *
- * <p>Surgical on purpose. {@code TeamCode/robot-config/verity.json} is hand-formatted &mdash;
+ * <p>Surgical on purpose. {@code TeamCode/robot-config/example.json} is hand-formatted &mdash;
  * one-line blocks for the small things, aligned columns in the motor table &mdash; and the obvious
  * implementation, parse with Gson and re-serialise, throws all of that away: the whole document
  * comes back pretty-printed, and a driver who nudged one slider gets a two-hundred-line diff to

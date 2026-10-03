@@ -6,6 +6,11 @@ Date: 2026-09-17
 
 Accepted.
 
+> **Note (ftc-sim repository).** This record was written in a team's robot repository. The
+> aiming code it names (`LensMount`, `ShotSolver`, `LaunchGeometry`, `AimedLauncherTeleOp` and
+> their tests) is that team's and is not part of ftc-sim. The finding about cluster detections and
+> `ftcPose` is the simulator's, and holds for any robot.
+
 ## Context
 
 The season's loop is: see a CELL, work out how hard to throw, throw that hard. Everything up to
@@ -75,7 +80,7 @@ states the law — a cluster's normal is its CELL's up, negated, and its up is i
 negated — so the two CELLs cannot drift.
 
 **Nothing reads the configuration file.** `LaunchGeometry` is a second copy of six numbers from
-`verity.json`, and it has to be: the competition APK ships no configuration and a Control Hub has
+`example.json`, and it has to be: the competition APK ships no configuration and a Control Hub has
 no checkout. `LaunchGeometryTest` compares the two through the pose the renderer itself looks
 along, so a re-aimed camera fails a test instead of missing every shot.
 

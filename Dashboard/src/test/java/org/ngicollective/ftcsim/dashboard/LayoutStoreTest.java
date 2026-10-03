@@ -37,21 +37,21 @@ class LayoutStoreTest {
     void savesAndReadsBackTheLayoutItWasGiven() {
         LayoutStore store = new LayoutStore(directory);
 
-        store.save("Verity comp", layout("FL", -0.22));
+        store.save("Example comp", layout("FL", -0.22));
 
-        assertEquals(Arrays.asList("Verity comp"), store.list());
-        assertEquals(layout("FL", -0.22), store.read("Verity comp"));
+        assertEquals(Arrays.asList("Example comp"), store.list());
+        assertEquals(layout("FL", -0.22), store.read("Example comp"));
     }
 
     @Test
     void savingTheSameNameReplacesTheFileRatherThanAccumulating() {
         LayoutStore store = new LayoutStore(directory);
-        store.save("Verity", layout("FL", -0.22));
+        store.save("Example", layout("FL", -0.22));
 
-        store.save("Verity", layout("FL", -0.30));
+        store.save("Example", layout("FL", -0.30));
 
         assertEquals(1, store.list().size());
-        assertEquals(layout("FL", -0.30), store.read("Verity"));
+        assertEquals(layout("FL", -0.30), store.read("Example"));
     }
 
     /** These files are read and reviewed in pull requests, not just parsed. */
@@ -59,7 +59,7 @@ class LayoutStoreTest {
     void writesReadableJsonWithATrailingNewline() throws Exception {
         LayoutStore store = new LayoutStore(directory);
 
-        Path file = store.save("Verity", layout("FL", -0.22));
+        Path file = store.save("Example", layout("FL", -0.22));
 
         String contents = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
         assertTrue(contents.endsWith("}\n"), "no trailing newline: " + contents);
@@ -75,13 +75,13 @@ class LayoutStoreTest {
     @Test
     void deletingRemovesTheFileAndReportsAnUnknownName() {
         LayoutStore store = new LayoutStore(directory);
-        store.save("Verity", layout("FL", -0.22));
+        store.save("Example", layout("FL", -0.22));
 
-        store.delete("Verity");
+        store.delete("Example");
 
         assertTrue(store.list().isEmpty());
-        assertFalse(Files.exists(directory.resolve("Verity.json")));
-        assertThrows(IllegalArgumentException.class, () -> store.delete("Verity"));
+        assertFalse(Files.exists(directory.resolve("Example.json")));
+        assertThrows(IllegalArgumentException.class, () -> store.delete("Example"));
     }
 
     @Test
@@ -108,8 +108,8 @@ class LayoutStoreTest {
     void refusesToSaveSomethingThatIsNotALayoutObject() {
         LayoutStore store = new LayoutStore(directory);
 
-        assertThrows(IllegalArgumentException.class, () -> store.save("Verity", null));
+        assertThrows(IllegalArgumentException.class, () -> store.save("Example", null));
         assertThrows(IllegalArgumentException.class,
-                () -> store.save("Verity", new JsonPrimitive("not an object")));
+                () -> store.save("Example", new JsonPrimitive("not an object")));
     }
 }

@@ -73,7 +73,7 @@ final class OdeFieldPhysics implements FieldPhysics {
     /**
      * The solver's step: 4&nbsp;ms, or 250&nbsp;Hz, held in whole nanoseconds.
      *
-     * <p>The rate is chosen against the fastest thing in the world, which is the robot. Verity's
+     * <p>The rate is chosen against the fastest thing in the world, which is the robot. The example robot's
      * free speed is about 1.6&nbsp;m/s, so a 4&nbsp;ms substep advances the chassis 6.3&nbsp;mm
      * &mdash; under a tenth of a POLLEN ball's 71&nbsp;mm diameter, so a ball cannot end up on the
      * far side of the bumper without a contact having been evaluated in between. At the dashboard's

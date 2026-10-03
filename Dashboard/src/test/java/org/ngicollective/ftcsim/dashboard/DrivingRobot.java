@@ -30,7 +30,7 @@ import java.util.Map;
  */
 final class DrivingRobot implements SimulatedRobot {
 
-    /** The same shape as {@code TeamCode/robot-config/verity.json}, trimmed to what a drive needs. */
+    /** The same shape as {@code TeamCode/robot-config/example.json}, trimmed to what a drive needs. */
     private static final String CONFIG_JSON = "{\n"
             + "  \"version\": 1,\n"
             + "  \"name\": \"DrivingBot\",\n"

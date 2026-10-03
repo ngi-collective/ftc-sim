@@ -81,15 +81,15 @@ class WireFormatTest {
                 new OpModeInfo("Concept: AprilTag Easy", "Concept", "TeleOp",
                         "org.firstinspires.ftc.teamcode.ConceptAprilTagEasy"),
                 new OpModeInfo("Example Auto", "Examples", "Autonomous",
-                        "org.firstinspires.ftc.teamcode.pedroPathing.ExampleAuto"),
+                        "org.firstinspires.ftc.teamcode.examples.ExampleAuto"),
                 new OpModeInfo("Example Auto", "Examples", "Autonomous",
-                        "org.firstinspires.ftc.teamcode.pedroPathing.TestAuto"),
+                        "org.firstinspires.ftc.teamcode.examples.TestAuto"),
                 new OpModeInfo("Field Relative Mecanum (Sample)", "Linear OpMode", "TeleOp",
                         "org.firstinspires.ftc.teamcode.FieldRelativeMecanumTeleOp"),
-                new OpModeInfo("I AM VERITY V2", "", "TeleOp",
-                        "org.firstinspires.ftc.teamcode.iamyou"),
-                new OpModeInfo("Tuning", "Pedro Pathing", "TeleOp",
-                        "org.firstinspires.ftc.teamcode.pedroPathing.Tuning"));
+                new OpModeInfo("Example TeleOp", "", "TeleOp",
+                        "org.firstinspires.ftc.teamcode.ExampleTeleOp"),
+                new OpModeInfo("Tuning", "Examples", "TeleOp",
+                        "org.firstinspires.ftc.teamcode.examples.Tuning"));
 
         assertMatchesFixture("opmode-list", protocol().opModeListEnvelope());
     }
@@ -121,7 +121,7 @@ class WireFormatTest {
 
     private JsonElement stateOnTheWire(OpModeStatus.State state) {
         Envelope frame = protocol().envelope("opmode", "status",
-                new OpModeStatus("org.firstinspires.ftc.teamcode.iamyou", state, null));
+                new OpModeStatus("org.firstinspires.ftc.teamcode.ExampleTeleOp", state, null));
         return onTheWire(frame).getAsJsonObject("payload").get("state");
     }
 
@@ -245,7 +245,7 @@ class WireFormatTest {
     @Test
     void simConfigFrameMatchesTheCapturedFixture() {
         SimConfigPayload config = new SimConfigPayload(
-                new SimConfigPayload.Robot("Verity",
+                new SimConfigPayload.Robot("Example",
                         new SimConfigPayload.Chassis(0.38, 0.4, 0.05, 0.105),
                         new SimConfigPayload.Drivetrain("mecanum", 0.048, 1.0, 0.32, 0.29, 0.8)),
                 new SimConfigPayload.Field(3.5814, 0.312, 0.6096));

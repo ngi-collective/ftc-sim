@@ -16,7 +16,7 @@ import type { DeviceState } from '../protocol';
 /** Metres. Roughly an FTC 18" chassis, which sets the scale for every part in the scene. */
 export const CHASSIS = { width: 0.38, height: 0.05, depth: 0.4, deckY: 0.105 };
 
-/** goBILDA 5202 encoder resolution — the drivetrain VerityRobot declares. Overridable per device. */
+/** goBILDA 5202 encoder resolution — the drivetrain ExampleRobot declares. Overridable per device. */
 export const DEFAULT_TICKS_PER_REV = 537.7;
 
 /** How the far end of the shaft is dressed. Purely cosmetic, but it is what makes rotation legible. */

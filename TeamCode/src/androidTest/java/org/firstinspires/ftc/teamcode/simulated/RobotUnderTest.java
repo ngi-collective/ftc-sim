@@ -100,7 +100,7 @@ final class RobotUnderTest {
                 return null;
             }
         });
-        robotStart.start(new SimulatedHardwareFactory(activity, new VerityRobot()),
+        robotStart.start(new SimulatedHardwareFactory(activity, new ExampleRobot()),
                 manager -> { }, callback);
     }
 

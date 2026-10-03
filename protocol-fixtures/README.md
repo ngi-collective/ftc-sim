@@ -1,7 +1,7 @@
 # Protocol fixtures
 
 Frames captured verbatim off a live dashboard session — `mise run dashboard` serving TeamCode's
-`VerityRobot` and `org.firstinspires.ftc.teamcode.iamyou`, with a motor stalled and the robot
+`ExampleRobot` and `org.firstinspires.ftc.teamcode.ExampleTeleOp`, with a motor stalled and the robot
 driving, so the divergence and non-default-behavior paths are real rather than constructed.
 
 `sim-scene.json` and `sim-bodies.json` come from a second session, `--scenario practice-balls`,

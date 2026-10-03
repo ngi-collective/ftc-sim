@@ -219,7 +219,7 @@ public class LocalDashboardBackend implements DashboardBackend {
      *
      * <p>Kept so that {@link #cameraMount()} can say whether the session is holding something the
      * file does not have. Read afresh on every rebuild, because the file is read afresh on every
-     * rebuild: someone who edits {@code verity.json} and presses INIT has changed what "saved"
+     * rebuild: someone who edits {@code example.json} and presses INIT has changed what "saved"
      * means.</p>
      */
     private CameraMount fileMount;

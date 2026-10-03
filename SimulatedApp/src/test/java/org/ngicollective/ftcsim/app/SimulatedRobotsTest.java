@@ -15,7 +15,7 @@ class SimulatedRobotsTest {
 
     @Test
     void theOneRegisteredRobotIsTheRobot() {
-        SimulatedRobot robot = new Named("Verity");
+        SimulatedRobot robot = new Named("Example");
 
         assertSame(robot, SimulatedRobots.single(Collections.singletonList(robot)));
     }
@@ -34,7 +34,7 @@ class SimulatedRobotsTest {
     void twoRobotsAreAMistakeRatherThanAChoice() {
         IllegalStateException refused = assertThrows(IllegalStateException.class,
                 () -> SimulatedRobots.single(Arrays.<SimulatedRobot>asList(
-                        new Named("Verity"), new Named("Copy"))));
+                        new Named("Example"), new Named("Copy"))));
 
         assertTrue(refused.getMessage().startsWith("2 SimulatedRobots"), refused.getMessage());
     }

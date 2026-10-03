@@ -246,13 +246,13 @@ class DashboardProtocolTest {
 
     @Test
     void opModeListRequestAnswersWithTheOpModesTheBackendKnows() {
-        backend.opModes = Collections.singletonList(new OpModeInfo("I AM VERITY V2", "", "TeleOp",
-                "org.firstinspires.ftc.teamcode.iamyou"));
+        backend.opModes = Collections.singletonList(new OpModeInfo("Example TeleOp", "", "TeleOp",
+                "org.firstinspires.ftc.teamcode.ExampleTeleOp"));
 
         receive("{\"namespace\":\"opmode\",\"type\":\"list\",\"payload\":{}}");
 
         assertEquals(Collections.singletonList("opmode/list"), routes(replies.replied));
-        assertEquals("org.firstinspires.ftc.teamcode.iamyou",
+        assertEquals("org.firstinspires.ftc.teamcode.ExampleTeleOp",
                 payloadOf(replies.replied.get(0)).getAsJsonArray("opModes").get(0)
                         .getAsJsonObject().get("className").getAsString());
     }
@@ -260,9 +260,9 @@ class DashboardProtocolTest {
     @Test
     void opModeInitSelectsTheClassNameItWasGiven() {
         receive("{\"namespace\":\"opmode\",\"type\":\"init\",\"payload\":"
-                + "{\"className\":\"org.firstinspires.ftc.teamcode.iamyou\"}}");
+                + "{\"className\":\"org.firstinspires.ftc.teamcode.ExampleTeleOp\"}}");
 
-        assertEquals("org.firstinspires.ftc.teamcode.iamyou", backend.initializedOpMode);
+        assertEquals("org.firstinspires.ftc.teamcode.ExampleTeleOp", backend.initializedOpMode);
         assertEquals(Collections.emptyList(), routes(replies.replied));
     }
 
@@ -435,27 +435,27 @@ class DashboardProtocolTest {
     @Test
     void layoutSaveTellsTheSaverThePathAndTellsEveryoneTheNewList() {
         receive("{\"namespace\":\"layout\",\"type\":\"save\",\"payload\":"
-                + "{\"name\":\"Verity comp\",\"layout\":{\"version\":1}}}");
+                + "{\"name\":\"Example comp\",\"layout\":{\"version\":1}}}");
 
         assertEquals(Collections.singletonList("layout/saved"), routes(replies.replied));
-        assertEquals("Verity comp", payloadOf(replies.replied.get(0)).get("name").getAsString());
+        assertEquals("Example comp", payloadOf(replies.replied.get(0)).get("name").getAsString());
         assertTrue(payloadOf(replies.replied.get(0)).get("path").getAsString()
-                        .endsWith("Verity comp.json"),
+                        .endsWith("Example comp.json"),
                 "the saver is told which file to commit");
 
         assertEquals(Collections.singletonList("layout/list"), routes(replies.broadcast));
-        assertEquals(new JsonParser().parse("[\"Verity comp\"]"),
+        assertEquals(new JsonParser().parse("[\"Example comp\"]"),
                 payloadOf(replies.broadcast.get(0)).getAsJsonArray("layouts"));
     }
 
     @Test
     void layoutLoadAnswersWithTheLayoutThatWasSavedUnderThatName() {
         receive("{\"namespace\":\"layout\",\"type\":\"save\",\"payload\":"
-                + "{\"name\":\"Verity\",\"layout\":{\"devices\":{\"FL\":{\"x\":-0.22}}}}}");
+                + "{\"name\":\"Example\",\"layout\":{\"devices\":{\"FL\":{\"x\":-0.22}}}}}");
         replies.forget();
 
         receive("{\"namespace\":\"layout\",\"type\":\"load\","
-                + "\"payload\":{\"name\":\"Verity\"}}");
+                + "\"payload\":{\"name\":\"Example\"}}");
 
         assertEquals(Collections.singletonList("layout/data"), routes(replies.replied));
         assertEquals(new JsonParser().parse("{\"devices\":{\"FL\":{\"x\":-0.22}}}"),
@@ -465,11 +465,11 @@ class DashboardProtocolTest {
     @Test
     void layoutDeleteTellsEveryoneTheFileIsGone() {
         receive("{\"namespace\":\"layout\",\"type\":\"save\",\"payload\":"
-                + "{\"name\":\"Verity\",\"layout\":{}}}");
+                + "{\"name\":\"Example\",\"layout\":{}}}");
         replies.forget();
 
         receive("{\"namespace\":\"layout\",\"type\":\"delete\","
-                + "\"payload\":{\"name\":\"Verity\"}}");
+                + "\"payload\":{\"name\":\"Example\"}}");
 
         assertEquals(Collections.singletonList("layout/list"), routes(replies.broadcast));
         assertEquals(new JsonParser().parse("[]"),
@@ -571,7 +571,7 @@ class DashboardProtocolTest {
 
     private static SimConfigPayload someSimConfig() {
         return new SimConfigPayload(
-                new SimConfigPayload.Robot("Verity",
+                new SimConfigPayload.Robot("Example",
                         new SimConfigPayload.Chassis(0.38, 0.4, 0.05, 0.105),
                         new SimConfigPayload.Drivetrain("mecanum", 0.048, 1.0, 0.32, 0.29, 0.8)),
                 new SimConfigPayload.Field(3.5814, 0.312, 0.6096));

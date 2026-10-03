@@ -4,14 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A team fork of the FIRST Tech Challenge SDK (`FtcRobotController` v12.0, BIOBUZZ 2026-2027 season). It builds an Android APK that runs on the REV Control Hub; the REV Driver Hub runs the Driver Station app. Team-authored robot code lives in `TeamCode`; everything under `FtcRobotController/` is vendor SDK code and samples, left alone so upstream SDK updates merge cleanly. Building from Android Studio requires Narwhal 3 Feature Drop or later.
+`ftc-sim`: a simulator and test framework for FIRST Tech Challenge OpModes, published to Maven
+Central as `org.ngi-collective.ftc-sim` (see `docs/adr/0009-publishing-ftc-sim.md`). The repository
+is a fork of the FTC SDK (`FtcRobotController` v12.0, BIOBUZZ 2026-2027), because the simulated
+app compiles against the SDK's `FtcRobotController` module and the end-to-end tests run inside a
+real `TeamCode`. `FtcRobotController/` is vendor SDK code, left alone so upstream SDK updates merge
+cleanly. `TeamCode` holds an example: `ExampleRobot`, a generic mecanum robot whose numbers come
+from a real competition robot, plus the OpModes and tests that exercise the simulator end to end.
+Not affiliated with or endorsed by FIRST.
 
 Two remotes, and the distinction matters:
 
-- `origin` → `ngi-collective/FtcRobotController2026-2027` — the team fork. All team work goes here.
-- `upstream` → `FIRST-Tech-Challenge/FtcRobotController` — the official SDK, pull-only.
+- `origin` → `ngi-collective/ftc-sim`. All simulator work goes here.
+- `upstream` → `FIRST-Tech-Challenge/FtcRobotController`, the official SDK, pull-only. An SDK
+  release is a merge from `upstream`, the same way a team updates its own fork.
 
-`.github/CONTRIBUTING.md` is upstream's, and its main point applies: team code is never meant to go back to `upstream`. Never push or open a PR against it.
+`.github/CONTRIBUTING.md` is upstream's, and its main point applies: nothing here goes back to
+`upstream`. Never push or open a PR against it.
+
+`README.md` is this project's, not upstream's, and `.gitattributes` keeps ours on every upstream
+merge. That needs `git config merge.ours.driver true` once per clone.
 
 ## Commands
 
@@ -137,14 +149,14 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   flavour, against TeamCode's own `FtcRobotController`. A team's build does the same from the
   unpacked `app` artifact, because FIRST publishes no artifact for the activity it extends
   (ADR 0009). The module itself exists for its unit tests and to be packaged. The activity finds
-  the robot with `ServiceLoader`, so TeamCode registers `VerityRobot` in
+  the robot with `ServiceLoader`, so TeamCode registers `ExampleRobot` in
   `src/simulated/resources/META-INF/services/org.ngicollective.ftcsim.hardware.SimulatedRobot`
   and exactly one entry is allowed. `PlainJvmVision`, `DashboardHost` and `DashboardLauncher` are
   test support in `:SimulatedApp-Testing`. The plain-JVM dashboard still finds robots by scanning
   the classpath; only an APK needs the registration.
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
   track width, strafe efficiency, grip coefficient, chassis dimensions and mass, encoder
-  resolution, per-motor mounting mirror, launcher wheel and aim. `VerityRobot` reads it; do not
+  resolution, per-motor mounting mirror, launcher wheel and aim. `ExampleRobot` reads it; do not
   hardcode these numbers anywhere else. The files are also
   packaged as APK resources, so the simulated app works on a device with no checkout.
   Read again on every `create()`, so **editing a config file takes effect at the next INIT** — no
@@ -219,7 +231,7 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   is what enforces that. The seam is `sim.Season`: it reads a scenario file into a scene and scores
   a field as a `FieldScore` of volumes and tallies. A robot names its game with
   `SimulatedRobot.season()`, which defaults to `Season.none()` (refuses scenarios, has no score);
-  `VerityRobot` returns `BioBuzz.SEASON`. POLLEN and NECTAR come from `BioBuzzElements`; the core's
+  `ExampleRobot` returns `BioBuzz.SEASON`. POLLEN and NECTAR come from `BioBuzzElements`; the core's
   own physics tests use same-sized `TestBalls`. See `docs/adr/0008-the-season-is-a-module.md`.
 - **Scoring is a containment test against a posed box**, not a flag on a structure. A
   `ScoringVolume` is the manual's own term (§10.5.2) for a region where an element counts, it is
@@ -276,13 +288,13 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   from the field's centre line, and a legal robot cannot get its nose further back than about
   1.4 m from it, so the straight line to the target is already near 60° — anything flatter cannot
   reach. The basket's back panel also returns a third of what hits it, so a flat hard shot bounces
-  out of the opening it came in through. Verity is aimed at 75°, which scores from that stand-off
+  out of the opening it came in through. The example robot is aimed at 75°, which scores from that stand-off
   at 35% of a bare 5203's free speed, and the whole scoring band is about ±5% of that.
 - Poses are stored in the **FTC field frame**: origin at field centre, metres, heading radians
   CCW-positive, heading 0 facing +X. Only the browser converts to three.js coordinates.
 - The drivetrain IMU uses `ImuBehaviors.followingChassis()`, so heading is derived from the wheels.
   The `stationary` / `rotating` / `followingYawRate` presets remain as deliberate fault injection.
-- A standing start **is not instantaneous**: grip bounds acceleration, so Verity reaches its
+- A standing start **is not instantaneous**: grip bounds acceleration, so the example robot reaches its
   1.57 m/s free speed in about three tenths of a second (measured on a live session: 0.50 m/s at
   0.1 s, 1.12 at 0.2 s, 1.564 at 0.3 s). Assertions that assume a robot leaves the
   line at full speed are wrong, and were rewritten as brackets when the chassis went dynamic.
@@ -325,9 +337,8 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
   oracle for "is the detector broken, or is my renderer?". It needs a `google_apis` AVD with
   `hw.camera.back=webcam0`; see `mise.toml`.
 - **Vision runs on a plain JVM, and therefore in CI.** `SyntheticCameraAcceptanceTest` (detections
-  are right, read off an unmodified OpMode's telemetry) and `AimedLauncherAcceptanceTest` (the
-  whole season loop) are ordinary `mise run test` tests, about 13 s for the pair against 142 s of
-  emulator invocations. `tools/build-vision-natives.sh` rebuilds AprilTag from OpenFTC's sources
+  are right, read off an unmodified OpMode's telemetry) is an ordinary `mise run test` test, a few
+  seconds against over a minute for the same check on an emulator. `tools/build-vision-natives.sh` rebuilds AprilTag from OpenFTC's sources
   and stubs `libRobotCore`/`libEasyOpenCV`; OpenCV comes from `org.openpnp` through
   `VisionNatives.ensureLoaded()`; Robolectric supplies the Android framework, and `PlainJvmVision`
   the four things it does not — an Activity, the LiveView container, an `OpModeManagerImpl` and
@@ -355,62 +366,6 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
   fails with "Viewport container specified by user is not empty!", which on the plain JVM is
   avoided instead by Robolectric giving each test class its own sandbox.
 
-## Aiming, and shooting what you aimed at
-
-`AimedLauncherTeleOp` closes the loop: detect the cluster, range off it, set the flywheel from the
-range, shoot. `LensMount` → `ShotSolver` → `LaunchGeometry` in `TeamCode/src/main`, all three
-plain-JVM testable. See `docs/adr/0006-a-cluster-detection-is-an-aim-point.md`.
-
-**To watch the whole game work at once**, run `mise run dashboard --scenario auto-sweep`, pick
-**Auto: sweep and shoot**, drag the robot onto the start square the INIT telemetry names
-(`x -0.55, y -1.43, heading 90`), and press START. Nine seconds later the score reads
-`RED 20 (1 TIP)`. `SweepAndShootAuto` is the routine to read first: five timed steps, no vision,
-no odometry, and `SweepAndShootAutoTest` runs it headlessly on every commit — as, since
-`docs/adr/0007-vision-runs-on-the-plain-jvm.md`, does the vision loop's equivalent.
-
-- **An AUTO aims off the field drawing, not off a camera.** It starts on a known square facing a
-  known direction, so the range is arithmetic before the robot has moved and with no tag in view.
-  Same `ShotSolver`, different source of range — and the weakness is the obvious one: set the robot
-  down half a metre out and every ball lands on the tiles, cheerfully.
-- **It slides sideways rather than driving at the balls**, for the reason below: forward motion
-  ruins a shot and sideways motion costs a quarter of an opening. Two rows, because the mouth
-  reaches 24 cm and the bumper is at 20, so the band a ball can sit in without being shoved along
-  by the chassis is one ball wide.
-- **A routine that ends undoes its own work.** A dashboard session rebuilds the field when an
-  OpMode stops, so the last step of an AUTO worth watching is `while (opModeIsActive())` holding
-  still — which is also what a real one does while it waits for the buzzer.
-
-- **A cluster detection is the aim point.** The SDK's cluster origin lands 1.42 in from the centre
-  of the CELL opening its tags hang under — an eighth of the opening's height — identically for all
-  four CELLs in both tip states, so there is no offset table. Measured, not chosen: the SDK's
-  member offsets, FIRST's CAD and the manual's CELL dimensions agree there and none of them
-  mentions the others.
-- **Never use `ftcPose.range`, `bearing` or `elevation` on this robot.** They are measured in the
-  camera's own frame — `range` is `hypot(x, y)` with the vertical dropped — and the camera aims up
-  35°, so all three are wrong about the field by a plausible-looking amount. Use `x`, `y`, `z` and
-  level them through the mount.
-- **`robotPose` is useless this season.** The SDK declares all four BioBuzz clusters at
-  `fieldPosition = (0,0,0)` with an identity orientation, so anything absolute must be built from
-  relative measurements.
-- **The two CELLs of a HIVE are one part mounted two ways**, the second turned 180° about the
-  CELL's own rise axis. Their tag plates therefore differ by 180° of roll, and getting that wrong
-  is nearly invisible: the tags still land on the measured plate and still detect, only the ids run
-  the other way and the cluster origin lands two feet away, behind the closed end of the basket.
-  `BioBuzzFieldTest.everyClusterOriginSitsAtItsCellsOpening` is the guard.
-- **The detector reads about 3 % near** — a cluster 0.92 m away reports 0.89 m. Uniform, harmless
-  for a steep lob, and the reason the acceptance test works in centimetres.
-- **Which CELL to shoot at is a question about height.** Both plates of a HIVE share a normal, so a
-  camera sees all four of its tags at once; the raised opening is at 1.51 m and the lowered one at
-  0.97 m, and `LaunchGeometry.RAISED_CELL_HEIGHT_METRES` sits in the gap.
-- **A 75° lob has a minimum range** (`rise / tan p`, about 40 cm) and needs its *least* speed at
-  twice that. Closer shots are harder than mid-range ones, which is the opposite of the intuition a
-  flat shooter gives a driver.
-- **This robot cannot shoot on the move.** The intake's sweep and the launcher's mouth are the same
-  6 cm of space, so a ball comes within reach and goes; at a third of power the chassis adds
-  0.55 m/s to a 1.45 m/s horizontal component and the ball clears the far lip, which is 9 cm past
-  the near one. Spin up, then roll the last couple of centimetres. Firing while driving needs a
-  feeder, which this robot has not got.
-
 ## Conventions
 
 Sample naming in `FtcRobotController/.../external/samples/` follows `Basic` / `Sensor` / `Robot` / `Concept` prefixes (plus some `Utility` classes); the scheme is documented in `sample_conventions.md` alongside them. Copy a sample into `TeamCode` rather than editing it in place.
@@ -419,15 +374,7 @@ Sample naming in `FtcRobotController/.../external/samples/` follows `Basic` / `S
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (ngi-collective/FtcRobotController2026-2027), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (not yet created; created lazily by `/domain-modeling`). See `docs/agents/domain.md`.
+Issues live in this repo's GitHub Issues (`ngi-collective/ftc-sim`), via the `gh` CLI.
 
 ### Dashboard probes
 

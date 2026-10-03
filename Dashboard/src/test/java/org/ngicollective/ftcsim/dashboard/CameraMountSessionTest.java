@@ -239,7 +239,7 @@ class CameraMountSessionTest {
 
         @Override
         public FakeHardwareMap create() {
-            // Read afresh on every build, like VerityRobot: a session that parsed its file once
+            // Read afresh on every build, like ExampleRobot: a session that parsed its file once
             // could not see a mount someone had just saved into it.
             CameraConfig camera = RobotConfig.load(file).camera();
             return cameraHardware(camera.name(), camera.mount());

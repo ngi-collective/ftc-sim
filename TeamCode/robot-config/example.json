@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "name": "Example",
+  "chassis": {
+    "widthMetres": 0.38,
+    "lengthMetres": 0.40,
+    "heightMetres": 0.05,
+    "deckHeightMetres": 0.105,
+    "massKilograms": 14.0
+  },
+  "drivetrain": {
+    "type": "mecanum",
+    "wheelRadiusMetres": 0.048,
+    "gearRatio": 1.0,
+    "trackWidthMetres": 0.32,
+    "wheelBaseMetres": 0.29,
+    "strafeEfficiency": 0.8,
+    "gripCoefficient": 0.9
+  },
+  "imu": { "name": "imu" },
+  "camera": {
+    "name": "Webcam 1",
+    "forwardMetres": 0.16,
+    "leftMetres": 0.0,
+    "heightMetres": 0.105,
+    "yawDegrees": 0.0,
+    "pitchDegrees": 35.0,
+    "rollDegrees": 0.0,
+    "framesPerSecond": 30.0
+  },
+  "motors": {
+    "FL":       { "role": "frontLeft",  "mirrored": true,  "rpm": 312.0,  "ticksPerRevolution": 537.7 },
+    "FR":       { "role": "frontRight", "mirrored": false, "rpm": 312.0,  "ticksPerRevolution": 537.7 },
+    "BL":       { "role": "backLeft",   "mirrored": true,  "rpm": 312.0,  "ticksPerRevolution": 537.7 },
+    "BR":       { "role": "backRight",  "mirrored": false, "rpm": 312.0,  "ticksPerRevolution": 537.7 },
+    "flywheel": { "role": "launcher",   "mirrored": false, "rpm": 6000.0, "ticksPerRevolution": 28.0 }
+  },
+  "launchers": {
+    "flywheel": {
+      "wheelRadiusMetres": 0.0508,
+      "transferEfficiency": 0.5,
+      "spinUpSeconds": 1.2,
+      "exitYawDegrees": 0.0,
+      "exitPitchDegrees": 75.0,
+      "mouth": {
+        "forwardMetres": 0.24,
+        "leftMetres": 0.0,
+        "heightMetres": 0.06,
+        "lengthMetres": 0.06,
+        "widthMetres": 0.20,
+        "tallMetres": 0.12
+      }
+    }
+  },
+  "servos": {
+    "intake": {
+      "type": "continuous",
+      "surfaceMetresPerSecond": 1.4,
+      "sweep": {
+        "forwardMetres": 0.24,
+        "leftMetres": 0.0,
+        "heightMetres": 0.085,
+        "lengthMetres": 0.06,
+        "widthMetres": 0.28,
+        "tallMetres": 0.07
+      }
+    }
+  },
+  "sensors": {
+    "intakeTouch": {
+      "type": "touch",
+      "volume": {
+        "forwardMetres": 0.235,
+        "leftMetres": 0.0,
+        "heightMetres": 0.045,
+        "lengthMetres": 0.10,
+        "widthMetres": 0.28,
+        "tallMetres": 0.09
+      }
+    },
+    "intakeColor": {
+      "type": "color",
+      "volume": {
+        "forwardMetres": 0.235,
+        "leftMetres": 0.0,
+        "heightMetres": 0.045,
+        "lengthMetres": 0.10,
+        "widthMetres": 0.28,
+        "tallMetres": 0.09
+      }
+    },
+    "frontRange": {
+      "type": "distance",
+      "forwardMetres": 0.20,
+      "leftMetres": 0.0,
+      "heightMetres": 0.05,
+      "yawDegrees": 0.0,
+      "pitchDegrees": 0.0,
+      "maxRangeMetres": 2.0
+    },
+    "battery": {
+      "type": "voltage"
+    }
+  }
+}

@@ -6,6 +6,9 @@ Date: 2026-09-26
 
 Accepted.
 
+> **Note (ftc-sim repository).** `AimedLauncherAcceptanceTest`, named below, stayed in the team
+> repository this was written in. `SyntheticCameraAcceptanceTest` is the plain-JVM vision test here.
+
 ## Context
 
 There are two execution targets: the plain JVM, where a harness runs an OpMode in milliseconds,

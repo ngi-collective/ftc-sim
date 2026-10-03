@@ -28,7 +28,7 @@ import java.util.List;
  * What happens when the robot drives into the balls.
  *
  * <p>The robot here is a plain rectangle with four unmirrored motors, described by a file this test
- * writes itself rather than by {@code TeamCode/robot-config/verity.json}. Two reasons, and the
+ * writes itself rather than by {@code TeamCode/robot-config/example.json}. Two reasons, and the
  * second is the important one: TeamCode's configuration is not on this module's path at all, and
  * pinning physics assertions to the competition robot's dimensions would mean that widening the
  * chassis by a centimetre next season breaks a test about collision detection.</p>

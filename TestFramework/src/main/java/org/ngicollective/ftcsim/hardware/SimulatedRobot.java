@@ -23,7 +23,7 @@ import java.nio.file.Path;
  */
 public interface SimulatedRobot {
 
-    /** A human-readable name for this configuration, e.g. {@code "Verity"}. */
+    /** A human-readable name for this configuration, e.g. {@code "Example"}. */
     String name();
 
     /** Builds a fresh simulated robot. */

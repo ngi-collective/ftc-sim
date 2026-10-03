@@ -19,13 +19,13 @@
         "name": "Example Auto",
         "group": "Examples",
         "flavor": "Autonomous",
-        "className": "org.firstinspires.ftc.teamcode.pedroPathing.ExampleAuto"
+        "className": "org.firstinspires.ftc.teamcode.examples.ExampleAuto"
       },
       {
         "name": "Example Auto",
         "group": "Examples",
         "flavor": "Autonomous",
-        "className": "org.firstinspires.ftc.teamcode.pedroPathing.TestAuto"
+        "className": "org.firstinspires.ftc.teamcode.examples.TestAuto"
       },
       {
         "name": "Field Relative Mecanum (Sample)",
@@ -34,16 +34,16 @@
         "className": "org.firstinspires.ftc.teamcode.FieldRelativeMecanumTeleOp"
       },
       {
-        "name": "I AM VERITY V2",
+        "name": "Example TeleOp",
         "group": "",
         "flavor": "TeleOp",
-        "className": "org.firstinspires.ftc.teamcode.iamyou"
+        "className": "org.firstinspires.ftc.teamcode.ExampleTeleOp"
       },
       {
         "name": "Tuning",
-        "group": "Pedro Pathing",
+        "group": "Examples",
         "flavor": "TeleOp",
-        "className": "org.firstinspires.ftc.teamcode.pedroPathing.Tuning"
+        "className": "org.firstinspires.ftc.teamcode.examples.Tuning"
       }
     ]
   }

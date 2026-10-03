@@ -56,7 +56,7 @@ curve that let a stalled wheel slow down would hide it.
 
 ## Consequences
 
-**A standing start is no longer instantaneous.** Grip bounds acceleration, so Verity takes
+**A standing start is no longer instantaneous.** Grip bounds acceleration, so the example robot takes
 about three tenths of a second to reach its 1.57 m/s free speed. Three existing assertions
 assumed otherwise and were rewritten: two in `MecanumDrivePoseTest`, which now bracket
 travel between what a robot that got going must manage and what grip forbids, and one in

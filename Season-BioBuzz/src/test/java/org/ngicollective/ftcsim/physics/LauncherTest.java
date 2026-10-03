@@ -141,7 +141,7 @@ class LauncherTest {
     private FakeHardwareMap hardware(RobotConfig robot) {
         FakeHardwareMap hardware = FakeHardwareMap.builder()
                 .addMotor("FL").addMotor("FR").addMotor("BL").addMotor("BR")
-                // Ramping, which is what VerityRobot installs from spinUpSeconds. An ideal motor
+                // Ramping, which is what ExampleRobot installs from spinUpSeconds. An ideal motor
                 // here would reach full speed between two ticks and make every assertion below
                 // about spin-up vacuous.
                 .addMotor("flywheel", MotorBehaviors.ramping(SPIN_UP_SECONDS))

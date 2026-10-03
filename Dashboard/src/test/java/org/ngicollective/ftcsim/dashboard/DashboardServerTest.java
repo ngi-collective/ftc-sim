@@ -84,19 +84,19 @@ class DashboardServerTest {
         start(server);
 
         RecordingClient writer = connect("ws://127.0.0.1:" + port);
-        writer.send("{\"namespace\":\"layout\",\"type\":\"save\",\"payload\":{\"name\":\"Verity\","
+        writer.send("{\"namespace\":\"layout\",\"type\":\"save\",\"payload\":{\"name\":\"Example\","
                 + "\"layout\":{\"version\":1,\"devices\":{\"FL\":{\"ratio\":-1}}}}}");
         writer.awaitMessage("\"type\":\"saved\"");
         writer.closeBlocking();
 
-        assertTrue(Files.isRegularFile(layoutDirectory.resolve("Verity.json")),
+        assertTrue(Files.isRegularFile(layoutDirectory.resolve("Example.json")),
                 "the layout was not written to disk");
 
         RecordingClient reader = connect("ws://127.0.0.1:" + port);
         reader.send("{\"namespace\":\"layout\",\"type\":\"list\",\"payload\":{}}");
-        assertTrue(reader.awaitMessage("\"layouts\"").contains("Verity"));
+        assertTrue(reader.awaitMessage("\"layouts\"").contains("Example"));
 
-        reader.send("{\"namespace\":\"layout\",\"type\":\"load\",\"payload\":{\"name\":\"Verity\"}}");
+        reader.send("{\"namespace\":\"layout\",\"type\":\"load\",\"payload\":{\"name\":\"Example\"}}");
         assertTrue(reader.awaitMessage("\"type\":\"data\"").contains("\"ratio\":-1"));
         reader.closeBlocking();
     }
