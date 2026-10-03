@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.simulated;
+package org.ngicollective.testframework.app;
 
 import android.app.Activity;
 
@@ -49,7 +49,7 @@ import com.qualcomm.robotcore.util.RobotLog;
  * <p>One consequence worth knowing: the app's "Restart Robot" menu goes through the SDK's own path
  * and will therefore hang on the network wait. Restart the app instead.</p>
  */
-final class SimulatedRobotStart {
+public final class SimulatedRobotStart {
 
     private static final String TAG = "SimulatedRobotStart";
 
@@ -65,7 +65,7 @@ final class SimulatedRobotStart {
      *               implements it, and passing the real one keeps the web server reachable to
      *               anything that asks for it
      */
-    SimulatedRobotStart(Activity activity, EventLoopManagerClient client) {
+    public SimulatedRobotStart(Activity activity, EventLoopManagerClient client) {
         this.activity = activity;
         this.client = client;
     }
@@ -77,7 +77,7 @@ final class SimulatedRobotStart {
      * description of what a simulated robot's bring-up consists of, and a test can exercise it
      * instead of a copy of it.</p>
      */
-    void start(SimulatedHardwareFactory hardwareFactory, OpModeRegister register,
+    public void start(SimulatedHardwareFactory hardwareFactory, OpModeRegister register,
                UpdateUI.Callback callback) throws RobotCoreException {
         shutdown();
 
@@ -120,12 +120,12 @@ final class SimulatedRobotStart {
     }
 
     /** The loop running OpModes, for the SDK's own annotated event-loop hooks. */
-    FtcEventLoop eventLoop() {
+    public FtcEventLoop eventLoop() {
         return eventLoop;
     }
 
     /** Stops the robot and its event loop, if one is running. */
-    void shutdown() {
+    public void shutdown() {
         if (robot != null) {
             robot.shutdown();
             robot = null;

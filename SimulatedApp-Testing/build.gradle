@@ -1,0 +1,42 @@
+//
+// build.gradle in SimulatedApp-Testing
+//
+// What a plain-JVM test or dashboard session needs to run vision OpModes: PlainJvmVision, which
+// supplies the Android pieces Robolectric does not, and DashboardHost, the Robolectric "test" a
+// dashboard session runs inside. Test support, so a team depends on it with testImplementation
+// and nothing here reaches an APK.
+//
+// Robolectric and JUnit 4 are api: DashboardHost runs under RobolectricTestRunner, and a team's
+// own vision tests use the same runner.
+//
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'org.ngicollective.testframework.app.testing'
+
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        //noinspection ExpiredTargetSdkVersion
+        targetSdkVersion 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+apply from: '../build.dependencies.gradle'
+
+dependencies {
+    api project(':Dashboard')
+
+    api 'org.robolectric:robolectric:4.12.2'
+    api 'junit:junit:4.13.2'
+
+    // PlainJvmVision stands in an OpModeManagerImpl the SDK reaches for and nothing here drives.
+    implementation 'org.mockito:mockito-core:5.11.0'
+}

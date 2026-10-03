@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.simulated;
+package org.ngicollective.testframework.app;
 
 import android.app.Activity;
 import android.os.Looper;
@@ -30,13 +30,13 @@ import java.util.Map;
  * test's own thread: Robolectric's main looper is paused, and nothing posted to it runs unless
  * something drains it.</p>
  */
-final class PlainJvmVision {
+public final class PlainJvmVision {
 
     private PlainJvmVision() {
     }
 
     /** Arranges everything a vision OpMode expects to find, and installs the simulated camera. */
-    static void start() throws Exception {
+    public static void start() throws Exception {
         VisionNatives.ensureLoaded();
         provideAnActivity();
         registerAnOpModeManager();
@@ -50,7 +50,7 @@ final class PlainJvmVision {
      * paused, so a camera that opens asynchronously never finishes opening unless the test does
      * this between control cycles.</p>
      */
-    static void pump() {
+    public static void pump() {
         Shadows.shadowOf(Looper.getMainLooper()).idle();
     }
 

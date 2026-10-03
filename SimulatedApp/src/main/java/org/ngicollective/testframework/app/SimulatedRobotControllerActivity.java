@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.simulated;
+package org.ngicollective.testframework.app;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -40,9 +40,14 @@ public class SimulatedRobotControllerActivity extends FtcRobotControllerActivity
     /** The robot this activity started, and is responsible for shutting down. */
     private SimulatedRobotStart robotStart;
 
-    /** The simulated robot every session in this build runs against. */
+    /**
+     * The simulated robot every session in this build runs against: the one the app registers.
+     *
+     * <p>Found through {@link SimulatedRobots} rather than named here, because this activity is
+     * library code and the robot is the team's.</p>
+     */
     protected SimulatedRobot simulatedRobot() {
-        return new VerityRobot();
+        return SimulatedRobots.registered(getClassLoader());
     }
 
     @Override

@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.simulated;
+package org.ngicollective.testframework.app;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;

@@ -1,0 +1,45 @@
+//
+// build.gradle in SimulatedApp
+//
+// The Robot Controller app wired to a simulated robot: the activity, the robot start that skips
+// the Wi-Fi Direct wait, the hardware factory and the clock. Library code, so a team's TeamCode
+// depends on it from its `simulated` flavour and keeps only its own SimulatedRobot.
+//
+// FtcRobotController is compileOnly because every team already has it: it is the module in their
+// fork that this activity extends, and the app brings it at runtime.
+//
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'org.ngicollective.testframework.app'
+
+    compileSdk 34
+
+    defaultConfig {
+        minSdkVersion 24
+        //noinspection ExpiredTargetSdkVersion
+        targetSdkVersion 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests.all {
+            useJUnitPlatform()
+        }
+    }
+}
+
+apply from: '../build.dependencies.gradle'
+
+dependencies {
+    api project(':TestFramework')
+
+    compileOnly project(':FtcRobotController')
+
+    testImplementation project(':AndroidShims')
+}

@@ -19,7 +19,7 @@ Two remotes, and the distinction matters:
 
 ```bash
 mise run check       # compile TeamCode - fastest correctness check while editing OpModes
-mise run test        # unit tests: TeamCode + TestFramework + Season-BioBuzz + Dashboard, vision included
+mise run test        # unit tests: TeamCode + TestFramework + Season-BioBuzz + SimulatedApp + Dashboard, vision included
 mise run build       # competition debug APK
 mise run install     # build + adb install to a connected Robot Controller device
 mise run simulator   # install + launch the simulated app on a running emulator
@@ -105,6 +105,15 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
 - **Instrumented tests cannot use the app's robot.** The test runner stops any activity it did not
   start, and the SDK shuts a robot down with its activity, so the tests start their own through
   the same `SimulatedRobotStart`. See `RobotUnderTest`.
+- **The app wiring is library code; the robot is the team's.** `SimulatedRobotStart`, the
+  activity, the hardware factory, the clock and the permission wrapper live in `:SimulatedApp`
+  (`org.ngicollective.testframework.app`), whose manifest declares the simulated launcher and
+  merges into TeamCode's `simulated` flavour. The activity finds the robot with `ServiceLoader`, so
+  TeamCode registers `VerityRobot` in
+  `src/simulated/resources/META-INF/services/org.ngicollective.testframework.hardware.SimulatedRobot`
+  and exactly one entry is allowed. `PlainJvmVision`, `DashboardHost` and `DashboardLauncher` are
+  test support in `:SimulatedApp-Testing`. The plain-JVM dashboard still finds robots by scanning
+  the classpath; only an APK needs the registration.
 
 - **`TeamCode/robot-config/*.json` is the physics source of truth** — wheel radius, gear ratio,
   track width, strafe efficiency, grip coefficient, chassis dimensions and mass, encoder
@@ -301,8 +310,8 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
 - **The Dashboard runs vision too, and that is why it starts through a JUnit runner.** A
   Robolectric sandbox comes from one, so `mise run dashboard` starts `DashboardLauncher`, which
   runs `DashboardHost` — a `@Test` method that serves until the process is killed and pumps the
-  main looper every 5 ms. It is excluded from the test task by name; unexclude it and CI waits
-  forever. `DashboardMain.start()` is the non-blocking half that makes this possible, and
+  main looper every 5 ms. It lives in `:SimulatedApp-Testing` rather than in a test source set,
+  so no test task ever scans it; moved back into one, CI waits forever. `DashboardMain.start()` is the non-blocking half that makes this possible, and
   `DashboardMain.main()` still exists for a session with no vision in it.
 - **Two things still need an emulator**, and no native library will change that:
   `RealEventLoopAcceptanceTest`, which proves the SDK's own robot start and event loop drive the

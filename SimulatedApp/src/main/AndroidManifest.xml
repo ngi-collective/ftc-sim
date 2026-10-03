@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The simulated build's manifest.
+  The simulated app's manifest, merged into any app that depends on this library.
 
   Two changes over the stock app: the launcher goes to a permission screen that hands off to
   SimulatedRobotControllerActivity, and the SDK's own launcher entry is dropped so there is exactly
@@ -20,7 +20,7 @@
     </activity>
 
     <activity
-        android:name="org.firstinspires.ftc.teamcode.simulated.SimulatedPermissionValidatorWrapper"
+        android:name="org.ngicollective.testframework.app.SimulatedPermissionValidatorWrapper"
         android:exported="true"
         android:screenOrientation="fullUser"
         android:configChanges="orientation|screenSize"
@@ -33,7 +33,7 @@
     </activity>
 
     <activity
-        android:name="org.firstinspires.ftc.teamcode.simulated.SimulatedRobotControllerActivity"
+        android:name="org.ngicollective.testframework.app.SimulatedRobotControllerActivity"
         android:exported="true"
         android:screenOrientation="fullUser"
         android:configChanges="orientation|screenSize"

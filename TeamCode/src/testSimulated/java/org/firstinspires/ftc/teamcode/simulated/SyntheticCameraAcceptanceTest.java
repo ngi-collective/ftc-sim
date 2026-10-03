@@ -9,6 +9,7 @@ import org.firstinspires.ftc.teamcode.ConceptAprilTagEasy;
 import org.firstinspires.ftc.vision.VisionPortal;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.ngicollective.testframework.app.PlainJvmVision;
 import org.ngicollective.testframework.hardware.FakeHardwareMap;
 import org.ngicollective.testframework.harness.LinearOpModeHarness;
 import org.ngicollective.testframework.harness.OpModeHarness;

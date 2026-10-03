@@ -63,9 +63,8 @@ android {
             inputs.dir(rootProject.layout.buildDirectory.dir('vision-natives'))
                     .withPropertyName('visionNatives')
 
-            // DashboardHost is a session, not a test: its one method serves until the process
-            // is killed. A test run that picked it up would never finish.
-            exclude '**/DashboardHost.class'
+            // No DashboardHost exclusion: it lives in SimulatedApp-Testing now, and a test task
+            // only scans its own module's test classes, never a dependency's.
         }
 
         // Robolectric reads the merged resource table, which is where the SDK keeps the built-in
@@ -102,6 +101,7 @@ dependencies {
     // The simulated build needs the fake hardware inside the app itself.
     simulatedImplementation project(':TestFramework')
     simulatedImplementation project(':Season-BioBuzz')
+    simulatedImplementation project(':SimulatedApp')
 
     // Unit tests additionally need the JVM stand-ins for android.* stubs and the dashboard server.
     // All test scope: nothing here reaches the competition APK.
@@ -109,6 +109,7 @@ dependencies {
     testImplementation project(':TestFramework')
     testImplementation project(':Season-BioBuzz')
     testImplementation project(':Dashboard')
+    testImplementation project(':SimulatedApp-Testing')
 
     // The instrumented acceptance test drives an unmodified OpMode against the simulated robot,
     // so it needs the framework on the simulated variant's test classpath. JUnit 4, which is what
@@ -131,7 +132,7 @@ tasks.register('dashboard', JavaExec) {
     group = 'ftc'
     description = 'Run the local Driver Hub dashboard server against TeamCode OpModes'
     dependsOn 'compileSimulatedDebugUnitTestJavaWithJavac', ':buildVisionNatives'
-    mainClass = 'org.firstinspires.ftc.teamcode.simulated.DashboardLauncher'
+    mainClass = 'org.ngicollective.testframework.app.DashboardLauncher'
     classpath = files({ tasks.getByName('testSimulatedDebugUnitTest').classpath })
     systemProperty 'java.library.path',
             rootProject.layout.buildDirectory.dir('vision-natives').get().asFile.path
