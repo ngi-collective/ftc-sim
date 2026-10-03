@@ -88,23 +88,24 @@ run = """
 description = "Build the desktop AprilTag and stub native libraries into build/vision-natives"
 run = "./gradlew buildVisionNatives"
 
-# The dashboard is two processes -- a JVM serving the simulated robot over a WebSocket, and a Vite
-# server for the browser UI -- and exactly one way to start them. They were two tasks in
-# two terminals until the obvious failure happened: the UI can only reach the socket through its
-# own origin, so a JVM started on a different port left the page talking to whatever else was
-# listening. tools/dashboard.sh decides the port once and hands it to both halves.
+# The dashboard is one JVM that serves the built UI and the simulation socket on the same port
+# (DashboardFront). It used to be two processes, a JVM and a Vite server, and the obvious failure
+# happened: the UI can only reach the socket through its own origin, so a JVM started on a
+# different port left the page talking to whatever else was listening. tools/dashboard.sh
+# decides the port once.
 #
 # The UI is built and served in production mode, because React's development build costs half the
-# main thread on this page (see docs/agents/dashboard-probes.md). `--dev` restores hot reload for
-# anyone editing the UI itself.
+# main thread on this page (see docs/agents/dashboard-probes.md). `--dev` adds Vite with hot
+# reload for anyone editing the UI itself.
 [tasks.dashboard]
-description = "Serve the local Driver Hub, UI and simulation together (http://localhost:5183)"
+description = "Serve the local Driver Hub, UI and simulation on one port (http://localhost:8765)"
 run = "tools/dashboard.sh"
 
-# Without a browser, for scripts and agents driving the socket directly: there is no UI to point
-# at the wrong port, so --port is free here. A person wants `mise run dashboard`.
+# The same JVM without the script, for scripts and agents driving the socket directly: flags go
+# straight to DashboardMain, so --port is free here. It serves the page too, on the same port, but
+# a person wants `mise run dashboard`.
 [tasks.dashboard-headless]
-description = "Serve only the simulation socket, with no browser UI (ws://localhost:8765)"
+description = "Serve the simulation socket from Gradle directly, flags via --args (ws://localhost:8765)"
 run = "./gradlew :TeamCode:dashboard"
 
 [tasks.ci]

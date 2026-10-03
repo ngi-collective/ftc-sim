@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Builds the native libraries a plain JVM needs before it can run a vision OpMode, into
-# build/vision-natives. The Gradle task `visionNatives` runs this, and the simulated unit test
-# task depends on that, so `mise run test` needs no separate step.
+# build/vision-natives. The Gradle task `compileVisionNatives` runs this when there is no prebuilt
+# jar for the host (see build.gradle), and the simulated unit test task depends on that, so
+# `mise run test` needs no separate step.
 #
 # Three of the four natives the FTC SDK's vision stack loads are dealt with here. The fourth,
 # OpenCV, is not: org.openpnp:opencv carries its own builds and extracts them itself, which is
@@ -44,10 +45,17 @@ plugin_commit=a18aa640b3056d21be89c55776c87c2f1e9cc262
 apriltag_repo=https://github.com/AprilRobotics/apriltag
 apriltag_commit=1c21707aa7304121a2529a71f8e512f6542f35d0
 
+# The JVM's own naming: System.loadLibrary("apriltag") looks for libapriltag.dylib on macOS,
+# libapriltag.so on Linux and apriltag.dll on Windows.
+prefix=lib
+static=()
 case "$(uname -s)" in
   Darwin) suffix=dylib ;;
   Linux)  suffix=so ;;
-  *) echo "build-vision-natives: unsupported host $(uname -s); vision tests need macOS or Linux" >&2
+  # MSYS2's MinGW-w64 toolchain. Linked -static so the DLLs need no MinGW runtime beside them on
+  # a machine that has never seen MSYS2. Built in CI only; see .github/workflows/vision-natives.yml.
+  MINGW*|MSYS*) suffix=dll; prefix=""; static=(-static) ;;
+  *) echo "build-vision-natives: unsupported host $(uname -s); use macOS, Linux or MSYS2" >&2
      exit 2 ;;
 esac
 
@@ -84,6 +92,7 @@ jni_includes=(-I"$JAVA_HOME/include")
 case "$(uname -s)" in
   Darwin) jni_includes+=(-I"$JAVA_HOME/include/darwin") ;;
   Linux)  jni_includes+=(-I"$JAVA_HOME/include/linux") ;;
+  MINGW*|MSYS*) jni_includes+=(-I"$JAVA_HOME/include/win32") ;;
 esac
 
 detector="$src/plugin/apriltag"
@@ -119,13 +128,13 @@ for source in "$detector"/src/main/cpp/*.cpp; do
       -c "$source" -o "$work/$(basename "$source").o"
 done
 
-c++ -shared -o "$out/libapriltag.$suffix" "$work"/*.o
+c++ -shared ${static[@]+"${static[@]}"} -o "$out/${prefix}apriltag.$suffix" "$work"/*.o
 rm -rf "$work"
 
 placeholder="$out/placeholder.c"
 printf 'void ngi_vision_natives_placeholder(void) {}\n' > "$placeholder"
 for stub in RobotCore EasyOpenCV; do
-  cc -shared -fPIC -o "$out/lib$stub.$suffix" "$placeholder"
+  cc -shared -fPIC ${static[@]+"${static[@]}"} -o "$out/${prefix}$stub.$suffix" "$placeholder"
 done
 rm -f "$placeholder"
 

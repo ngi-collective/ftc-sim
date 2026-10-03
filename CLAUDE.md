@@ -27,7 +27,7 @@ mise run test-vision # the two tests that still need an emulator: event loop, ph
 mise run dashboard   # local Driver Hub: simulation + browser UI, one process (http://localhost:8765)
 mise run dashboard --scenario tipping-hive   # the same, with a field arrangement loaded
 mise run dashboard --dev                     # ...served by Vite with hot reload, for UI work
-mise run dashboard-headless  # the simulation socket alone, for scripts (ws://localhost:8765)
+mise run dashboard-headless  # the same JVM straight from Gradle, for scripts (ws://localhost:8765)
 mise run dashboard-headless --args="--port 8775 --camera-port 8776"  # ...on spare ports
 mise run lint
 mise run clean
@@ -313,6 +313,14 @@ field. OpMode code is unmodified — see `docs/adr/0001-opmodes-run-unadulterate
   a pump for the paused main looper. **Call `PlainJvmVision.pump()` once per control cycle** or a
   camera that opens asynchronously never finishes opening. See
   `docs/adr/0007-vision-runs-on-the-plain-jvm.md`.
+- **The natives can be prebuilt, and must be on disk before the JVM starts.** `buildVisionNatives`
+  unpacks `vision-natives-<os>-<arch>.jar` for the host when one is given (`-PvisionNativesJar=`
+  or `libs/vision-natives/`), and compiles with the script only when not, so a machine with no C
+  compiler still runs vision. `.github/workflows/vision-natives.yml` builds the jar for Linux
+  x86_64 and arm64, macOS arm64 and Windows x86_64 (MSYS2 MinGW-w64, linked `-static`). Extracting
+  them from the classpath at runtime cannot work: the SDK calls `System.loadLibrary`, which only
+  searches `java.library.path`, and a library already loaded with `System.load` from elsewhere
+  does not satisfy it (checked on JDK 21).
 - **The Dashboard runs vision too, and that is why it starts through a JUnit runner.** A
   Robolectric sandbox comes from one, so `mise run dashboard` starts `DashboardLauncher`, which
   runs `DashboardHost` — a `@Test` method that serves until the process is killed and pumps the

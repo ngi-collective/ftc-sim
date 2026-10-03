@@ -1,0 +1,70 @@
+name: Vision natives
+
+# Builds vision-natives-<os>-<arch>.jar on each platform a team develops on, so that a machine
+# with no C compiler can still run vision tests: `buildVisionNatives` unpacks the jar for its host
+# when it is given one (-PvisionNativesJar=... or libs/vision-natives/), and compiles only when it
+# is not. See build.gradle and tools/build-vision-natives.sh.
+#
+# The jars are workflow artifacts for now. Publishing them with the rest of the simulator is #31.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - tools/build-vision-natives.sh
+      - tools/vision-natives/**
+      - .github/workflows/vision-natives.yml
+
+permissions:
+  contents: read
+
+jobs:
+  natives:
+    name: ${{ matrix.classifier }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, classifier: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, classifier: linux-aarch64 }
+          - { runner: macos-latest, classifier: osx-aarch64 }
+          - { runner: windows-latest, classifier: windows-x86_64 }
+    defaults:
+      run:
+        # bash everywhere; on Windows that is MSYS2's, whose MinGW-w64 compiler the script uses.
+        shell: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install MinGW-w64
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+
+      # Only the JNI headers are needed, and every runner image ships a JDK with JAVA_HOME set;
+      # jni.h has not changed shape since Java 8.
+      - name: Compile natives
+        run: bash tools/build-vision-natives.sh
+
+      # The layout packageVisionNatives produces locally, made with the JDK's own jar tool:
+      # configuring this Gradle build would need the Android SDK, which these jobs do not.
+      - name: Package jar
+        run: |
+          stage=build/vision-natives-stage/natives/${{ matrix.classifier }}
+          mkdir -p "$stage" build/vision-natives-dist
+          cp build/vision-natives/*.dylib build/vision-natives/*.so build/vision-natives/*.dll "$stage"/ 2>/dev/null || true
+          ls "$stage" | grep -q . || { echo "no natives were built" >&2; exit 1; }
+          "$JAVA_HOME/bin/jar" cf build/vision-natives-dist/vision-natives-${{ matrix.classifier }}.jar -C build/vision-natives-stage natives
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vision-natives-${{ matrix.classifier }}
+          path: build/vision-natives-dist/vision-natives-${{ matrix.classifier }}.jar
+          if-no-files-found: error
