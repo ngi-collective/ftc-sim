@@ -203,7 +203,7 @@ public final class FtcSimPlugin implements Plugin<Project> {
             }
             // A session runs inside a Robolectric sandbox so vision OpModes work, and a sandbox
             // comes from a JUnit runner; see DashboardHost.
-            task.getMainClass().set("org.ngicollective.testframework.app.DashboardLauncher");
+            task.getMainClass().set("org.ngicollective.ftcsim.app.DashboardLauncher");
             task.setClasspath(project.files(
                     project.getTasks().named("testSimulatedDebugUnitTest", Test.class)
                             .map(Test::getClasspath),

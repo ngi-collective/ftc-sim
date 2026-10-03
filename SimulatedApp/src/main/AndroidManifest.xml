@@ -20,7 +20,7 @@
     </activity>
 
     <activity
-        android:name="org.ngicollective.testframework.app.SimulatedPermissionValidatorWrapper"
+        android:name="org.ngicollective.ftcsim.app.SimulatedPermissionValidatorWrapper"
         android:exported="true"
         android:screenOrientation="fullUser"
         android:configChanges="orientation|screenSize"
@@ -33,7 +33,7 @@
     </activity>
 
     <activity
-        android:name="org.ngicollective.testframework.app.SimulatedRobotControllerActivity"
+        android:name="org.ngicollective.ftcsim.app.SimulatedRobotControllerActivity"
         android:exported="true"
         android:screenOrientation="fullUser"
         android:configChanges="orientation|screenSize"

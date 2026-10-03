@@ -1,6 +1,6 @@
 package org.openftc.easyopencv;
 
-import org.ngicollective.testframework.vision.SyntheticCameraFactory;
+import org.ngicollective.ftcsim.vision.SyntheticCameraFactory;
 
 /**
  * Installs the simulated camera factory into EasyOpenCV.

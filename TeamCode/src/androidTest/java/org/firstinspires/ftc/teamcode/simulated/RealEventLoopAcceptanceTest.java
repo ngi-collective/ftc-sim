@@ -11,10 +11,10 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.ngicollective.testframework.hardware.FakeHardwareMap;
-import org.ngicollective.testframework.hardware.FakeWebcam;
-import org.ngicollective.testframework.sim.Pose2d;
-import org.ngicollective.testframework.vision.VisionNatives;
+import org.ngicollective.ftcsim.hardware.FakeHardwareMap;
+import org.ngicollective.ftcsim.hardware.FakeWebcam;
+import org.ngicollective.ftcsim.sim.Pose2d;
+import org.ngicollective.ftcsim.vision.VisionNatives;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;

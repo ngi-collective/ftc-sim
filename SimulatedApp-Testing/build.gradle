@@ -13,7 +13,7 @@
 apply plugin: 'com.android.library'
 
 android {
-    namespace = 'org.ngicollective.testframework.app.testing'
+    namespace = 'org.ngicollective.ftcsim.app.testing'
 
     compileSdk 34
 

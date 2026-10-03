@@ -61,7 +61,7 @@ pkg=com.qualcomm.ftcrobotcontroller.simulated
 for permission in CAMERA READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION READ_PHONE_STATE; do
   adb shell pm grant "$pkg" "android.permission.$permission" || true
 done
-adb shell am start -n "$pkg/org.ngicollective.testframework.app.SimulatedPermissionValidatorWrapper"
+adb shell am start -n "$pkg/org.ngicollective.ftcsim.app.SimulatedPermissionValidatorWrapper"
 """
 
 # Vision runs on the plain JVM now, so the two acceptance tests that exercise the SDK's vision

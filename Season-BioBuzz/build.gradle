@@ -10,7 +10,7 @@
 apply plugin: 'com.android.library'
 
 android {
-    namespace = 'org.ngicollective.testframework.season'
+    namespace = 'org.ngicollective.ftcsim.season'
 
     compileSdk 34
 

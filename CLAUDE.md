@@ -124,10 +124,10 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   the same `SimulatedRobotStart`. See `RobotUnderTest`.
 - **The app wiring is library code; the robot is the team's.** `SimulatedRobotStart`, the
   activity, the hardware factory, the clock and the permission wrapper live in `:SimulatedApp`
-  (`org.ngicollective.testframework.app`), whose manifest declares the simulated launcher and
+  (`org.ngicollective.ftcsim.app`), whose manifest declares the simulated launcher and
   merges into TeamCode's `simulated` flavour. The activity finds the robot with `ServiceLoader`, so
   TeamCode registers `VerityRobot` in
-  `src/simulated/resources/META-INF/services/org.ngicollective.testframework.hardware.SimulatedRobot`
+  `src/simulated/resources/META-INF/services/org.ngicollective.ftcsim.hardware.SimulatedRobot`
   and exactly one entry is allowed. `PlainJvmVision`, `DashboardHost` and `DashboardLauncher` are
   test support in `:SimulatedApp-Testing`. The plain-JVM dashboard still finds robots by scanning
   the classpath; only an APK needs the registration.
@@ -204,7 +204,7 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   raised CELL one at a time and counting; `HiveTipTest` states what the current figure implies
   rather than enshrining it.
 - **The season is a module, and the core never names it.** Everything BioBuzz-specific lives in
-  `:Season-BioBuzz` (`org.ngicollective.testframework.season`), which depends on `:TestFramework`;
+  `:Season-BioBuzz` (`org.ngicollective.ftcsim.season`), which depends on `:TestFramework`;
   nothing in `TestFramework` or `Dashboard` main may import it, and the Gradle dependency direction
   is what enforces that. The seam is `sim.Season`: it reads a scenario file into a scene and scores
   a field as a `FieldScore` of volumes and tallies. A robot names its game with

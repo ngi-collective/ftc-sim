@@ -20,9 +20,9 @@ import com.qualcomm.robotcore.util.WebServer;
 
 import org.firstinspires.ftc.robotcore.internal.opmode.OnBotJavaHelper;
 import org.firstinspires.ftc.robotcore.internal.system.AppUtil;
-import org.ngicollective.testframework.app.SimulatedHardwareFactory;
-import org.ngicollective.testframework.app.SimulatedRobotControllerActivity;
-import org.ngicollective.testframework.app.SimulatedRobotStart;
+import org.ngicollective.ftcsim.app.SimulatedHardwareFactory;
+import org.ngicollective.ftcsim.app.SimulatedRobotControllerActivity;
+import org.ngicollective.ftcsim.app.SimulatedRobotStart;
 import org.openftc.easyopencv.SyntheticCameras;
 
 /**

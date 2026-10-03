@@ -38,7 +38,7 @@ season-neutral (`volumes` and `tallies`, named by the season). This file was rew
 and checked identical to a live `match-staging` greeting on 2026-10-03.
 
 These files are the **only** shared vocabulary between
-`Dashboard/src/main/java/org/ngicollective/testframework/dashboard/protocol/` and
+`Dashboard/src/main/java/org/ngicollective/ftcsim/dashboard/protocol/` and
 `driver-hub-dashboard/src/protocol.ts`. Both sides pin them:
 
 - `Dashboard/src/test/.../WireFormatTest.java` builds each protocol record with the values in the

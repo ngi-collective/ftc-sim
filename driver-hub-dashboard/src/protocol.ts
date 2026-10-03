@@ -1,4 +1,4 @@
-// Mirrors org.ngicollective.testframework.dashboard.protocol. Keep in step with the Java side:
+// Mirrors org.ngicollective.ftcsim.dashboard.protocol. Keep in step with the Java side:
 // these are the only shapes that cross the socket.
 
 /**
