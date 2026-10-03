@@ -1,0 +1,40 @@
+//
+// org.ngi-collective.ftc-sim:vision-natives, one classifier jar per OS and architecture.
+//
+// The jars are built on their own platforms by .github/workflows/vision-natives.yml and collected
+// into build/vision-natives-dist/ before this publishes; locally that directory holds only this
+// host's, from :packageVisionNatives. The main jar is a stub that says where the libraries are.
+//
+
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SourcesJar
+
+apply plugin: 'java-library'
+
+def collected = rootProject.layout.buildDirectory.dir('vision-natives-dist')
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes('ftc-sim-natives': 'the libraries are in the classifier jars, natives/<os>-<arch>/')
+    }
+}
+
+ext.ftcSimArtifact = 'vision-natives'
+ext.ftcSimDescription = 'Desktop AprilTag JNI and stub libraries that let FTC vision run on a plain JVM.'
+apply from: '../../gradle/publish.gradle'
+
+
+mavenPublishing {
+    configure(new JavaLibrary(new JavadocJar.Empty(), new SourcesJar.Empty()))
+}
+
+// Each collected jar is vision-natives-<classifier>.jar.
+afterEvaluate {
+    publishing.publications.withType(MavenPublication).configureEach { publication ->
+        collected.get().asFile.listFiles({ File f -> f.name ==~ /vision-natives-.+\.jar/ } as FileFilter)?.each { File jar ->
+            def classifier = jar.name.replaceFirst(/^vision-natives-/, '').replaceFirst(/\.jar$/, '')
+            publication.artifact(jar) { it.classifier = classifier }
+        }
+    }
+}

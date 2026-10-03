@@ -1,0 +1,57 @@
+//
+// gradle/publish.gradle: what every published ftc-sim artifact shares (ADR 0009).
+//
+// Applied by each published module after it sets `ext.ftcSimArtifact` (the artifact id) and
+// `ext.ftcSimDescription`, and optionally `ext.ftcSimVersion` (seasons release on their own).
+// The module itself says what kind of publication it is, with mavenPublishing { configure(...) }:
+// a script applied with `apply from` cannot see the plugin's classes, and the module script can.
+// Javadoc jars are placeholders, which Central accepts: these modules' docs are their source
+// comments, which the sources jar carries.
+// Uploads to the Central Portal and waits there for a manual Publish; signs with an in-memory key
+// when one is present, which CI's `release` environment supplies.
+//
+// Credentials and key arrive as Gradle properties, normally as environment variables:
+//   ORG_GRADLE_PROJECT_mavenCentralUsername / _mavenCentralPassword
+//   ORG_GRADLE_PROJECT_signingInMemoryKey / _signingInMemoryKeyId / _signingInMemoryKeyPassword
+//
+
+apply plugin: 'com.vanniktech.maven.publish'
+
+// The core set shares ftc-sim.version; a season sets ext.ftcSimVersion from its own file.
+def releaseVersion = project.ext.has('ftcSimVersion')
+        ? project.ext.ftcSimVersion
+        : rootProject.file('ftc-sim.version').text.trim()
+
+mavenPublishing {
+    coordinates('org.ngi-collective.ftc-sim', project.ext.ftcSimArtifact, releaseVersion)
+
+    publishToMavenCentral()
+    if (providers.gradleProperty('signingInMemoryKey').isPresent()) {
+        signAllPublications()
+    }
+
+    pom {
+        name = "ftc-sim ${project.ext.ftcSimArtifact}"
+        description = project.ext.ftcSimDescription
+        url = 'https://github.com/ngi-collective/ftc-sim'
+        licenses {
+            license {
+                name = 'BSD-3-Clause'
+                url = 'https://opensource.org/licenses/BSD-3-Clause'
+            }
+        }
+        developers {
+            developer {
+                id = 'jsoverson'
+                name = 'Jarrod Overson'
+                email = 'jarrod@ngi-collective.org'
+                url = 'https://github.com/jsoverson'
+            }
+        }
+        scm {
+            url = 'https://github.com/ngi-collective/ftc-sim'
+            connection = 'scm:git:https://github.com/ngi-collective/ftc-sim.git'
+            developerConnection = 'scm:git:ssh://git@github.com/ngi-collective/ftc-sim.git'
+        }
+    }
+}

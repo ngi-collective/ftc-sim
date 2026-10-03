@@ -15,6 +15,10 @@ plugins {
     // Note for FTC Teams: Do not modify this yourself.
     id 'com.android.application' version '8.13.2' apply false
     id 'com.android.library' version '8.13.2' apply false
+
+    // Publishing to the Central Portal; Sonatype ships no Gradle plugin of its own. See
+    // gradle/publish.gradle and docs/adr/0009-publishing-ftc-sim.md.
+    id 'com.vanniktech.maven.publish' version '0.37.0' apply false
 }
 
 // This is now required because aapt2 has to be downloaded from the

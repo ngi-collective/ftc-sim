@@ -37,12 +37,12 @@ android {
     }
 }
 
-apply from: '../build.dependencies.gradle'
+apply from: '../gradle/sdk.gradle'
 
 dependencies {
     // Rigid-body physics for the balls on the field, and eventually for the robot pushing them.
     //
-    // ode4j is LGPL-2.1, which is why it is declared here and not in build.dependencies.gradle:
+    // ode4j is LGPL-2.1 (taken under its BSD-3 option for publishing; see NOTICE), and is declared here:
     // that file is applied to four modules, and this one is reachable only from the simulated
     // flavour and the test source sets. The competition APK is built from the `robot` flavour,
     // which does not depend on TestFramework at all, so no LGPL class can reach a competition
@@ -71,4 +71,15 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
     androidTestImplementation 'androidx.test:rules:1.5.0'
+}
+
+// Published as org.ngi-collective.ftc-sim:core; see gradle/publish.gradle.
+ext.ftcSimArtifact = 'core'
+ext.ftcSimDescription = 'Simulated FTC hardware, physics, camera rendering and the plain-JVM OpMode harness.'
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources(), 'release'))
 }

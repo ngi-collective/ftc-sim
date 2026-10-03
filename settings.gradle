@@ -18,3 +18,9 @@ include ':SimulatedApp-Testing'
 include ':Dashboard'
 include ':AndroidShims'
 include ':CameraStream'
+
+// Packaging-only projects for the two artifacts that are not libraries; see each build file.
+include ':publishing-app'
+project(':publishing-app').projectDir = file('publishing/app')
+include ':publishing-vision-natives'
+project(':publishing-vision-natives').projectDir = file('publishing/vision-natives')

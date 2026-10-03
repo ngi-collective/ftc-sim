@@ -34,7 +34,7 @@ android {
     }
 }
 
-apply from: '../build.dependencies.gradle'
+apply from: '../gradle/sdk.gradle'
 
 dependencies {
     api project(':TestFramework')
@@ -49,4 +49,23 @@ dependencies {
     // Score and body publication are asserted against a real season's field. Test scope only:
     // the dashboard itself learns the season from the robot it serves.
     testImplementation project(':Season-BioBuzz')
+}
+
+// Published as org.ngi-collective.ftc-sim:dashboard; see gradle/publish.gradle.
+ext.ftcSimArtifact = 'dashboard'
+ext.ftcSimDescription = 'The Driver Hub dashboard: a WebSocket server and browser UI for a simulated robot.'
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources(), 'release'))
+}
+
+// The published release variant carries the built Driver Hub UI as resources under dashboard-ui/,
+// which DashboardFront serves. Only the release variant: the tests and the in-repository dashboard
+// stay free of the bun build, and get the UI from :buildDashboardUi instead.
+android.sourceSets.release.resources.srcDir(rootProject.layout.buildDirectory.dir('dashboard-ui'))
+tasks.matching { it.name == 'processReleaseJavaRes' }.configureEach {
+    dependsOn ':buildDashboardUi'
 }

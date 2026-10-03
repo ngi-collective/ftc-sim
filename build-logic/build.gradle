@@ -8,6 +8,7 @@
 
 plugins {
     id 'java-gradle-plugin'
+    id 'com.vanniktech.maven.publish' version '0.37.0'
 }
 
 // Release 17 on whatever JDK runs Gradle (mise supplies 21): AGP 8 needs 17, and a toolchain
@@ -50,4 +51,18 @@ tasks.named('pluginUnderTestMetadata') {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// Published as org.ngi-collective.ftc-sim:gradle-plugin, with the marker Gradle resolves the id
+// through (org.ngi-collective.ftc-sim:org.ngi-collective.ftc-sim.gradle.plugin). One version with
+// the rest of the core set: this build's root is build-logic/, so the shared file is named by path.
+ext.ftcSimArtifact = 'gradle-plugin'
+ext.ftcSimDescription = 'The ftc-sim Gradle plugin: an FTC TeamCode module tested and served against the simulator.'
+ext.ftcSimVersion = file('../ftc-sim.version').text.trim()
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.GradlePlugin(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources()))
 }

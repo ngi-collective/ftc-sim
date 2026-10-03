@@ -34,12 +34,17 @@ android {
     }
 }
 
-apply from: '../build.dependencies.gradle'
+apply from: '../gradle/sdk.gradle'
 
 dependencies {
     api project(':TestFramework')
 
     compileOnly project(':FtcRobotController')
+
+    // @NonNull and @Nullable. A team's TeamCode has them through appcompat, which upstream's
+    // build.dependencies.gradle declares; this module compiles alone, so it names them. 1.6.0 is
+    // what TeamCode resolves.
+    compileOnly 'androidx.annotation:annotation:1.6.0'
 
     testImplementation project(':AndroidShims')
 }

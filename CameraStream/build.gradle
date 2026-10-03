@@ -36,3 +36,14 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// Published as org.ngi-collective.ftc-sim:camera-stream; see gradle/publish.gradle.
+ext.ftcSimArtifact = 'camera-stream'
+ext.ftcSimDescription = 'An MJPEG stream of the simulated camera, for the dashboard.'
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.JavaLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources()))
+}

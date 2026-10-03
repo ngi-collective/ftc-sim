@@ -1,0 +1,41 @@
+//
+// gradle/sdk.gradle: the FTC SDK as the simulator's modules see it.
+//
+// compileOnly, not implementation. Every team's build already has the SDK, at the version its
+// season requires, so a published simulator artifact must not bring a second, exact one along: the
+// team's wins at runtime. The tests here still need it, so it is on the test classpaths too.
+//
+// Deliberately not build.dependencies.gradle. That is TeamCode's list, and carries the robot's own
+// libraries (Pedro Pathing, Panels) that no simulator module uses and no team should inherit
+// from one.
+//
+
+def sdkVersion = '12.0.0'
+
+// ADR 0009: the simulator's major version is the SDK's. A bump to one without the other would
+// publish a core that claims an SDK it was never compiled against.
+def simMajor = rootProject.file('ftc-sim.version').text.trim().tokenize('.')[0]
+if (sdkVersion.tokenize('.')[0] != simMajor) {
+    throw new GradleException("gradle/sdk.gradle compiles against SDK ${sdkVersion}, but"
+            + " ftc-sim.version is ${simMajor}.x; their major versions must match")
+}
+
+def sdk = ['Inspection', 'Blocks', 'RobotCore', 'RobotServer', 'OnBotJava', 'Hardware',
+           'FtcCommon', 'Vision'].collect { "org.firstinspires.ftc:${it}:${sdkVersion}" }
+
+dependencies {
+    sdk.each {
+        compileOnly it
+        testImplementation it
+        // Instrumented tests run on a device, where nothing else supplies the SDK.
+        if (configurations.findByName('androidTestImplementation') != null) {
+            androidTestImplementation it
+        }
+    }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.0'
+    // Gradle 9 no longer puts the launcher on the test runtime classpath for us.
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.0'
+    testImplementation 'org.mockito:mockito-core:5.11.0'
+}

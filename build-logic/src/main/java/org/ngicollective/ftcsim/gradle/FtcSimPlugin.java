@@ -4,6 +4,7 @@ import com.android.build.api.dsl.AndroidSourceSet;
 import com.android.build.api.dsl.ApplicationExtension;
 import com.android.build.api.dsl.ApplicationProductFlavor;
 import com.android.build.api.dsl.ProductFlavor;
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
@@ -71,6 +72,18 @@ public abstract class FtcSimPlugin implements Plugin<Project> {
 
     static final String DIMENSION = "target";
 
+    /**
+     * The lowest compile SDK the simulator's tests work against.
+     *
+     * <p>Robolectric's {@code WifiManager} shadow names an API 33 class, and the SDK's camera
+     * stream builds a {@code WifiManager} as soon as an OpenCV camera is constructed. AGP puts
+     * the compile SDK's {@code android.jar} on the unit-test classpath, and Robolectric finds the
+     * class there. Upstream's {@code build.common.gradle} compiles against 30, which lacks it, so
+     * every vision test in a stock team fork failed with {@code NoClassDefFoundError} until this
+     * was raised.</p>
+     */
+    static final int MIN_COMPILE_SDK = 34;
+
     /** Each published artifact and the project that builds it in the simulator's repository. */
     static final Map<String, String> PROJECTS = projects();
 
@@ -107,9 +120,15 @@ public abstract class FtcSimPlugin implements Plugin<Project> {
         dependencies.add("testImplementation", "org.robolectric:robolectric:4.12.2");
         dependencies.add("testImplementation", "junit:junit:4.13.2");
         dependencies.add("testRuntimeOnly", "org.junit.vintage:junit-vintage-engine:5.10.0");
+        // JUnit 5 itself: upstream's build.dependencies.gradle declares no test framework, and
+        // Gradle 9 no longer puts the platform launcher on a test runtime classpath unasked.
+        dependencies.add("testImplementation", "org.junit.jupiter:junit-jupiter-api:5.10.0");
+        dependencies.add("testRuntimeOnly", "org.junit.jupiter:junit-jupiter-engine:5.10.0");
+        dependencies.add("testRuntimeOnly", "org.junit.platform:junit-platform-launcher:1.10.0");
 
         ApplicationExtension android =
                 project.getExtensions().getByType(ApplicationExtension.class);
+        raiseCompileSdk(project);
         flavors(android);
         android.getDefaultConfig().setTestInstrumentationRunner(
                 "androidx.test.runner.AndroidJUnitRunner");
@@ -146,6 +165,28 @@ public abstract class FtcSimPlugin implements Plugin<Project> {
         File natives = visionNatives(project, extension, inRepository);
         unitTests(project, natives, inRepository);
         dashboard(project, natives, inRepository);
+    }
+
+    /**
+     * Raises this module's compile SDK to {@link #MIN_COMPILE_SDK} if it is lower. Only the
+     * compile SDK: minimum and target SDK are untouched, so the APK runs on the same Control Hub.
+     * The team's {@code build.common.gradle}, which FIRST asks teams not to edit, stays as it is.
+     *
+     * <p>In {@code finalizeDsl}, AGP's hook for changing the DSL after the build script has run:
+     * {@code build.common.gradle} sets the compile SDK after the plugin is applied.</p>
+     */
+    private static void raiseCompileSdk(Project project) {
+        project.getExtensions().getByType(ApplicationAndroidComponentsExtension.class)
+                .finalizeDsl(android -> {
+            Integer compileSdk = android.getCompileSdk();
+            if (compileSdk != null && compileSdk < MIN_COMPILE_SDK) {
+                project.getLogger().lifecycle("ftc-sim: compiling " + project.getPath()
+                        + " against SDK " + MIN_COMPILE_SDK + " instead of " + compileSdk
+                        + "; Robolectric needs it for vision tests (min and target SDK are"
+                        + " unchanged)");
+                android.setCompileSdk(MIN_COMPILE_SDK);
+            }
+        });
     }
 
     private static void flavors(ApplicationExtension android) {

@@ -1,0 +1,31 @@
+//
+// org.ngi-collective.ftc-sim:app, the simulated app as source (ADR 0009).
+//
+// FIRST publishes no artifact for FtcRobotControllerActivity, which the simulated activity extends,
+// so the app cannot be shipped compiled. This jar is SimulatedApp's java/ tree and its manifest;
+// the ftc-sim plugin unpacks it into a team's `simulated` flavour and compiles it there, against
+// the team's own FtcRobotController.
+//
+
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SourcesJar
+
+apply plugin: 'java-library'
+
+def app = rootProject.project(':SimulatedApp').file('src/main')
+
+tasks.named('jar', Jar) {
+    from(new File(app, 'java')) { into 'java' }
+    from(new File(app, 'AndroidManifest.xml'))
+}
+
+ext.ftcSimArtifact = 'app'
+ext.ftcSimDescription = 'The ftc-sim simulated Robot Controller app, as source for a team to compile.'
+apply from: '../../gradle/publish.gradle'
+
+
+// The jar is the source; a sources jar beside it would be a second copy, so it is a placeholder.
+mavenPublishing {
+    configure(new JavaLibrary(new JavadocJar.Empty(), new SourcesJar.Empty()))
+}

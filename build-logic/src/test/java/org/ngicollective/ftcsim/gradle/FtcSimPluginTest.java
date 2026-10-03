@@ -88,6 +88,29 @@ class FtcSimPluginTest {
     }
 
     @Test
+    void upstreamsCompileSdkIsRaisedForRobolectricButNothingElseChanges() throws IOException {
+        // Upstream's build.common.gradle compiles against 30, which lacks a class Robolectric's
+        // WifiManager shadow names; vision tests fail in a stock fork unless this is raised.
+        fixture(CONFIGURED);
+        Files.write(project.resolve("app/build.gradle"), new String(
+                Files.readAllBytes(project.resolve("app/build.gradle")), StandardCharsets.UTF_8)
+                .replace("compileSdk 34", "compileSdk 30").getBytes(StandardCharsets.UTF_8));
+        write("app/print.gradle", ""
+                + "android.defaultConfig { targetSdk 28 }\n"
+                + "androidComponents.onVariants(androidComponents.selector().all()) { v ->\n"
+                + "    if (v.name == 'simulatedDebug') {\n"
+                + "        println \"minSdk=${v.minSdk.apiLevel} targetSdk=${v.targetSdk.apiLevel}\"\n"
+                + "    }\n"
+                + "}\n");
+        append("app/build.gradle", "apply from: 'print.gradle'\n");
+
+        String out = run("help").getOutput();
+
+        assertTrue(out.contains("ftc-sim: compiling :app against SDK 34 instead of 30"), out);
+        assertTrue(out.contains("minSdk=24 targetSdk=28"), out);
+    }
+
+    @Test
     void aBuildThatResolvesTheSimulatorMustSayWhichVersion() throws IOException {
         fixture("season = 'biobuzz'\n    seasonVersion = '1.0.0'");
 

@@ -29,7 +29,7 @@ android {
     }
 }
 
-apply from: '../build.dependencies.gradle'
+apply from: '../gradle/sdk.gradle'
 
 dependencies {
     api project(':Dashboard')
@@ -39,4 +39,15 @@ dependencies {
 
     // PlainJvmVision stands in an OpModeManagerImpl the SDK reaches for and nothing here drives.
     implementation 'org.mockito:mockito-core:5.11.0'
+}
+
+// Published as org.ngi-collective.ftc-sim:testing; see gradle/publish.gradle.
+ext.ftcSimArtifact = 'testing'
+ext.ftcSimDescription = "Plain-JVM vision support and the dashboard host, for a team's simulated tests."
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources(), 'release'))
 }

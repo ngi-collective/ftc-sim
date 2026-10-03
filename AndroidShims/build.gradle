@@ -15,3 +15,14 @@ java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
 }
+
+// Published as org.ngi-collective.ftc-sim:android-shims; see gradle/publish.gradle.
+ext.ftcSimArtifact = 'android-shims'
+ext.ftcSimDescription = 'Working stand-ins for android.* classes that throw on a plain JVM, for unit tests.'
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.JavaLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources()))
+}

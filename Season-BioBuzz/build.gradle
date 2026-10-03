@@ -32,10 +32,40 @@ android {
     }
 }
 
-apply from: '../build.dependencies.gradle'
+apply from: '../gradle/sdk.gradle'
 
 dependencies {
     api project(':TestFramework')
 
     testImplementation project(':AndroidShims')
 }
+
+// Published as org.ngi-collective.ftc-sim:season-biobuzz, on its own version (ADR 0009), and
+// depending on the core by a range bounded by the SDK major rather than on the exact core this
+// build happened to be made with: a rules fix must not drag in, or hold back, a core upgrade.
+ext.ftcSimArtifact = 'season-biobuzz'
+ext.ftcSimDescription = 'The 2026-2027 FTC game, BIOBUZZ, as an ftc-sim season: field, scenarios and scoring.'
+ext.ftcSimVersion = file('season.version').text.trim()
+apply from: '../gradle/publish.gradle'
+
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary(
+            new com.vanniktech.maven.publish.JavadocJar.Empty(),
+            new com.vanniktech.maven.publish.SourcesJar.Sources(), 'release'))
+}
+
+// Worked out while configuring: the closure below runs when the POM is written, and the
+// configuration cache allows it to hold a string but not the project.
+def coreMajor = rootProject.file('ftc-sim.version').text.trim().tokenize('.')[0] as int
+def coreRange = "[${coreMajor}.0,${coreMajor + 1}.0)".toString()
+mavenPublishing {
+    pom {
+        withXml {
+            asNode().dependencies.dependency.findAll { it.artifactId.text() == 'core' }.each {
+                it.version[0].value = coreRange
+            }
+        }
+    }
+}
+// Gradle module metadata would carry the exact core version and be read ahead of the POM.
+tasks.withType(GenerateModuleMetadata).configureEach { enabled = false }
