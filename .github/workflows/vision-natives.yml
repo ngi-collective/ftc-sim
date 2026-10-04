@@ -17,6 +17,7 @@ on:
     paths:
       - tools/build-vision-natives.sh
       - tools/vision-natives/**
+      - tools/natives-smoke/**
       - .github/workflows/vision-natives.yml
 
 permissions:
@@ -66,6 +67,11 @@ jobs:
           cp build/vision-natives/*.dylib build/vision-natives/*.so build/vision-natives/*.dll "$stage"/ 2>/dev/null || true
           ls "$stage" | grep -q . || { echo "no natives were built" >&2; exit 1; }
           "$JAVA_HOME/bin/jar" cf build/vision-natives-dist/vision-natives-${{ matrix.classifier }}.jar -C build/vision-natives-stage natives
+
+      # Loads the jar just built the way the SDK does, System.loadLibrary("apriltag"), and runs
+      # AprilTag's C code once. Building is not proof a library loads; this is.
+      - name: Smoke test
+        run: bash tools/natives-smoke/run.sh build/vision-natives-dist/vision-natives-${{ matrix.classifier }}.jar ${{ matrix.classifier }}
 
       - uses: actions/upload-artifact@v7
         with:
