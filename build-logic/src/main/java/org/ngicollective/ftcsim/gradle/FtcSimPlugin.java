@@ -290,7 +290,7 @@ public abstract class FtcSimPlugin implements Plugin<Project> {
             return project.getRootProject().getLayout().getBuildDirectory()
                     .dir("vision-natives").get().getAsFile();
         }
-        String classifier = hostClassifier();
+        String classifier = HostClassifier.current();
         Configuration natives = project.getConfigurations().create("ftcSimVisionNatives",
                 configuration -> {
                     configuration.setCanBeConsumed(false);
@@ -312,24 +312,22 @@ public abstract class FtcSimPlugin implements Plugin<Project> {
         return out;
     }
 
-    /** The one jar a non-transitive configuration resolves to, read when the task runs. */
+    /**
+     * The one jar a non-transitive configuration resolves to, read when the task runs.
+     *
+     * <p>The lambda captures the configuration's name, never the configuration: the configuration
+     * cache cannot store a {@code Configuration}, and a build with it enabled failed to store
+     * its entry in 12.0.0.</p>
+     */
     private static Provider<File> singleFile(Configuration configuration) {
+        String name = configuration.getName();
         return configuration.getElements().map(files -> {
             if (files.size() != 1) {
-                throw new GradleException(configuration.getName() + " resolved to " + files.size()
+                throw new GradleException(name + " resolved to " + files.size()
                         + " files; expected exactly one jar");
             }
             return files.iterator().next().getAsFile();
         });
-    }
-
-    /** {@code osx-aarch64}, {@code linux-x86_64}, {@code windows-x86_64} and so on. */
-    static String hostClassifier() {
-        String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
-        String osPart = os.contains("mac") ? "osx" : os.contains("win") ? "windows" : "linux";
-        String archPart = (arch.equals("aarch64") || arch.equals("arm64")) ? "aarch64" : "x86_64";
-        return osPart + "-" + archPart;
     }
 
     private static void unitTests(Project project, File natives, boolean inRepository) {

@@ -12,13 +12,13 @@ In your fork of `FtcRobotController` (SDK 12.x), `TeamCode/build.gradle`:
 
 ```groovy
 plugins {
-    id 'org.ngi-collective.ftc-sim' version '12.0.0'
+    id 'org.ngi-collective.ftc-sim' version '12.0.1'
 }
 
 // ...your existing lines...
 
 ftcSim {
-    version = '12.0.0'        // the simulator; its major version is the SDK's
+    version = '12.0.1'        // the simulator; its major version is the SDK's
     season = 'biobuzz'        // the game you are practising
     seasonVersion = '1.0.0'   // that game's own release
 }

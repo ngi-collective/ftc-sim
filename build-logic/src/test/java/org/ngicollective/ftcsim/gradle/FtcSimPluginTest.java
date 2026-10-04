@@ -132,6 +132,60 @@ class FtcSimPluginTest {
     }
 
     @Test
+    void theUnpackTasksRunWithTheConfigurationCache() throws IOException {
+        // Teams turn the configuration cache on. 12.0.0's unpack tasks held a Configuration in a
+        // lambda, and storing the cache entry failed. Run both for real, against a file
+        // repository holding the two jars, and check what they unpacked.
+        fixture(CONFIGURED);
+        String classifier = HostClassifier.current();
+        publish("app", null, zip("java/org/example/App.java", "class App {}",
+                "AndroidManifest.xml", "<manifest/>"));
+        publish("vision-natives", classifier, zip("natives/" + classifier + "/libapriltag.so",
+                "native", "natives/other-arch/libapriltag.so", "not this host's"));
+        Files.write(project.resolve("settings.gradle"), new String(
+                Files.readAllBytes(project.resolve("settings.gradle")), StandardCharsets.UTF_8)
+                .replace("dependencyResolutionManagement { repositories { ",
+                        "dependencyResolutionManagement { repositories { maven { url = file('repo') }; ")
+                .getBytes(StandardCharsets.UTF_8));
+
+        BuildResult result = run("unpackFtcSimApp", "unpackFtcSimVisionNatives",
+                "--configuration-cache");
+
+        assertTrue(result.getOutput().contains("Configuration cache entry stored"),
+                result.getOutput());
+        assertTrue(Files.exists(project.resolve("app/build/ftc-sim/app/java/org/example/App.java")));
+        assertTrue(Files.exists(project.resolve("app/build/ftc-sim/app/AndroidManifest.xml")));
+        assertTrue(Files.exists(project.resolve("app/build/ftc-sim/vision-natives/libapriltag.so")));
+        assertEquals(1, Files.list(project.resolve("app/build/ftc-sim/vision-natives")).count(),
+                "only this host's natives are unpacked, and flattened");
+    }
+
+    /** Puts {@code jar} into the fixture's file repository at the simulator's 12.0.0. */
+    private void publish(String artifact, String classifier, byte[] jar) throws IOException {
+        Path dir = project.resolve("repo/org/ngi-collective/ftc-sim/" + artifact + "/12.0.0");
+        Files.createDirectories(dir);
+        String base = artifact + "-12.0.0";
+        Files.write(dir.resolve(base + (classifier == null ? "" : "-" + classifier) + ".jar"), jar);
+        Files.write(dir.resolve(base + ".pom"), (""
+                + "<project><modelVersion>4.0.0</modelVersion>"
+                + "<groupId>org.ngi-collective.ftc-sim</groupId><artifactId>" + artifact
+                + "</artifactId><version>12.0.0</version></project>")
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static byte[] zip(String... namesAndContents) throws IOException {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes)) {
+            for (int i = 0; i < namesAndContents.length; i += 2) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(namesAndContents[i]));
+                zip.write(namesAndContents[i + 1].getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
+    }
+
+    @Test
     void aTeamWithNoRobotConfigDirectoryStillBuilds() throws IOException {
         fixture(CONFIGURED);
 
