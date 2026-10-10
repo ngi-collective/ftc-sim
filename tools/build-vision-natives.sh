@@ -50,8 +50,13 @@ apriltag_commit=1c21707aa7304121a2529a71f8e512f6542f35d0
 prefix=lib
 static=()
 case "$(uname -s)" in
-  Darwin) suffix=dylib ;;
-  Linux)  suffix=so ;;
+  # A dylib records the macOS it was built on as its minimum unless told otherwise, so one built
+  # on macOS 26 refuses to load on 15. 11.0 is the first release for Apple Silicon. CI checks it;
+  # see tools/natives-smoke/check-compat.sh.
+  Darwin) suffix=dylib; export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}" ;;
+  # The C++ runtime linked in, so the library asks only for glibc, and CI builds on Ubuntu 22.04
+  # so that glibc is no newer than 2.35: Debian 12, Ubuntu 22.04 and ChromeOS's Linux all load it.
+  Linux)  suffix=so; static=(-static-libstdc++ -static-libgcc) ;;
   # MSYS2's MinGW-w64 toolchain. Linked -static so the DLLs need no MinGW runtime beside them on
   # a machine that has never seen MSYS2. Built in CI only; see .github/workflows/vision-natives.yml.
   MINGW*|MSYS*) suffix=dll; prefix=""; static=(-static) ;;

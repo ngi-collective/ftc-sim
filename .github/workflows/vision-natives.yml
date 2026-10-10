@@ -1,9 +1,10 @@
 name: Vision natives
 
-# Builds vision-natives-<os>-<arch>.jar on each platform a team develops on, so that a machine
-# with no C compiler can still run vision tests: `buildVisionNatives` unpacks the jar for its host
-# when it is given one (-PvisionNativesJar=... or libs/vision-natives/), and compiles only when it
-# is not. See build.gradle and tools/build-vision-natives.sh.
+# Builds vision-natives-<os>-<arch>.jar on each platform a team develops on: Linux x86_64 and
+# arm64, macOS Apple Silicon and Intel, Windows x86_64. A machine with no C compiler can then
+# still run vision tests: `buildVisionNatives` unpacks the jar for its host when it is given one
+# (-PvisionNativesJar=... or libs/vision-natives/), and compiles only when it is not. See
+# build.gradle and tools/build-vision-natives.sh.
 #
 # The jars are uploaded as workflow artifacts; release.yml calls this workflow, collects them, and
 # publishes them as classifiers of org.ngi-collective.ftc-sim:vision-natives.
@@ -31,9 +32,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, classifier: linux-x86_64, shell: bash }
-          - { runner: ubuntu-24.04-arm, classifier: linux-aarch64, shell: bash }
+          # 22.04, not 24.04: a library needs the glibc it was built against, and 22.04's 2.35 is
+          # old enough for Debian 12 and ChromeOS. check-compat.sh enforces it.
+          - { runner: ubuntu-22.04, classifier: linux-x86_64, shell: bash }
+          - { runner: ubuntu-22.04-arm, classifier: linux-aarch64, shell: bash }
           - { runner: macos-latest, classifier: osx-aarch64, shell: bash }
+          - { runner: macos-15-intel, classifier: osx-x86_64, shell: bash }
           # MSYS2's bash, whose MinGW-w64 compiler the script uses.
           - { runner: windows-latest, classifier: windows-x86_64, shell: 'msys2 {0}' }
     defaults:
@@ -67,6 +71,11 @@ jobs:
           cp build/vision-natives/*.dylib build/vision-natives/*.so build/vision-natives/*.dll "$stage"/ 2>/dev/null || true
           ls "$stage" | grep -q . || { echo "no natives were built" >&2; exit 1; }
           "$JAVA_HOME/bin/jar" cf build/vision-natives-dist/vision-natives-${{ matrix.classifier }}.jar -C build/vision-natives-stage natives
+
+      # The smoke test runs on the machine that built the library, so it cannot see a library
+      # that needs a newer OS than ours do. This can: minimum macOS, newest glibc, Windows imports.
+      - name: Check compatibility floors
+        run: bash tools/natives-smoke/check-compat.sh build/vision-natives
 
       # Loads the jar just built the way the SDK does, System.loadLibrary("apriltag"), and runs
       # AprilTag's C code once. Building is not proof a library loads; this is.
