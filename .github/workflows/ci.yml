@@ -77,3 +77,42 @@ jobs:
 
       - name: Build APK
         run: mise run build
+
+  # Android Studio's Gradle JDK can be newer than mise.toml's 21, and a team that runs the tests
+  # there runs them on it. MISE_JAVA_VERSION swaps the JDK for this job only.
+  jdk-25:
+    name: Test on JDK 25
+    runs-on: ubuntu-24.04
+    env:
+      MISE_JAVA_VERSION: temurin-25
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Android SDK packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/mise/installs/android-sdk
+          key: android-sdk-${{ runner.os }}-${{ hashFiles('mise.toml', 'build.common.gradle') }}
+
+      - name: Install toolchain
+        uses: jdx/mise-action@v4.3.0
+
+      - name: Install Android SDK packages
+        run: mise run setup-sdk
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache vision natives
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/vision-natives
+            build/vision-natives-src
+          key: vision-natives-${{ runner.os }}-${{ hashFiles('tools/build-vision-natives.sh', 'tools/vision-natives/**') }}
+
+      - name: Build vision natives
+        run: mise run build-vision-natives
+
+      - name: Test
+        run: mise run test
