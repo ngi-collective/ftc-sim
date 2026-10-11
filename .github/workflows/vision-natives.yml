@@ -20,6 +20,12 @@ on:
       - tools/vision-natives/**
       - tools/natives-smoke/**
       - .github/workflows/vision-natives.yml
+  pull_request:
+    paths:
+      - tools/build-vision-natives.sh
+      - tools/vision-natives/**
+      - tools/natives-smoke/**
+      - .github/workflows/vision-natives.yml
 
 permissions:
   contents: read
