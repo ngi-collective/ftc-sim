@@ -36,9 +36,19 @@ dependencies {
 
     api 'org.robolectric:robolectric:4.12.2'
     api 'junit:junit:4.13.2'
+    // Robolectric 4.12.2 instruments classes with ASM 9.7, which cannot read Java 25 class files,
+    // so a team whose Gradle JDK is 25 fails every vision test. 9.11 can. Robolectric itself stays:
+    // 4.17's WifiManager shadow names android.net.wifi.BlockingOption, which compile SDK 34's
+    // android.jar does not have.
+    api 'org.ow2.asm:asm:9.11'
+    api 'org.ow2.asm:asm-analysis:9.11'
+    api 'org.ow2.asm:asm-commons:9.11'
+    api 'org.ow2.asm:asm-tree:9.11'
+    api 'org.ow2.asm:asm-util:9.11'
 
     // PlainJvmVision stands in an OpModeManagerImpl the SDK reaches for and nothing here drives.
-    implementation 'org.mockito:mockito-core:5.11.0'
+    // 5.24.0's Byte Buddy supports Java 25; 5.11.0's stopped at 22.
+    implementation 'org.mockito:mockito-core:5.24.0'
 }
 
 // Published as org.ngi-collective.ftc-sim:testing; see gradle/publish.gradle.
