@@ -28,12 +28,14 @@ class SampleLinearOpMode extends LinearOpMode {
         waitForStart();
 
         drive.setPower(1.0);
-        reachedRunLoop.countDown();
 
         while (opModeIsActive()) {
             loops++;
             telemetry.addData("Position", drive.getCurrentPosition());
             telemetry.update();
+            // After the first pass, not before the loop: a test that presses stop as soon as this
+            // opens must still find that the loop ran.
+            reachedRunLoop.countDown();
         }
 
         drive.setPower(0.0);
