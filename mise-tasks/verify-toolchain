@@ -14,11 +14,10 @@ set -euo pipefail
 
 # --- Constraints, derived from the build itself where possible -----------------
 
-# AGP 8.7.0 requires JDK 17+. Gradle 8.9 cannot read class file major version 69,
-# so JDK 25 breaks any build script it compiles fresh; 21 is the newest LTS that
-# both accept.
+# Gradle 9.1 and AGP 8.13.2 need JDK 17 or later. 25 is the newest JDK CI tests on
+# (the jdk-25 job).
 readonly JDK_MIN=17
-readonly JDK_MAX=21
+readonly JDK_MAX=25
 
 # compileSdkVersion is the source of truth for the platform.
 REQUIRED_PLATFORM="android-$(sed -nE 's/^[[:space:]]*compileSdkVersion[[:space:]]+([0-9]+).*/\1/p' build.common.gradle | head -1)"
