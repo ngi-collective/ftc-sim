@@ -216,7 +216,10 @@ final class OdeFieldPhysics implements FieldPhysics {
     /** Simulated time handed over but not yet stepped, in whole nanoseconds; see {@link #STEP_NANOS}. */
     private long pendingNanos;
 
-    /** Whether the last {@link #advance} left anything somewhere new; see {@link #moving()}. */
+    /**
+     * Whether the last {@link #advance} left anything somewhere new, or a capture since then took
+     * a ball off the field; see {@link #moving()}.
+     */
     private boolean movedLastTick;
 
     /**
@@ -955,6 +958,29 @@ final class OdeFieldPhysics implements FieldPhysics {
         return Collections.unmodifiableList(found);
     }
 
+    @Override
+    public List<GameElement> capture(VolumeConfig volume) {
+        if (chassis == null) {
+            // No drivetrain, so no robot, so no mouth. The same empty answer as touching.
+            return Collections.emptyList();
+        }
+        final Pose2d pose = chassis.pose();
+        List<GameElement> captured = new ArrayList<>(2);
+        // Backwards so removal never shifts an index another removal still needs.
+        for (int i = balls.size() - 1; i >= 0; i--) {
+            Ball ball = balls.get(i);
+            if (ball.inside(pose, volume)) {
+                captured.add(ball.element());
+                ball.remove();
+                balls.remove(i);
+            }
+        }
+        // A ball leaving is a change to the field even when nothing moved: the camera scene, the
+        // body frames and the score are all gated on this flag, and the next advance clears it.
+        movedLastTick |= !captured.isEmpty();
+        return Collections.unmodifiableList(captured);
+    }
+
     /**
      * Casts the sensor's beam as an ODE ray and reports what it hits first.
      *
@@ -1185,6 +1211,12 @@ final class OdeFieldPhysics implements FieldPhysics {
         private final GameElement template;
         private final DBody body;
 
+        /**
+         * Kept for {@link #remove}: destroying a body only detaches its geoms, and a sphere left in
+         * the space with no body is static geometry the robot and every ray would still hit.
+         */
+        private final DSphere sphere;
+
         /** Kept because a sweep's force is worked out from it, once per ball per solver step. */
         private final double mass;
 
@@ -1211,7 +1243,7 @@ final class OdeFieldPhysics implements FieldPhysics {
             inertia.setSphereTotal(mass, radius);
             body.setMass(inertia);
 
-            DSphere sphere = OdeHelper.createSphere(space, radius);
+            this.sphere = OdeHelper.createSphere(space, radius);
             sphere.setBody(body);
 
             Vec3 centre = template.centre();
@@ -1219,6 +1251,12 @@ final class OdeFieldPhysics implements FieldPhysics {
             // Where it starts is where its first movement is measured from, so the arrangement
             // itself never reads as motion.
             rebase();
+        }
+
+        /** Takes this ball out of the world: its collider first, then the body it hung off. */
+        void remove() {
+            sphere.destroy();
+            body.destroy();
         }
 
         GameElement element() {

@@ -191,9 +191,9 @@ describe('the body buffer', () => {
 
 /**
  * The tipping HIVEs travel the same path as the balls: same frames, same interpolation, same
- * clock. What is different is the join — a name rather than an id — and the fact that a HIVE goes
- * on swinging after the last ball has come to rest, which makes a frame with no bodies in it an
- * ordinary frame rather than a broken one.
+ * clock. What is different is the join — a name rather than an id — and the fact that a HIVE can
+ * swing on a field with no balls left on it, which makes a frame with no bodies in it an ordinary
+ * frame rather than a broken one.
  */
 describe('the pivot angles in the body buffer', () => {
   const frame = (

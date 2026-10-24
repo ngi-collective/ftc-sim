@@ -319,6 +319,8 @@ function GameElements({ elements, bodies }: { elements: SceneElement[]; bodies: 
         if (!mesh) continue;
         mesh.position.set(ball.position[0], ball.position[1], ball.position[2]);
         mesh.quaternion.set(0, 0, 0, 1);
+        // A new scene puts every ball back, including any a capture hid below.
+        mesh.visible = true;
       }
       return;
     }
@@ -326,7 +328,8 @@ function GameElements({ elements, bodies }: { elements: SceneElement[]; bodies: 
     // Date.now(), not performance.now(): the frames are stamped with the server's wall clock and
     // both processes are on this machine. performance.now() counts from page load, so sampling
     // with it asks where the balls were in 1970 and draws them stale forever.
-    for (const body of bodies.sample(Date.now())) {
+    const sampled = bodies.sample(Date.now());
+    for (const body of sampled) {
       const mesh = meshes.current.get(body.id);
       if (!mesh) continue;
       mesh.position.set(body.position[0], body.position[1], body.position[2]);
@@ -336,6 +339,13 @@ function GameElements({ elements, bodies }: { elements: SceneElement[]; bodies: 
         body.quaternion[2],
         body.quaternion[3],
       );
+    }
+    // Every frame names every ball still on the field (BodiesPayload), so a mesh the frame leaves
+    // out is a ball that has been captured. Nothing else repositions it, so without this it stays
+    // drawn where it was collected.
+    const present = new Set(sampled.map((body) => body.id));
+    for (const [id, mesh] of meshes.current) {
+      mesh.visible = present.has(id);
     }
   });
 

@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.ngicollective.ftcsim.behavior.ImuBehaviors;
 import org.ngicollective.ftcsim.camera.CameraIntrinsics;
 import org.ngicollective.ftcsim.camera.GameElement;
 import org.ngicollective.ftcsim.camera.Pose3d;
@@ -18,11 +20,19 @@ import org.ngicollective.ftcsim.dashboard.protocol.BodiesPayload;
 import org.ngicollective.ftcsim.dashboard.protocol.OpModeInfo;
 import org.ngicollective.ftcsim.dashboard.protocol.ScenePayload;
 import org.ngicollective.ftcsim.hardware.FakeHardwareMap;
+import org.ngicollective.ftcsim.hardware.FakeWebcam;
 import org.ngicollective.ftcsim.hardware.SimulatedRobot;
 import org.ngicollective.ftcsim.season.BioBuzzElements;
 import org.ngicollective.ftcsim.season.BioBuzzField;
 import org.ngicollective.ftcsim.season.BioBuzzHive;
+import org.ngicollective.ftcsim.sim.FieldConfig;
+import org.ngicollective.ftcsim.sim.RobotConfig;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -186,6 +196,133 @@ class BodyPublicationTest {
             caughtInTheAct |= degrees > 5.0 && degrees < 55.0;
         }
         assertTrue(caughtInTheAct, "no frame caught the HIVE part way round");
+    }
+
+    /**
+     * The rule the Field View hides captured balls by: a frame lists every ball on the field, so
+     * one a frame leaves out is gone. A frame of only the balls that moved would make the browser
+     * hide every ball at rest.
+     */
+    @Test
+    void aFrameListsTheBallsAtRestBesideTheOneThatMoved() {
+        SimulatedScene both = new SimulatedScene(Collections.emptyList(), Arrays.asList(
+                droppedBall().elements().get(0), BioBuzzElements.pollen(-0.6, 0.5)));
+        session(both);
+
+        ticks.pump();
+
+        assertFalse(published.isEmpty(), "the dropped ball should have been published");
+        assertEquals(2, published.get(0).bodies.size(),
+                "the resting ball has to be in the frame too, or the browser stops drawing it");
+    }
+
+    @TempDir
+    Path configDirectory;
+
+    /**
+     * A capture on a field where nothing moves, which is the case that has no other signal: the
+     * ball is taken from rest, so the only thing that changed is that it is gone.
+     *
+     * <p>Every view has to agree it left. The body frame stops naming it, the scene a browser gets
+     * on connecting no longer describes it and keeps the survivor's id, and the camera stops
+     * rendering it.</p>
+     */
+    @Test
+    void aBallCapturedFromRestLeavesEveryViewAndTheSurvivorKeepsItsId() {
+        RobotConfig pickup = pickupRobot();
+        List<FakeHardwareMap> built = new ArrayList<>();
+        SimulatedScene field = new SimulatedScene(Collections.emptyList(), Arrays.asList(
+                BioBuzzElements.pollen(0.24, 0.0),      // id 0: at the mouth
+                BioBuzzElements.pollen(1.2, 0.6)));     // id 1: out of reach
+        ticks = new ManualTicks();
+        OpModeInfo info = new OpModeInfo(
+                "Ticking TeleOp", "", "TeleOp", TickingTeleOp.class.getName());
+        backend = new LocalDashboardBackend(pickupShowing(field, pickup, built),
+                Collections.singletonList(new OpModeEntry(info, TickingTeleOp::new)), ticks);
+        backend.subscribeBodies(published::add);
+        backend.placeRobot(0.0, 0.0, 0.0);
+
+        ticks.pump();
+
+        assertFalse(published.isEmpty(), "a capture is a change to the field and has to be sent");
+        List<BodiesPayload.Body> bodies = published.get(published.size() - 1).bodies;
+        assertEquals(1, bodies.size(), "only the ball out of reach is left");
+        assertEquals(1, bodies.get(0).id, "and it is still ball 1");
+
+        List<ScenePayload.Element> elements = backend.scene().elements;
+        assertEquals(1, elements.size());
+        assertEquals(1, elements.get(0).id,
+                "a browser connecting now has to move ball 1's mesh, not a renumbered ball 0");
+
+        SceneFrameSource camera = (SceneFrameSource)
+                ((FakeWebcam) built.get(built.size() - 1)
+                        .devices().get("Webcam 1")).frameSource();
+        assertEquals(1, camera.scene().elements().size(), "the camera still sees the captured ball");
+    }
+
+    /** A four-wheeled chassis with a mouth across its nose, 0.24 m out, and nothing else. */
+    private RobotConfig pickupRobot() {
+        String json = "{\n"
+                + "  \"version\": 1,\n"
+                + "  \"name\": \"Pickup\",\n"
+                + "  \"chassis\": { \"widthMetres\": 0.38, \"lengthMetres\": 0.40,"
+                + " \"heightMetres\": 0.05, \"deckHeightMetres\": 0.105,"
+                + " \"massKilograms\": 14.0 },\n"
+                + "  \"drivetrain\": { \"type\": \"mecanum\", \"wheelRadiusMetres\": 0.048,"
+                + " \"gearRatio\": 1.0, \"trackWidthMetres\": 0.32, \"wheelBaseMetres\": 0.29,"
+                + " \"strafeEfficiency\": 0.8, \"gripCoefficient\": 0.9 },\n"
+                + "  \"imu\": { \"name\": \"imu\" },\n"
+                + "  \"camera\": { \"name\": \"Webcam 1\", \"forwardMetres\": 0.16,"
+                + " \"leftMetres\": 0.0, \"yawDegrees\": 0.0, \"pitchDegrees\": 35.0,"
+                + " \"rollDegrees\": 0.0, \"framesPerSecond\": 30.0 },\n"
+                + "  \"motors\": {\n"
+                + "    \"FL\": { \"role\": \"frontLeft\",  \"mirrored\": false, \"rpm\": 312.0,"
+                + " \"ticksPerRevolution\": 537.7 },\n"
+                + "    \"FR\": { \"role\": \"frontRight\", \"mirrored\": false, \"rpm\": 312.0,"
+                + " \"ticksPerRevolution\": 537.7 },\n"
+                + "    \"BL\": { \"role\": \"backLeft\",   \"mirrored\": false, \"rpm\": 312.0,"
+                + " \"ticksPerRevolution\": 537.7 },\n"
+                + "    \"BR\": { \"role\": \"backRight\",  \"mirrored\": false, \"rpm\": 312.0,"
+                + " \"ticksPerRevolution\": 537.7 }\n"
+                + "  },\n"
+                + "  \"intake\": { \"mouth\": { \"forwardMetres\": 0.24, \"leftMetres\": 0.0,"
+                + " \"heightMetres\": 0.04, \"lengthMetres\": 0.08, \"widthMetres\": 0.24,"
+                + " \"tallMetres\": 0.10 } }\n"
+                + "}\n";
+        try {
+            Path file = configDirectory.resolve("pickup.json");
+            Files.write(file, json.getBytes(StandardCharsets.UTF_8));
+            return RobotConfig.load(file);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** That robot, with a camera rendering {@code scene}; every map it builds lands in {@code built}. */
+    private static SimulatedRobot pickupShowing(SimulatedScene scene, RobotConfig pickup,
+                                                List<FakeHardwareMap> built) {
+        return new SimulatedRobot() {
+            @Override
+            public String name() {
+                return "PickupBot";
+            }
+
+            @Override
+            public FakeHardwareMap create() {
+                SimulatedCamera camera = new SimulatedCamera("Webcam 1",
+                        CameraIntrinsics.approximate(320, 240),
+                        Pose3d.facingForward(new Vec3(0.0, 0.0, 0.3)));
+                FakeHardwareMap hardware = FakeHardwareMap.builder()
+                        .addMotor("FL").addMotor("FR").addMotor("BL").addMotor("BR")
+                        .addImu("imu", ImuBehaviors.followingChassis())
+                        .addWebcam("Webcam 1", new SceneFrameSource(scene, camera))
+                        .withDrivetrain(pickup, FieldConfig.standard())
+                        .withMechanisms(pickup)
+                        .build();
+                built.add(hardware);
+                return hardware;
+            }
+        };
     }
 
     /** Six POLLEN dropped into red's raised CELL, which is enough to tip it. */

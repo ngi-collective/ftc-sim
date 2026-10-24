@@ -158,9 +158,10 @@ export interface BodyBuffer {
    * Whether the server has sent any body frame since the last {@link reset}.
    *
    * <p>Not the same question as an empty {@link sample}, and conflating the two is a visible bug: a
-   * frame carrying no bodies at all is ordinary now that a HIVE goes on swinging after the last
-   * ball has come to rest. Read as "nothing has ever been said" it sends every ball back to where
-   * the scenario placed it — backwards, and for as long as the HIVE keeps tipping.</p>
+   * frame carrying no bodies at all is ordinary on a field with no balls left on it, once a pickup
+   * robot has collected them, or a HIVE swinging on a field that had none. Every frame names every
+   * ball still on the field, so an empty one means none are; read as "nothing has ever been said"
+   * it would put every collected ball back where the scenario placed it.</p>
    */
   hasFrame: () => boolean;
   /**
