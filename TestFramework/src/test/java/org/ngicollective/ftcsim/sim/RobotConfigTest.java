@@ -93,6 +93,27 @@ class RobotConfigTest {
     }
 
     @Test
+    void aRobotWithoutAnIntakeBlockCollectsNothing() throws IOException {
+        assertNull(RobotConfig.load(write("")).intakeMouth(),
+                "absent \"intake\" must mean no mouth, not a failure");
+    }
+
+    @Test
+    void anIntakeMouthIsReadAsABoxOnTheRobot() throws IOException {
+        RobotConfig robot = RobotConfig.load(write(",\n  \"intake\": { \"mouth\": " + MOUTH + " }"));
+
+        assertEquals(0.23, robot.intakeMouth().forwardMetres(), 1e-12);
+        assertEquals(0.28, robot.intakeMouth().widthMetres(), 1e-12);
+        assertEquals(0.09, robot.intakeMouth().tallMetres(), 1e-12);
+    }
+
+    @Test
+    void anIntakeWithoutAMouthIsRefused() throws IOException {
+        Path file = write(",\n  \"intake\": { }");
+        assertThrows(IllegalArgumentException.class, () -> RobotConfig.load(file));
+    }
+
+    @Test
     void anUnknownSensorTypeIsRefusedWithTheFileAndTheValueThatWasWritten() throws IOException {
         Path file = write(",\n  \"sensors\": {\n"
                 + "    \"intakeColor\": { \"type\": \"colour\", \"volume\": " + MOUTH + " }\n"

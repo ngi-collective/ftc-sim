@@ -170,6 +170,12 @@ public class FakeHardwareMap extends HardwareMap {
             // view showed where they are -- two pictures of one field that disagree, which
             // ADR-0002 exists to prevent.
             physics.advance(seconds);
+            if (mechanisms != null) {
+                // After the step: a ball that reached the mouth this tick is collected this tick,
+                // so the camera and the sensors below see the field without it rather than the
+                // field as it was a moment before the pickup.
+                mechanisms.capture(physics);
+            }
             if (physics.moving()) {
                 showMovedBodies();
             }

@@ -955,6 +955,26 @@ final class OdeFieldPhysics implements FieldPhysics {
         return Collections.unmodifiableList(found);
     }
 
+    @Override
+    public List<GameElement> capture(VolumeConfig volume) {
+        if (chassis == null) {
+            // No drivetrain, so no robot, so no mouth. The same empty answer as touching.
+            return Collections.emptyList();
+        }
+        final Pose2d pose = chassis.pose();
+        List<GameElement> captured = new ArrayList<>(2);
+        // Backwards so removal never shifts an index another removal still needs.
+        for (int i = balls.size() - 1; i >= 0; i--) {
+            Ball ball = balls.get(i);
+            if (ball.inside(pose, volume)) {
+                captured.add(ball.element());
+                ball.body.destroy();
+                balls.remove(i);
+            }
+        }
+        return Collections.unmodifiableList(captured);
+    }
+
     /**
      * Casts the sensor's beam as an ODE ray and reports what it hits first.
      *

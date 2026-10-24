@@ -147,6 +147,15 @@ public interface FieldPhysics {
     void setLauncherSpeed(String motorName, double surfaceMetresPerSecond);
 
     /**
+     * Removes and returns every ball whose surface has reached into a box bolted to the robot &mdash;
+     * the pickup robot's mouth. A collected ball leaves the field, which is what an autonomous
+     * pickup's confirmation means: the ball is gone, not merely nudged.
+     *
+     * <p>Empty when the robot declares no drivetrain, for the same reason {@link #touching} is.</p>
+     */
+    List<GameElement> capture(VolumeConfig volume);
+
+    /**
      * Releases this world.
      *
      * <p>Worth having rather than left to the garbage collector because a dashboard session builds

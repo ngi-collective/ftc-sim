@@ -71,6 +71,7 @@ public final class MechanismModel {
     private final List<Launch> launches = new ArrayList<>();
     private final List<Sense> senses = new ArrayList<>();
     private final List<MotorState> motors = new ArrayList<>();
+    private final VolumeConfig intakeMouth;
 
     /**
      * Resolves every declared mechanism and sensor to the simulated device it names.
@@ -80,6 +81,7 @@ public final class MechanismModel {
      *     skipped sensor is one that reads zero all match.
      */
     public MechanismModel(RobotConfig robot, FakeHardwareMap hardware) {
+        this.intakeMouth = robot.intakeMouth();
         for (Map.Entry<String, ServoConfig> entry : robot.servos().entrySet()) {
             ServoConfig servo = entry.getValue();
             if (!servo.sweepsBalls()) {
@@ -171,9 +173,23 @@ public final class MechanismModel {
         }
     }
 
+    /**
+     * Removes every ball that has entered the mouth, after the world has stepped.
+     *
+     * <p>Collected means removed: a ball the mouth captured is gone from the field, so a camera
+     * pointed at the intake watches it vanish, which is exactly what an autonomous pickup's
+     * confirmation is looking for.</p>
+     */
+    public List<GameElement> capture(FieldPhysics physics) {
+        if (intakeMouth == null || physics == null) {
+            return Collections.emptyList();
+        }
+        return physics.capture(intakeMouth);
+    }
+
     /** Whether this robot has anything for either direction to do. */
     public boolean isEmpty() {
-        return sweeps.isEmpty() && launches.isEmpty() && senses.isEmpty();
+        return sweeps.isEmpty() && launches.isEmpty() && senses.isEmpty() && intakeMouth == null;
     }
 
     private static <T> T require(FakeHardwareMap hardware, String name, Class<T> type,

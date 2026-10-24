@@ -73,18 +73,24 @@ public class FakeDcMotorEx extends FakeDevice<MotorState> implements DcMotorEx {
 
     @Override
     public MotorConfigurationType getMotorType() {
-        throw new UnsupportedOperationException(
-                "A simulated motor has no MotorConfigurationType (building one needs the SDK's "
-                        + "annotation-scanning ConfigurationTypeManager, which requires an Android "
-                        + "runtime). Set speed with MotorState.setMaxTicksPerSecond/setMaxSpeed and "
-                        + "read it from FakeDcMotorEx.state() instead.");
+        // PedroPathing clones the motor type to set the achievable RPM fraction to 1.0, which is
+        // how the real SDK exposes a motor's full speed. The simulated motor already runs at its
+        // full speed (its max speed comes from the config), so report that speed back through the
+        // same type. The no-arg constructor is plain field storage: it needs none of the
+        // annotation-scanning the annotated constructor does.
+        double ticksPerRevolution = state().getTicksPerRevolution();
+        double maxRpm = ticksPerRevolution > 0.0
+                ? state().getMaxTicksPerSecond() / ticksPerRevolution * 60.0
+                : 0.0;
+        MotorConfigurationType type = new MotorConfigurationType();
+        type.setTicksPerRev(ticksPerRevolution);
+        type.setMaxRPM(maxRpm);
+        return type;
     }
 
     @Override
     public void setMotorType(MotorConfigurationType motorType) {
-        throw new UnsupportedOperationException(
-                "A simulated motor has no MotorConfigurationType; use "
-                        + "FakeDcMotorEx.state().setMaxSpeed(rpm, ticksPerRevolution) instead.");
+        state().setMaxSpeed(motorType.getMaxRPM(), motorType.getTicksPerRev());
     }
 
     @Override

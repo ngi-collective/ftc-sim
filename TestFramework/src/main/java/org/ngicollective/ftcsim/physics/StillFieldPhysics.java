@@ -26,7 +26,6 @@ import java.util.List;
 final class StillFieldPhysics implements FieldPhysics {
 
     private final List<GameElement> arrangement;
-    private final List<BodyState> bodies;
 
     /**
      * The robot, or null when this hardware map declares no drivetrain.
@@ -40,15 +39,8 @@ final class StillFieldPhysics implements FieldPhysics {
     private final Chassis chassis;
 
     StillFieldPhysics(List<GameElement> arrangement, FieldConfig field, RobotConfig robot) {
-        this.arrangement = Collections.unmodifiableList(new ArrayList<>(arrangement));
+        this.arrangement = new ArrayList<>(arrangement);
         this.chassis = robot == null ? null : Chassis.kinematic(robot, field);
-
-        List<BodyState> resting = new ArrayList<>(arrangement.size());
-        for (int id = 0; id < arrangement.size(); id++) {
-            Vec3 centre = arrangement.get(id).centre();
-            resting.add(new BodyState(id, centre.x(), centre.y(), centre.z(), 0.0, 0.0, 0.0, 1.0));
-        }
-        this.bodies = Collections.unmodifiableList(resting);
     }
 
     /**
@@ -74,12 +66,19 @@ final class StillFieldPhysics implements FieldPhysics {
 
     @Override
     public List<GameElement> elements() {
-        return arrangement;
+        // A view, not a copy: capture removes from the arrangement, and a caller holding this
+        // list must not be able to.
+        return Collections.unmodifiableList(arrangement);
     }
 
     @Override
     public List<BodyState> bodies() {
-        return bodies;
+        List<BodyState> resting = new ArrayList<>(arrangement.size());
+        for (int id = 0; id < arrangement.size(); id++) {
+            Vec3 centre = arrangement.get(id).centre();
+            resting.add(new BodyState(id, centre.x(), centre.y(), centre.z(), 0.0, 0.0, 0.0, 1.0));
+        }
+        return Collections.unmodifiableList(resting);
     }
 
     /**
@@ -121,6 +120,27 @@ final class StillFieldPhysics implements FieldPhysics {
             }
         }
         return Collections.unmodifiableList(found);
+    }
+
+    /**
+     * A ball the robot drives over is removed, even without a solver: the mouth's containment is
+     * pure arithmetic, and nothing here needs momentum for that.
+     */
+    @Override
+    public List<GameElement> capture(VolumeConfig volume) {
+        if (chassis == null) {
+            return Collections.emptyList();
+        }
+        List<GameElement> captured = new ArrayList<>(2);
+        for (int i = arrangement.size() - 1; i >= 0; i--) {
+            GameElement element = arrangement.get(i);
+            if (RobotFrame.touches(chassis.pose(), volume, element.centre(),
+                    element.radiusMetres())) {
+                captured.add(element);
+                arrangement.remove(i);
+            }
+        }
+        return Collections.unmodifiableList(captured);
     }
 
     /**
