@@ -28,6 +28,18 @@ final class StillFieldPhysics implements FieldPhysics {
     private final List<GameElement> arrangement;
 
     /**
+     * Each ball's id, beside it in {@link #arrangement}.
+     *
+     * <p>Its place in the arrangement it was built from, and kept when a capture shrinks the list:
+     * a body's id is its identity on the wire, and renumbering the survivors would move the wrong
+     * balls in every view of the field.</p>
+     */
+    private final List<Integer> ids;
+
+    /** Whether the last {@link #advance} was followed by a capture; see {@link #moving()}. */
+    private boolean capturedSinceAdvance;
+
+    /**
      * The robot, or null when this hardware map declares no drivetrain.
      *
      * <p>A kinematic chassis: it goes exactly where its wheels say and cannot be shoved by
@@ -40,6 +52,10 @@ final class StillFieldPhysics implements FieldPhysics {
 
     StillFieldPhysics(List<GameElement> arrangement, FieldConfig field, RobotConfig robot) {
         this.arrangement = new ArrayList<>(arrangement);
+        this.ids = new ArrayList<>(arrangement.size());
+        for (int id = 0; id < arrangement.size(); id++) {
+            ids.add(id);
+        }
         this.chassis = robot == null ? null : Chassis.kinematic(robot, field);
     }
 
@@ -54,6 +70,7 @@ final class StillFieldPhysics implements FieldPhysics {
         if (seconds < 0.0) {
             throw new IllegalArgumentException("cannot advance physics backwards");
         }
+        capturedSinceAdvance = false;
         if (chassis != null) {
             chassis.step(seconds);
         }
@@ -74,9 +91,10 @@ final class StillFieldPhysics implements FieldPhysics {
     @Override
     public List<BodyState> bodies() {
         List<BodyState> resting = new ArrayList<>(arrangement.size());
-        for (int id = 0; id < arrangement.size(); id++) {
-            Vec3 centre = arrangement.get(id).centre();
-            resting.add(new BodyState(id, centre.x(), centre.y(), centre.z(), 0.0, 0.0, 0.0, 1.0));
+        for (int i = 0; i < arrangement.size(); i++) {
+            Vec3 centre = arrangement.get(i).centre();
+            resting.add(new BodyState(ids.get(i), centre.x(), centre.y(), centre.z(),
+                    0.0, 0.0, 0.0, 1.0));
         }
         return Collections.unmodifiableList(resting);
     }
@@ -91,13 +109,14 @@ final class StillFieldPhysics implements FieldPhysics {
     }
 
     /**
-     * Never. Which is also what keeps this cheap: the dashboard publishes body frames only while
-     * something is moving, so a session on this implementation sends its arrangement once and then
-     * says nothing more about it.
+     * Only on the tick a ball was captured, since nothing else here can move. Which is also what
+     * keeps this cheap: the dashboard publishes body frames only while something is moving, so a
+     * session on this implementation sends its arrangement once and then says nothing more about
+     * it until a ball leaves the field.
      */
     @Override
     public boolean moving() {
-        return false;
+        return capturedSinceAdvance;
     }
 
     /**
@@ -138,8 +157,10 @@ final class StillFieldPhysics implements FieldPhysics {
                     element.radiusMetres())) {
                 captured.add(element);
                 arrangement.remove(i);
+                ids.remove(i);
             }
         }
+        capturedSinceAdvance |= !captured.isEmpty();
         return Collections.unmodifiableList(captured);
     }
 

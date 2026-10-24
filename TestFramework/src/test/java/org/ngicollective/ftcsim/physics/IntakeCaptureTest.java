@@ -2,6 +2,7 @@ package org.ngicollective.ftcsim.physics;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.ngicollective.ftcsim.hardware.FakeHardwareMap;
 import org.ngicollective.ftcsim.sim.FieldConfig;
 import org.ngicollective.ftcsim.sim.Pose2d;
 import org.ngicollective.ftcsim.sim.RobotConfig;
+import org.ngicollective.ftcsim.sim.SensorConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,7 +36,10 @@ class IntakeCaptureTest {
 
     private static final double TICK = 0.02;
 
-    /** A chassis with a mouth across its nose, 0.24 m out, and nothing else on it. */
+    /**
+     * A chassis with a mouth across its nose, 0.24 m out, and a range sensor at ball height
+     * looking straight through it.
+     */
     private static final String ROBOT_JSON = "{\n"
             + "  \"version\": 1,\n"
             + "  \"name\": \"Pickup\",\n"
@@ -57,6 +62,11 @@ class IntakeCaptureTest {
             + " \"ticksPerRevolution\": 537.7 },\n"
             + "    \"BR\": { \"role\": \"backRight\",  \"mirrored\": false, \"rpm\": 312.0,"
             + " \"ticksPerRevolution\": 537.7 }\n"
+            + "  },\n"
+            + "  \"sensors\": {\n"
+            + "    \"frontRange\": { \"type\": \"distance\", \"forwardMetres\": 0.20,"
+            + " \"leftMetres\": 0.0, \"heightMetres\": 0.035, \"yawDegrees\": 0.0,"
+            + " \"pitchDegrees\": 0.0, \"maxRangeMetres\": 3.0 }\n"
             + "  },\n"
             + "  \"intake\": {\n"
             + "    \"mouth\": { \"forwardMetres\": 0.24, \"leftMetres\": 0.0,"
@@ -89,13 +99,13 @@ class IntakeCaptureTest {
     @Test
     void theSolverRemovesABallInsideTheMouth() {
         assertCapturesOnlyTheBallAtTheMouth(ode(TestBalls.pollen(0.24, 0.0),
-                TestBalls.pollen(1.0, 0.0)));
+                TestBalls.pollen(1.0, 0.5)));
     }
 
     @Test
     void theStillWorldRemovesABallInsideTheMouthToo() {
         assertCapturesOnlyTheBallAtTheMouth(still(TestBalls.pollen(0.24, 0.0),
-                TestBalls.pollen(1.0, 0.0)));
+                TestBalls.pollen(1.0, 0.5)));
     }
 
     private void assertCapturesOnlyTheBallAtTheMouth(FieldPhysics physics) {
@@ -106,8 +116,36 @@ class IntakeCaptureTest {
             assertEquals(0.24, captured.get(0).centre().x(), 1e-9);
             assertEquals(1, physics.elements().size(), "the far ball stays on the field");
             assertEquals(1, physics.bodies().size(), "and is the only body left to draw");
+            assertEquals(1, physics.bodies().get(0).id(),
+                    "the survivor keeps its id; renumbered, every view would move the wrong ball");
+            assertTrue(physics.moving(),
+                    "a ball leaving is a change, or nothing republishes the field without it");
             assertTrue(physics.capture(robot.intakeMouth()).isEmpty(),
                     "a captured ball is gone, so it cannot be captured twice");
+
+            physics.advance(TICK);
+            assertFalse(physics.moving(), "the change is one tick's, and the field is at rest");
+        } finally {
+            physics.destroy();
+        }
+    }
+
+    /**
+     * Destroying a body leaves its sphere in the collision space with no body, which the solver
+     * treats as fixed field geometry. The sensor looking through the mouth would then read a ball
+     * that is no longer there.
+     */
+    @Test
+    void theSolverLeavesNothingBehindToHit() {
+        FieldPhysics physics = ode(TestBalls.pollen(0.24, 0.0));
+        try {
+            SensorConfig range = robot.sensors().get("frontRange");
+            assertTrue(physics.rangeAlong(range) < 0.05, "the sensor should see the ball first");
+
+            physics.capture(robot.intakeMouth());
+
+            assertTrue(physics.rangeAlong(range) > 1.0,
+                    "the beam should pass where the ball was, but read " + physics.rangeAlong(range));
         } finally {
             physics.destroy();
         }
@@ -127,6 +165,7 @@ class IntakeCaptureTest {
         FakeHardwareMap hardware = FakeHardwareMap.builder()
                 .addMotor("FL").addMotor("FR").addMotor("BL").addMotor("BR")
                 .addImu("imu", ImuBehaviors.followingChassis())
+                .addDistanceSensor("frontRange")
                 .withDrivetrain(robot, FieldConfig.standard())
                 .withMechanisms(robot)
                 .build();

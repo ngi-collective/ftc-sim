@@ -3,7 +3,7 @@ package org.ngicollective.ftcsim.dashboard.protocol;
 import java.util.List;
 
 /**
- * Where every moving body on the field is, pushed on every control cycle that moved one.
+ * Where every body on the field is, pushed on every control cycle that moved one.
  *
  * <p>Separate from {@link ScenePayload} because the two change at wildly different rates and cost
  * wildly different amounts to apply. A scene carries sixteen AprilTags with four corners and
@@ -12,8 +12,10 @@ import java.util.List;
  * every tick. So the scene says what is on the field and what it looks like, once, and this says
  * where it is, continuously.</p>
  *
- * <p>{@link Body#id} is the index of the element in the scene's {@code elements} list, which is
- * what ties the two together: colour and radius come from the scene, position from here.</p>
+ * <p>{@link Body#id} matches an element's {@code id} in the scene, which is what ties the two
+ * together: colour and radius come from the scene, position from here. Every frame lists every
+ * ball still on the field, so a scene element missing from a frame has been captured and is no
+ * longer drawn.</p>
  *
  * <p>Like the pose, this rides the un-throttled path to the 3D view rather than React state. It is
  * also only sent while something is actually in motion &mdash; a field nobody has driven into

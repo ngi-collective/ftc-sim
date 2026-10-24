@@ -121,10 +121,11 @@ public final class ScenePayload {
     public static final class Element {
 
         /**
-         * This element's place in {@link ScenePayload#elements}, and its identity in
-         * {@link BodiesPayload}.
+         * This element's identity in {@link BodiesPayload}: its place in the arrangement the
+         * physics world was built from, which stops matching its place in
+         * {@link ScenePayload#elements} once a ball has been captured.
          *
-         * <p>Sent explicitly rather than left as the array index it currently equals, because the
+         * <p>Sent explicitly rather than left as the array index, because the
          * two payloads arrive on different cadences: a browser that keyed balls by array position
          * would silently repaint one ball with another's colour the first time an element is added
          * or removed mid-session.</p>

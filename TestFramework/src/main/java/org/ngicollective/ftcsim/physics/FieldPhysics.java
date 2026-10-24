@@ -43,13 +43,19 @@ public interface FieldPhysics {
     /**
      * The balls as the renderers want them: name, colour, radius, and where they are now.
      *
-     * <p>In id order, so the nth element is body n. Fresh instances every call, because
-     * {@link GameElement} is immutable and a scene holding one from two ticks ago would draw the
-     * past.</p>
+     * <p>In id order, the same order as {@link #bodies()}, so the nth element is the nth body.
+     * Fresh instances every call, because {@link GameElement} is immutable and a scene holding one
+     * from two ticks ago would draw the past.</p>
      */
     List<GameElement> elements();
 
-    /** The same balls as the wire wants them: id, position, orientation. In id order. */
+    /**
+     * The same balls as the wire wants them: id, position, orientation. In id order.
+     *
+     * <p>An id is the ball's place in the arrangement this world was built from, and it never
+     * changes. After a {@link #capture} the ids have gaps: the survivors keep theirs, because a
+     * renderer that has drawn ball 3 has to go on moving ball 3.</p>
+     */
     List<BodyState> bodies();
 
     /**
@@ -77,7 +83,7 @@ public interface FieldPhysics {
     Chassis chassis();
 
     /**
-     * Whether anything is still in motion.
+     * Whether anything is still in motion, or a ball has been captured since the last advance.
      *
      * <p>Asked on every tick so a still field costs no traffic and no allocation: a scenario nobody
      * has driven into yet publishes its arrangement once and then says nothing, which is also what
@@ -150,6 +156,10 @@ public interface FieldPhysics {
      * Removes and returns every ball whose surface has reached into a box bolted to the robot &mdash;
      * the pickup robot's mouth. A collected ball leaves the field, which is what an autonomous
      * pickup's confirmation means: the ball is gone, not merely nudged.
+     *
+     * <p>A nonempty capture makes {@link #moving()} true until the next {@link #advance}: a ball
+     * leaving is a change to the field, and the camera, the body frames and the score are all
+     * gated on that flag. The survivors keep their ids; see {@link #bodies()}.</p>
      *
      * <p>Empty when the robot declares no drivetrain, for the same reason {@link #touching} is.</p>
      */

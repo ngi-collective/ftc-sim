@@ -1165,18 +1165,31 @@ public class LocalDashboardBackend implements DashboardBackend {
             }
         }
 
-        // The id is the element's index, which is also the id the physics world gives that ball:
-        // both lists come from the same arrangement in the same order, and sim/bodies is keyed on
-        // it. See BodiesPayload.
-        List<ScenePayload.Element> elements = new ArrayList<>(scene.elements().size());
-        int id = 0;
-        for (GameElement element : scene.elements()) {
+        return new ScenePayload(tags, elementsPayload(scene), structuresPayload(scene));
+    }
+
+    /**
+     * The balls, under the ids sim/bodies moves them by. See BodiesPayload.
+     *
+     * <p>From the physics world when there is one, because that is where the ids live: a ball's id
+     * is its place in the arrangement the world was built from, and a capture leaves gaps rather
+     * than renumbering. Numbering the scene's own list instead would hand a browser that connects
+     * after a capture ball 4's mesh for ball 3. With no world nothing can be captured, so the
+     * scene's order is the arrangement's.</p>
+     */
+    private List<ScenePayload.Element> elementsPayload(SimulatedScene scene) {
+        List<GameElement> balls = physics == null ? scene.elements() : physics.elements();
+        List<BodyState> bodies = physics == null ? null : physics.bodies();
+        List<ScenePayload.Element> elements = new ArrayList<>(balls.size());
+        for (int i = 0; i < balls.size(); i++) {
+            GameElement element = balls.get(i);
             Vec3 centre = element.centre();
-            elements.add(new ScenePayload.Element(id++, element.name(),
+            int id = bodies == null ? i : bodies.get(i).id();
+            elements.add(new ScenePayload.Element(id, element.name(),
                     centre.x(), centre.y(), centre.z(), element.radiusMetres(),
                     element.red(), element.green(), element.blue()));
         }
-        return new ScenePayload(tags, elements, structuresPayload(scene));
+        return elements;
     }
 
     /**
