@@ -174,8 +174,10 @@ class FakeDcMotorExTest {
     }
 
     @Test
-    void surfacesWithNoSimulationSaySoInsteadOfReturningNull() {
-        assertThrows(UnsupportedOperationException.class, motor::getMotorType);
+    void theMotorTypeReflectsTheSimulatedSpeedAndTheControllerIsNotSimulated() {
+        motor.state().setMaxSpeed(312.0, 537.7);
+        assertEquals(312.0, motor.getMotorType().getMaxRPM(), 1e-9);
+        assertEquals(537.7, motor.getMotorType().getTicksPerRev(), 1e-9);
         assertThrows(UnsupportedOperationException.class, motor::getController);
     }
 }
