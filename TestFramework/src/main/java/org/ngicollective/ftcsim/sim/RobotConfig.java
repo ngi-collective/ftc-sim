@@ -32,11 +32,13 @@ public final class RobotConfig {
     private final Map<String, ServoConfig> servos;
     private final Map<String, SensorConfig> sensors;
     private final VolumeConfig intakeMouth;
+    private final PinpointMount pinpoint;
 
     private RobotConfig(String name, ChassisConfig chassis, DrivetrainConfig drivetrain,
                         String imuName, CameraConfig camera, Map<String, MotorConfig> motors,
                         Map<String, LauncherConfig> launchers, Map<String, ServoConfig> servos,
-                        Map<String, SensorConfig> sensors, VolumeConfig intakeMouth) {
+                        Map<String, SensorConfig> sensors, VolumeConfig intakeMouth,
+                        PinpointMount pinpoint) {
         this.name = name;
         this.chassis = chassis;
         this.drivetrain = drivetrain;
@@ -47,6 +49,7 @@ public final class RobotConfig {
         this.servos = Collections.unmodifiableMap(servos);
         this.sensors = Collections.unmodifiableMap(sensors);
         this.intakeMouth = intakeMouth;
+        this.pinpoint = pinpoint;
     }
 
     /** Reads a robot description, failing with the file and field name if anything is missing. */
@@ -117,6 +120,11 @@ public final class RobotConfig {
             // every block that not every robot has &mdash; a shooter declares none.
             intakeMouth = VolumeConfig.from(json.child("intake").child("mouth"));
         }
+        PinpointMount pinpoint = null;
+        if (json.names().contains("pinpoint")) {
+            // Dead-wheel odometry. Optional for the same reason: most robots have none.
+            pinpoint = PinpointMount.from(json.child("pinpoint"));
+        }
         return new RobotConfig(
                 json.string("name"),
                 chassis,
@@ -127,7 +135,8 @@ public final class RobotConfig {
                 launchers,
                 servos,
                 sensors,
-                intakeMouth);
+                intakeMouth,
+                pinpoint);
     }
 
     /**
@@ -141,6 +150,11 @@ public final class RobotConfig {
     }
 
     /** The robot's name, as shown in the dashboard. */
+    /** This robot's goBILDA Pinpoint and where its pods are, or null when it has none. */
+    public PinpointMount pinpoint() {
+        return pinpoint;
+    }
+
     public String name() {
         return name;
     }

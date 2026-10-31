@@ -206,6 +206,10 @@ public class ExampleRobot implements SimulatedRobot {
             }
         }
 
+        if (config.pinpoint() != null) {
+            builder.addPinpoint(config.pinpoint());
+        }
+
         // The camera's view follows the robot, so its frame source needs the pose that the map it
         // is being added to will own. Hence the holder: the map cannot exist before the devices
         // that go in it, and the camera cannot read a pose before the map exists.

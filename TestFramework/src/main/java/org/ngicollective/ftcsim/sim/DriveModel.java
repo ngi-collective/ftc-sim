@@ -1,11 +1,16 @@
 package org.ngicollective.ftcsim.sim;
 
 import org.ngicollective.ftcsim.behavior.ImuState;
+import org.ngicollective.ftcsim.behavior.PinpointState;
 import org.ngicollective.ftcsim.hardware.FakeDcMotorEx;
+import org.ngicollective.ftcsim.hardware.FakeDevice;
 import org.ngicollective.ftcsim.hardware.FakeHardwareMap;
 import org.ngicollective.ftcsim.hardware.FakeImu;
+import org.ngicollective.ftcsim.hardware.FakePinpoint;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -61,6 +66,12 @@ public final class DriveModel {
     /** Where the chassis heading is published for the IMU behavior to pick up. */
     private final ImuState imu;
 
+    /**
+     * Every odometry computer on this robot. Optional, unlike the IMU: a robot without dead wheels
+     * is an ordinary robot, and most of them have none.
+     */
+    private final List<PinpointState> pinpoints;
+
     public DriveModel(RobotConfig robot, FieldConfig field, FakeHardwareMap hardware,
                       Chassis chassis) {
         if (!MECANUM.equalsIgnoreCase(robot.drivetrain().type())) {
@@ -84,6 +95,7 @@ public final class DriveModel {
                     + "drivetrain publishes the chassis heading there every tick");
         }
         this.imu = fakeImu.state();
+        this.pinpoints = pinpointsIn(hardware);
 
         // Seeds the IMU with the starting heading, so the first tick of an OpMode reads a real
         // number rather than whatever an unwritten field happened to hold.
@@ -157,6 +169,10 @@ public final class DriveModel {
         publishHeading();
         imu.setYaw(Math.toDegrees(chassis.pose().heading()));
         imu.setYawRateDegreesPerSecond(0.0);
+        // The pods' wheels did not turn either, so a Pinpoint keeps the estimate it had.
+        for (PinpointState pinpoint : pinpoints) {
+            pinpoint.chassisPlaced(chassis.pose());
+        }
     }
 
     /** How the chassis is moving, in its own frame. */
@@ -187,6 +203,21 @@ public final class DriveModel {
      */
     public void publishHeading() {
         imu.setChassisYawDegrees(Math.toDegrees(chassis.pose().heading()));
+        // The whole pose, not just the heading: an odometry pod measures where the chassis went,
+        // and that is the same truth at the same point in the tick.
+        for (PinpointState pinpoint : pinpoints) {
+            pinpoint.observeChassis(chassis.pose());
+        }
+    }
+
+    private static List<PinpointState> pinpointsIn(FakeHardwareMap hardware) {
+        List<PinpointState> found = new ArrayList<>();
+        for (FakeDevice<?> device : hardware.devices().values()) {
+            if (device instanceof FakePinpoint) {
+                found.add(((FakePinpoint) device).state());
+            }
+        }
+        return Collections.unmodifiableList(found);
     }
 
     /** Resolves one drive role to the motor configured for it, and precomputes its tick scaling. */

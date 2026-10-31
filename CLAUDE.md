@@ -294,6 +294,14 @@ replaces `FtcRobotControllerService.setupRobot`, which is what waits for the net
   CCW-positive, heading 0 facing +X. Only the browser converts to three.js coordinates.
 - The drivetrain IMU uses `ImuBehaviors.followingChassis()`, so heading is derived from the wheels.
   The `stationary` / `rotating` / `followingYawRate` presets remain as deliberate fault injection.
+- **A goBILDA Pinpoint is simulated at the I&sup2;C register, not at the driver.** A robot-config
+  `pinpoint` block (name, `xPodLeftMetres`, `yPodForwardMetres`, `ticksPerMm`, `x/yPodReversed`)
+  describes the pods as mounted; `FakePinpoint` is the bus end, and an OpMode gets the SDK's real
+  `GoBildaPinpointDriver` built around it, so the driver's bulk read and CRC run unmodified. The
+  pods count the chassis's true motion (slip and wall contact do not fool them), and the device
+  decodes those ticks with the offsets, directions and resolution the OpMode *told* it, so a
+  mis-tuned Pinpoint drifts the way a real one does. Velocity is field-frame, as Pedro Pathing
+  reads it. Firmware version 3.
 - A standing start **is not instantaneous**: grip bounds acceleration, so the example robot reaches its
   1.57 m/s free speed in about three tenths of a second (measured on a live session: 0.50 m/s at
   0.1 s, 1.12 at 0.2 s, 1.564 at 0.3 s). Assertions that assume a robot leaves the
