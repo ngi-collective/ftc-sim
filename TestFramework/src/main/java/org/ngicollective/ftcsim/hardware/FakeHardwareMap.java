@@ -1,5 +1,7 @@
 package org.ngicollective.ftcsim.hardware;
 
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.robotcore.hardware.HardwareDevice;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import org.ngicollective.ftcsim.behavior.Behavior;
@@ -13,6 +15,8 @@ import org.ngicollective.ftcsim.behavior.ImuBehaviors;
 import org.ngicollective.ftcsim.behavior.ImuState;
 import org.ngicollective.ftcsim.behavior.MotorBehaviors;
 import org.ngicollective.ftcsim.behavior.MotorState;
+import org.ngicollective.ftcsim.behavior.PinpointBehaviors;
+import org.ngicollective.ftcsim.behavior.PinpointState;
 import org.ngicollective.ftcsim.behavior.ServoBehaviors;
 import org.ngicollective.ftcsim.behavior.ServoState;
 import org.ngicollective.ftcsim.behavior.TouchBehaviors;
@@ -28,6 +32,7 @@ import org.ngicollective.ftcsim.physics.PivotState;
 import org.ngicollective.ftcsim.sim.DriveModel;
 import org.ngicollective.ftcsim.sim.FieldConfig;
 import org.ngicollective.ftcsim.sim.MechanismModel;
+import org.ngicollective.ftcsim.sim.PinpointMount;
 import org.ngicollective.ftcsim.sim.RobotConfig;
 
 import java.util.Collections;
@@ -54,6 +59,15 @@ import java.util.Map;
 public class FakeHardwareMap extends HardwareMap {
 
     private final Map<String, FakeDevice<?>> fakes = new LinkedHashMap<>();
+
+    /**
+     * The SDK's own drivers, for devices simulated below the driver rather than in place of it.
+     *
+     * <p>A Pinpoint is a concrete driver class talking I&sup2;C, so its simulation is the bus end:
+     * a {@link FakePinpoint} in {@link #fakes}, and the real {@code GoBildaPinpointDriver} built
+     * around it here, under the same name. That is the shape a real hardware map has too.</p>
+     */
+    private final Map<String, HardwareDevice> drivers = new LinkedHashMap<>();
     private double elapsedSeconds;
     private DriveModel drive;
     private FieldPhysics physics;
@@ -73,11 +87,16 @@ public class FakeHardwareMap extends HardwareMap {
 
     @Override
     public <T> T tryGet(Class<? extends T> classOrInterface, String deviceName) {
-        FakeDevice<?> device = fakes.get(deviceName.trim());
-        if (device == null || !classOrInterface.isInstance(device)) {
-            return null;
+        String name = deviceName.trim();
+        FakeDevice<?> device = fakes.get(name);
+        if (device != null && classOrInterface.isInstance(device)) {
+            return classOrInterface.cast(device);
         }
-        return classOrInterface.cast(device);
+        HardwareDevice driver = drivers.get(name);
+        if (driver != null && classOrInterface.isInstance(driver)) {
+            return classOrInterface.cast(driver);
+        }
+        return null;
     }
 
     /** The simulated motor configured under {@code name}. */
@@ -93,6 +112,14 @@ public class FakeHardwareMap extends HardwareMap {
     /** The simulated IMU configured under {@code name}. */
     public FakeImu imu(String name) {
         return require(name, FakeImu.class);
+    }
+
+    /**
+     * The simulated Pinpoint configured under {@code name}: the device end of the bus, for a test
+     * to read what it has counted. An OpMode gets the SDK driver instead.
+     */
+    public FakePinpoint pinpoint(String name) {
+        return require(name, FakePinpoint.class);
     }
 
     /** The simulated webcam configured under {@code name}. */
@@ -309,6 +336,27 @@ public class FakeHardwareMap extends HardwareMap {
             FakeImu imu = new FakeImu(name, behavior);
             map.register(imu);
             map.put(name, imu);
+            return this;
+        }
+
+        /** Adds a goBILDA Pinpoint whose pods count the chassis's true motion. */
+        public Builder addPinpoint(PinpointMount mount) {
+            return addPinpoint(mount, PinpointBehaviors.tracking());
+        }
+
+        /**
+         * Adds a goBILDA Pinpoint mounted as {@code mount} describes.
+         *
+         * <p>An OpMode reaches it the way it reaches the real one, with
+         * {@code hardwareMap.get(GoBildaPinpointDriver.class, name)}, and gets the SDK's driver
+         * talking to the simulated device. Declare a drivetrain as well, or nothing moves the pods.</p>
+         */
+        public Builder addPinpoint(PinpointMount mount, Behavior<PinpointState> behavior) {
+            FakePinpoint pinpoint = new FakePinpoint(mount, behavior);
+            map.register(pinpoint);
+            GoBildaPinpointDriver driver = new GoBildaPinpointDriver(pinpoint, true);
+            map.drivers.put(mount.name(), driver);
+            map.put(mount.name(), driver);
             return this;
         }
 
